@@ -1,5 +1,6 @@
 // netlify/functions/drive-list.js
-import { google } from "googleapis";
+import googleapisPkg from "googleapis";
+const { google } = googleapisPkg;
 import { loadServiceAccount } from "./_google-creds.js";
 
 export async function handler() {
