@@ -1,30 +1,10 @@
 // netlify/functions/drive-get-source-docs.js
+import { loadServiceAccount } from "./_google-creds.js";
 import { google } from "googleapis";
-import fs from "fs";
-
-function loadGoogleCreds() {
-  const envJson = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-  if (envJson) {
-    try {
-      return JSON.parse(envJson);
-    } catch (e) {
-      console.error("Failed to parse GOOGLE_APPLICATION_CREDENTIALS:", e.message);
-    }
-  }
-
-  try {
-    const raw = fs.readFileSync("./service-account.json", "utf8");
-    return JSON.parse(raw);
-  } catch (e) {
-    console.error("Failed to read ./service-account.json:", e.message);
-  }
-
-  throw new Error("No valid Google service account credentials found");
-}
 
 export async function handler() {
   try {
-    const creds = loadGoogleCreds();
+    const creds = loadServiceAccount();
 
     const auth = new google.auth.GoogleAuth({
       credentials: creds,
