@@ -1,14 +1,17 @@
 // netlify/functions/_google-creds.js
 import fs from "fs";
 import path from "path";
-import crypto from "crypto";
+import * as crypto from "node:crypto";
 
 export function loadServiceAccount() {
   const pw = process.env.SA_ENC_PASSWORD;
   if (!pw) throw new Error("Missing SA_ENC_PASSWORD env var");
 
   // read encrypted blob (committed in repo)
-  const encPath = path.join(process.cwd(), "netlify/functions/service-account.enc.json");
+  const encPath = path.join(
+   process.cwd(),
+   "netlify/functions/service-account.enc.json"
+  );
   const encRaw = fs.readFileSync(encPath, "utf8");
   const blob = JSON.parse(encRaw);
 
