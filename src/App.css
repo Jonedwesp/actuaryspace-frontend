@@ -1,38 +1,1168 @@
-.App {
-  text-align: center;
+/* src/App.css */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap");
+
+/* Base */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: #fff;
+  color: #111;
 }
 
-.App-logo {
-  height: 40vmin;
-  pointer-events: none;
+/* Layout */
+.app {
+  display: grid;
+  grid-template-columns: 20% 60% 20%;
+  height: 100vh;
+  overflow: hidden;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
+.left-panel, .middle-panel, .right-panel {
+  padding: 1rem;
+  min-height: 0;
 }
 
-.App-header {
-  background-color: #282c34;
-  min-height: 100vh;
+/* LEFT */
+.left-panel { display: flex; flex-direction: column; }
+.notifications {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  margin-top: 0.5rem;
+  padding: 0;
+  scrollbar-width: thin;
+  scrollbar-color: #ccc transparent;
+}
+
+.notification {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.6rem 0.5rem;
+  margin: 4px 0;
+  font-size: 0.8rem;
+  border: none;
+  border-radius: 8px;
+  background: #fff;
+  transition: background-color .2s ease, box-shadow .2s ease, border-color .2s ease;
+}
+.notification:hover {
+  background-color: #f9f9f9;
+  border: 1px solid #888;
+  box-shadow: 0 2px 8px rgba(0,0,0,.06);
+  cursor: pointer;
+}
+.notification img.icon { width: 20px; height: 20px; border-radius: 4px; }
+
+/* Dismiss button (X) */
+.notif-close {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: #9aa0a6;
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.notif-close:hover { color: #6b7280; }
+
+/* Scrollbar styling (left list) */
+.notifications::-webkit-scrollbar { width: 6px; }
+.notifications::-webkit-scrollbar-track { background: transparent; }
+.notifications::-webkit-scrollbar-thumb { background-color: #ccc; border-radius: 10px; }
+
+/* MIDDLE */
+.middle-panel {
+  display: grid;
+  grid-template-rows: auto 1fr auto;  /* title | content | bar */
+  overflow: hidden;                   /* panel itself won’t scroll */
+}
+.middle-content {
+  min-height: 0;                      /* allow content to shrink */
+  overflow: hidden;                   /* child sections manage their own scroll */
+}
+.chat-output { flex: 1; overflow-y: auto; padding-bottom: 1rem; }
+
+/* keep chat-bar visible */
+.chat-bar {
+  position: sticky;
+  bottom: 0;
+  background: #fff;
+  z-index: 2;
+}
+
+/* Chat bar */
+.chat-bar {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 999px;
+  padding: 0.5rem 0.5rem 0.5rem 0.75rem;
+  margin: 0.5rem;
+  transition: border-radius .15s ease;
+}
+.chat-bar.expanded { border-radius: 18px; }
+
+/* Textarea */
+.chat-textarea {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  resize: none;
+  background: transparent;
+  padding: 0.4rem 0.5rem;
+  overflow-y: hidden;
+  border-radius: 999px;
+  transition: border-radius .15s ease;
+}
+.chat-bar.expanded .chat-textarea { border-radius: 14px; }
+.chat-textarea:focus { outline: none; box-shadow: none; }
+.chat-textarea::-webkit-scrollbar { width: 6px; }
+.chat-textarea::-webkit-scrollbar-track { background: transparent; }
+.chat-textarea::-webkit-scrollbar-thumb { background-color: #ccc; border-radius: 10px; }
+
+/* Send button */
+.send-btn {
+  align-self: flex-end;
+  width: 28px;
+  height: 28px;
+  display: flex;
   align-items: center;
   justify-content: center;
-  font-size: calc(10px + 2vmin);
-  color: white;
+  font-size: 14px;
+  font-weight: bold;
+  border: none;
+  border-radius: 50%;
+  background: #000;
+  color: #fff;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.15s ease;
+  margin-bottom: 3px;
+}
+.send-btn:hover {
+  background: #222;
+  transform: scale(1.08);
 }
 
-.App-link {
-  color: #61dafb;
+/* RIGHT */
+.panel-title {
+  font-size: 0.95rem;
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+  color: #111;
 }
 
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+/* Right pane overall (scrollable with scrollbar on LEFT) */
+.right-panel {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  direction: rtl;
+  padding-left: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: #ccc transparent;
+}
+.right-panel > * { direction: ltr; }
+
+.right-panel::-webkit-scrollbar { width: 6px; }
+.right-panel::-webkit-scrollbar-track { background: transparent; }
+.right-panel::-webkit-scrollbar-thumb { background:#ccc; border-radius:10px; }
+
+/* Trello-like columns */
+.trello-col-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.tl-col {
+  background: #fae6c3;
+  border-radius: 16px;
+  padding: .65rem .7rem;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.06);
+}
+
+.tl-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #6a3b00;
+  font-weight: 600;
+  margin-bottom: .5rem;
+}
+.tl-title { font-size: .9rem; font-weight:600; }
+.tl-actions { font-size: .95rem; opacity: .8; }
+
+.tl-cards { display: flex; flex-direction: column; gap: .8rem; }
+
+.tl-add {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: #8a4b00;
+  font-weight: 600;
+  text-align: left;
+  padding: .4rem .25rem;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.tl-add:hover { background: rgba(0,0,0,.05); }
+
+/* Card */
+.tl-card {
+  background:#fff;
+  border-radius:14px;
+  padding: 2.6rem .75rem .65rem;
+  box-shadow:0 1px 2px rgba(0,0,0,.08);
+  position:relative;
+  font-size: .90rem;
+  line-height: 1.35;
+  border: 1px solid transparent;
+  transition: background-color .15s ease, box-shadow .15s ease, border-color .15s ease;
+}
+.tl-card:hover {
+  background-color: #fafafa;
+  border: 1px solid #bbb;
+  box-shadow: 0 2px 8px rgba(0,0,0,.08);
+  cursor: pointer;
+}
+
+/* Yellow top bar */
+.tl-card-topbar {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 36px;
+  background: #f2cd32;
+  border-radius: 14px 14px 0 0;
+}
+
+/* Small green pill */
+.pill {
+  position: relative;
+  margin-top: .45rem;
+  margin-left: .4rem;
+  width: 56px;
+  height: 8px;
+  background: #bfe5b2;
+  border-radius: 999px;
+}
+
+.tl-card-title {
+  position: relative;
+  z-index: 1;
+  margin: .25rem 0 0;
+  font-size: .95rem;
+  line-height: 1.25;
+}
+
+.tl-meta { display: flex; align-items: center; gap: .35rem; margin-top: .4rem; }
+.tl-ic { opacity: .8; }
+.tl-muted { color: #666; font-weight: 600; font-size:.82rem; }
+
+.tl-badges { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .45rem; }
+.tl-badge {
+  font-size: .72rem; font-weight: 700; padding: .22rem .48rem; border-radius: 8px;
+}
+.tl-badge.green  { color:#2c6e1a; background:#dff2d7; }
+.tl-badge.teal   { color:#0d6b57; background:#d8f3ea; }
+.tl-badge.amber  { color:#7a3f00; background:#ffe1b6; }
+/* Priority colors */
+.tl-badge.priority-green  { color:#14532d; background:#dcfce7; border:1px solid #bbf7d0; }  /* HIGH URGENT */
+.tl-badge.priority-red    { color:#7f1d1d; background:#fee2e2; border:1px solid #fecaca; }  /* URGENT + IMPORTANT */
+.tl-badge.priority-purple { color:#4c1d95; background:#ede9fe; border:1px solid #ddd6fe; }  /* URGENT / NEW CLIENT */
+.tl-badge.priority-default{ color:#374151; background:#f3f4f6; border:1px solid #e5e7eb; }
+
+.tl-footer {
+  display:flex; justify-content: space-between; align-items: center;
+  margin-top: .55rem;
+}
+.tl-eta { color:#666; font-weight:600; font-size:.82rem; }
+.tl-people { display:flex; gap:.25rem; }
+.av {
+  display:inline-flex; align-items:center; justify-content:center;
+  width:24px; height:24px; border-radius:50%; background:#eee; font-size:.7rem; font-weight:700;
+}
+
+/* ---- File thumbnail cards ---- */
+.doc-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: .6rem;
+  margin-top: .25rem;
+}
+
+.doc-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  border: 1px solid #e6e6e6;
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+  overflow: hidden;
+  text-align: left;
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
+  transition: box-shadow .15s ease, transform .15s ease, background-color .15s ease, border-color .15s ease;
+}
+.doc-card:hover {
+  background-color: #fafafa;
+  border: 1px solid #bbb;
+  box-shadow: 0 2px 8px rgba(0,0,0,.08);
+  transform: translateY(-1px);
+}
+
+.doc-preview {
+  height: 110px;
+  background: #fafafa;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.doc-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.doc-icon {
+  font-weight: 800;
+  letter-spacing: .5px;
+  color: #444;
+  opacity: .9;
+}
+
+/* filename strip */
+.doc-info {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .5rem .6rem;
+}
+.doc-name {
+  font-size: .85rem;
+  color: #111;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+/* type badge */
+.doc-badge {
+  font-size: .70rem;
+  font-weight: 700;
+  color: #fff;
+  padding: .18rem .38rem;
+  border-radius: 6px;
+}
+.doc-badge.pdf { background: #e02424; }
+.doc-badge.xls { background: #1e7a3b; }
+.doc-badge.img { background: #555; }
+
+/* folded corner */
+.doc-corner {
+  position: absolute;
+  right: 0; bottom: 0;
+  width: 0; height: 0;
+  border-left: 18px solid transparent;
+  border-top: 18px solid transparent;
+  border-right: 18px solid #f04d3f;
+  border-bottom: 18px solid #f04d3f;
+  transform: translate(8px, 8px) rotate(45deg);
+  opacity: .9;
+  pointer-events: none;
+}
+.doc-card.xls .doc-corner { border-right-color:#29a35a; border-bottom-color:#29a35a; }
+.doc-card.img .doc-corner { border-right-color:#666; border-bottom-color:#666; }
+
+/* ---- WhatsApp-like middle view ---- */
+.wa-chat { display:flex; flex-direction:column; height:100%; }
+
+.wa-header { display:flex; align-items:center; gap:.6rem; padding:.25rem 0 .5rem; border-bottom:1px solid #eee; }
+.wa-avatar { width:28px; height:28px; border-radius:50%; background:#d1f1d6; display:grid; place-items:center; font-weight:700; font-size:.8rem; color:#256c2f; }
+.wa-meta { line-height:1.1; }
+.wa-name { font-weight:600; font-size:.95rem; }
+.wa-status { font-size:.75rem; color:#4caf50; }
+
+/* Beige background like WhatsApp Web */
+.wa-body {
+  flex: 1;
+  padding: 1rem;
+  overflow-y: auto;
+  background-color: #efeae2;
+  background-repeat: repeat;
+  background-size: contain;
+}
+
+/* Message row + alignment */
+.wa-msg { display:flex; margin: 4px 0; }
+.wa-msg.them { justify-content:flex-start; }
+.wa-msg.me { justify-content:flex-end; }
+
+/* Bubble look */
+.wa-bubble {
+  max-width:70%;
+  padding:.45rem .55rem .3rem;
+  border-radius:10px;
+  position:relative;
+  background:#e6ffda;         /* me = green */
+  box-shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+.wa-msg.them .wa-bubble {
+  background:#fff;            /* them = white */
+  border:1px solid #eee;
+}
+.wa-text { font-size:.9rem; }
+.wa-time { font-size:.7rem; color:#777; text-align:right; margin-top:.15rem; }
+
+.wa-time {
+  font-size: .7rem;
+  color: #777;
+  text-align: right;
+  margin-top: .15rem;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.wa-ticks {
+  font-size: 0.75rem;
+  color: #34b7f1;   /* WhatsApp blue for ticks */
+}
+
+/* ---- Slack chat view ---- */
+.slack-chat { display:flex; flex-direction:column; height:100%; background:#fff; }
+.slack-header { padding:.25rem 0 .5rem; border-bottom:1px solid #eee; }
+.slack-title { font-weight:600; font-size:.95rem; }
+
+.slack-body { flex:1; overflow-y:auto; padding:1rem 0; }
+.slack-day {
+  margin: 0.5rem auto 0.75rem;
+  padding: .25rem .6rem;
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  font-size: .78rem;
+  color: #555;
+  background: #fff;
+  width: max-content;
+}
+
+.slack-msg { display:flex; align-items:flex-start; gap:.6rem; padding: .25rem 0; margin: 0 .25rem; }
+.slack-avatar {
+  width:32px; height:32px; border-radius:4px;
+  background:#eee; display:grid; place-items:center; font-weight:700; color:#333;
+}
+.slack-bubble { flex:1; }
+.slack-meta { display:flex; align-items:baseline; gap:.5rem; }
+.slack-name { font-weight:700; font-size:.9rem; }
+.slack-time { font-size:.76rem; color:#6b7280; }
+.slack-text { font-size:.92rem; line-height:1.4; white-space:pre-wrap; }
+
+/* Avatar images */
+.wa-avatar, .slack-avatar { display:grid; place-items:center; overflow:hidden; }
+.wa-avatar { width:28px; height:28px; border-radius:50%; background:#d1f1d6; }
+.slack-avatar { width:32px; height:32px; border-radius:4px; background:#eee; }
+.wa-avatar img, .slack-avatar img { width:100%; height:100%; object-fit:cover; border-radius:inherit; }
+.wa-avatar span, .slack-avatar span { font-weight:700; color:#256c2f; }
+
+/* Trello person chips (for later when names used) */
+.av-img { width:24px; height:24px; border-radius:50%; object-fit:cover; box-shadow:0 0 0 1px #fff; }
+
+/* Slack action buttons (PDF-style blue) */
+.slack-actions {
+  display: flex;
+  gap: .4rem;
+  justify-content: flex-end;   /* right side of the bubble */
+  margin-top: .45rem;
+}
+.slack-action-btn {
+  border: 0;
+  border-radius: 8px;
+  padding: .35rem .6rem;
+  font-size: .78rem;
+  font-weight: 700;
+  background: #1677ff;          /* blue */
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0,0,0,.12);
+  transition: transform .12s ease, box-shadow .12s ease, background-color .12s ease, opacity .12s ease;
+}
+.slack-action-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0,0,0,.18);
+  background: #1469e0;
+}
+.slack-action-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(0,0,0,.12);
+  opacity: .95;
+}
+
+/* Gmail notification chip (subtle) */
+.notification.gmail { position: relative; }
+.notification.gmail .notif-chip {
+  margin-left: auto;
+  background: #1677ff;
+  color: #fff;
+  font-size: .65rem;
+  font-weight: 700;
+  padding: .12rem .4rem;
+  border-radius: 999px;
+}
+
+/* ---------- Email view ---------- */
+.email-full,
+.email-split {
+  height: 100%;
+}
+
+.email-pane {
+  background:#fff;
+  border:1px solid #e6e6e6;
+  border-radius:12px;
+  padding: .9rem .9rem .8rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
+}
+
+/* Full-width email (no preview open) — the pane itself scrolls */
+.email-full .email-pane {
+  height: 100%;
+  overflow-y: auto;
+}
+
+.email-head {
+  display:flex; justify-content:space-between; align-items:flex-start;
+  border-bottom:1px solid #eee; padding-bottom:.6rem; margin-bottom:.6rem;
+}
+.email-from { display:flex; flex-direction:column; gap:.2rem; }
+.email-from-name { font-weight:700; font-size:.95rem; }
+.email-from-email { color:#666; font-size:.85rem; }
+.email-meta { text-align:right; }
+.email-subject { font-weight:700; font-size:.95rem; }
+.email-time { color:#666; font-size:.82rem; margin-top:.15rem; }
+
+.email-body { white-space:pre-wrap; font-size:.92rem; line-height:1.45; color:#111; }
+.email-note {
+  margin-top:.65rem; font-size:.82rem; color:#0d6b57; font-weight:700;
+  background:#d8f3ea; border:1px solid #bfe9de; border-radius:8px; padding:.35rem .5rem;
+}
+
+.email-actions {
+  display:flex; gap:.45rem; justify-content:flex-end; margin-top:.7rem;
+}
+.email-action-btn {
+  border:0; border-radius:8px; padding:.38rem .65rem;
+  font-size:.78rem; font-weight:700; background:#1677ff; color:#fff;
+  cursor:pointer; box-shadow:0 1px 2px rgba(0,0,0,.12);
+  transition: transform .12s ease, box-shadow .12s ease, background-color .12s ease, opacity .12s ease;
+}
+.email-action-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0,0,0,.18);
+  background:#1469e0;
+}
+.email-action-btn:active { transform: translateY(0); box-shadow: 0 1px 2px rgba(0,0,0,.12); opacity:.95; }
+
+.email-attach-title { margin-top:.8rem; font-weight:700; font-size:.9rem; }
+.email-attach-grid {
+  margin-top:.4rem;
+  display:grid; grid-template-columns: 1fr 1fr; gap:.5rem;
+}
+.email-attach {
+  display:flex; align-items:center; gap:.5rem;
+  border:1px solid #e6e6e6; border-radius:10px; background:#fafafa;
+  padding:.5rem .6rem; cursor:pointer;
+  transition: background-color .12s ease, border-color .12s ease, transform .12s ease;
+}
+.email-attach:hover { background:#fff; border-color:#bbb; transform: translateY(-1px); }
+.email-attach-icon {
+  width:30px; height:30px; border-radius:6px; display:grid; place-items:center;
+  font-weight:800; background:#e02424; color:#fff; font-size:.7rem;
+}
+.email-attach-name { font-size:.85rem; color:#111; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* Split view for email + PDF preview (single definition to avoid conflicts) */
+.email-split {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;   /* left email, right preview */
+  gap: 12px;
+}
+
+/* Left side (email) scrolls independently */
+.email-split .email-pane {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Right side (PDF preview) fills and the frame scrolls internally */
+.email-preview {
+  background:#fff; border:1px solid #e6e6e6; border-radius:12px; overflow:hidden;
+  display:flex; flex-direction:column;
+  min-height: 0;
+}
+.email-preview-bar {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:.55rem .75rem; border-bottom:1px solid #eee; background:#f8fafc;
+}
+.email-preview-name { font-weight:700; font-size:.9rem; }
+.email-preview-close {
+  border:0; background:#111; color:#fff; border-radius:999px; padding:.25rem .6rem;
+  font-size:.78rem; cursor:pointer;
+}
+.email-preview-frame { flex:1; border:0; width:100%; }
+
+/* ===== Trello middle popup ===== */
+
+.kebab-wrap { position: relative; margin-right: 6px; }
+.kebab-btn {
+  border: 0; background: transparent; cursor: pointer;
+  font-size: 20px; line-height: 1; color: #5f4200; padding: 4px 6px; border-radius: 8px;
+}
+.kebab-btn:hover { background: rgba(0,0,0,.05); }
+
+.kebab-menu {
+  position: absolute; right: 0; top: 34px; z-index: 10;
+  min-width: 180px; background: #fff; border: 1px solid #e6e6e6; border-radius: 10px;
+  box-shadow: 0 8px 22px rgba(0,0,0,.15); padding: 6px;
+}
+
+.trello-modal-topbar { position: relative; overflow: visible; z-index: 5; }
+.trello-top-right { position: relative; }
+.kebab-menu { z-index: 1000; }
+
+.k-item {
+  width: 100%; text-align: left;
+  border: 0; background: transparent; cursor: pointer;
+  font-size: .9rem; padding: 8px 10px; border-radius: 8px;
+}
+.k-item:hover { background: #f5f5f5; }
+.k-sep { height: 1px; background: #eee; margin: 6px 0; }
+
+.kebab-menu { z-index: 50; }
+
+.trello-modal {
+  background: #fff;
+  border-radius: 14px;
+  border: 1px solid #ddd;
+  box-shadow: 0 12px 28px rgba(0,0,0,.15);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+}
+
+/* Yellow header bar / list selector */
+.trello-modal-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f2cd32;
+  padding: 12px 14px;
+}
+.trello-modal-list { font-weight: 600; color: #5f4200; display:flex; align-items:center; gap:8px; }
+.list-dot { width:16px; height:6px; background:#bfe5b2; border-radius:999px; display:inline-block; }
+.trello-close {
+  border: 0; background: transparent; font-size: 18px; cursor: pointer; color: #5f4200;
+}
+.trello-close:hover { opacity: .75; }
+
+/* Body split */
+.trello-modal-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 56% 44%;
+}
+
+/* LEFT */
+.trello-left {
+  padding: 16px;
+  overflow: auto;
+  border-right: 1px solid #eee;
+}
+.trello-title { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 14px; }
+.trello-title .circ { width: 14px; height: 14px; border: 2px solid #bbb; border-radius: 50%; margin-top: 6px; }
+.trello-title .t-main { font-weight: 700; font-size: 1.05rem; }
+.trello-title .t-sub { color: #666; font-weight: 600; }
+
+.tl-row { display: grid; grid-template-columns: 150px 1fr; gap: 12px; align-items: start; margin: 12px 0; }
+.tl-label { color:#333; font-weight: 600; padding-top: 6px; }
+
+.tl-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tl-chip, .tl-chip-img {
+  width: 28px; height: 28px; border-radius: 50%; background: #eee; display: grid; place-items: center; font-size:.75rem; font-weight:700;
+}
+.tl-chip-img { object-fit: cover; }
+.tl-chip.add { background: #f3f3f3; border: 1px dashed #bbb; cursor: pointer; }
+.tl-chip.add:hover { background: #e7e7e7; }
+
+.tl-tag { display:inline-block; font-size:.75rem; font-weight:700; padding: .2rem .45rem; border-radius: 8px; }
+.tl-tag.raf { color:#0d6b57; background:#d8f3ea; }
+
+.tl-card-like { background:#fafafa; border:1px solid #eee; border-radius:10px; padding:10px; display:flex; justify-content:space-between; gap:8px; }
+.tl-desc { white-space: pre-wrap; font-size:.92rem; }
+
+.tl-fields { display:flex; gap:10px; flex-wrap:wrap; }
+.tl-field { min-width: 180px; }
+.f-title { font-size:.8rem; color:#555; margin-bottom:4px; }
+.f-input { border:1px solid #ddd; background:#fff; border-radius:8px; padding:6px 10px; cursor:pointer; }
+.f-input:hover { border-color:#bbb; }
+
+.tl-actions-inline { display:flex; align-items:center; gap:10px; }
+.btn { background:#111; color:#fff; border:0; border-radius:10px; padding:6px 10px; cursor:pointer; }
+.btn:hover { filter: brightness(1.05); }
+.btn.ghost { background:#f6f6f6; color:#111; }
+.btn.ghost:hover { background:#eee; }
+.btn.ghost.sm { padding:4px 8px; }
+
+.timer-pill { background:#f3f3f3; border:1px solid #ddd; border-radius:8px; padding:4px 8px; font-weight:600; }
+
+/* RIGHT */
+.trello-right {
+  padding: 16px;
+  min-height: 0;
+  display:flex;
+  flex-direction:column;
+}
+.tr-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+.tr-title { font-weight:700; }
+.tr-comment {
+  border:1px solid #ddd; border-radius:10px; padding:10px; outline:none;
+  margin-bottom:12px;
+}
+.tr-comment:focus { border-color:#bbb; }
+
+.tr-feed { flex:1; overflow:auto; display:flex; flex-direction:column; gap:10px; }
+.tr-item { display:flex; gap:10px; }
+.tr-avatar { width:28px; height:28px; border-radius:50%; background:#eee; overflow:hidden; display:grid; place-items:center; font-weight:700; }
+.tr-avatar img { width:100%; height:100%; object-fit:cover; }
+.tr-bubble { background:#fff; border:1px solid #eee; border-radius:10px; padding:8px 10px; flex:1; }
+.tr-meta { display:flex; gap:8px; font-size:.85rem; color:#666; margin-bottom:4px; }
+.tr-name { font-weight:700; color:#111; }
+.tr-text { white-space: pre-wrap; font-size:.95rem; }
+
+.trello-top-left .tl-list-dropdown{
+  border:0; background:transparent; font-weight:700; color:#5f4200; padding:2px 6px; border-radius:8px;
+}
+.trello-top-right { display:flex; gap:8px; }
+.tr-icon{ border:0; background:transparent; cursor:pointer; color:#5f4200; font-size:16px; }
+.tr-icon:hover{ opacity:.75; }
+
+.trello-modal-toolbar{
+  display:flex; gap:6px; padding:8px 14px; border-bottom:1px solid #eee; background:#fffbe6;
+}
+.tool-btn{
+  border:1px solid #e6e6e6; background:#fff; border-radius:8px; padding:6px 10px; font-size:.8rem; font-weight:600; cursor:pointer;
+}
+.tool-btn:hover{ background:#fafafa; }
+
+.trello-title{ display:flex; flex-direction:column; gap:4px; margin-bottom:8px; }
+.trello-title .t-main{ font-weight:800; font-size:1.05rem; }
+.trello-title .t-sub{ color:#666; font-weight:600; }
+
+.tl-fields{ display:flex; gap:10px; flex-wrap:wrap; }
+.cf{ min-width:170px; }
+.cf-title{ font-size:.8rem; color:#555; margin-bottom:4px; }
+.cf-select{ border:1px solid #ddd; background:#fff; border-radius:8px; padding:6px 10px; }
+.cf-pill{ display:inline-block; padding:.28rem .55rem; border-radius:8px; font-weight:700; font-size:.78rem; border:1px solid #eee; }
+.cf-pill.green{ color:#0d6b57; background:#d8f3ea; }
+.cf-pill.amber{ color:#7a3f00; background:#ffe1b6; }
+
+.btn.blue{ background:#1677ff; }
+.btn.blue:hover{ filter:brightness(0.95); }
+
+.t-title-text{ font-size:1.05rem; font-weight:800; color:#111; }
+.trello-modal-toolbar{ display:flex; gap:6px; padding:8px 14px; border-bottom:1px solid #eee; background:#fff; }
+.tool-btn{ border:1px solid #e6e6e6; background:#fff; border-radius:8px; padding:6px 10px; font-size:.8rem; font-weight:600; cursor:pointer; }
+.tool-btn:hover{ background:#fafafa; }
+
+.dd select{
+  width:100%; border:1px solid #ddd; background:#fff; border-radius:8px;
+  padding:6px 10px; font-size:.85rem;
+}
+.dd select[multiple]{ height:112px; }
+
+/* Colored Priority select in the middle pane */
+.prio-select.prio-green  { background:#dcfce7; border-color:#bbf7d0; color:#14532d; font-weight:700; }
+.prio-select.prio-red    { background:#fee2e2; border-color:#fecaca; color:#7f1d1d; font-weight:700; }
+.prio-select.prio-purple { background:#ede9fe; border-color:#ddd6fe; color:#4c1d95; font-weight:700; }
+.prio-select.prio-default{ background:#f3f4f6; border-color:#e5e7eb; color:#374151; font-weight:700; }
+
+/* badge chips in columns — force these to win over any generic .tl-badge rule */
+.tl-badge.active-green  { background:#1e7a3a !important; color:#fff !important; }
+.tl-badge.active-orange { background:#b85c00 !important; color:#fff !important; }
+.tl-badge.active-default{ background:#5a5a5a !important; color:#fff !important; }
+
+/* the <select> head in the modal */
+.active-select.active-green  { background:#1e7a3a !important; color:#fff !important; }
+.active-select.active-orange { background:#b85c00 !important; color:#fff !important; }
+.active-select.active-default{ background:#3b3b3b !important; color:#fff !important; }
+
+/* keep focus ring */
+.active-select.active-green:focus,
+.active-select.active-orange:focus { outline:2px solid rgba(255,255,255,0.25); }
+
+/* Status badge colors */
+.tl-badge.status-yellow     { background:#facc15; color:#111; border:1px solid #eab308; }
+.tl-badge.status-darkyellow { background:#ca8a04; color:#fff; border:1px solid #a16207; }
+.tl-badge.status-blue       { background:#dbeafe; color:#1e3a8a; border:1px solid #93c5fd; }
+.tl-badge.status-green      { background:#dcfce7; color:#14532d; border:1px solid #bbf7d0; }
+.tl-badge.status-lime       { background:#ecfccb; color:#365314; border:1px solid #bef264; }
+.tl-badge.status-purple     { background:#ede9fe; color:#4c1d95; border:1px solid #c4b5fd; }
+.tl-badge.status-pink       { background:#fce7f3; color:#9d174d; border:1px solid #f9a8d4; }
+.tl-badge.status-red        { background:#fee2e2; color:#7f1d1d; border:1px solid #fecaca; }
+.tl-badge.status-white      { background:#fff; color:#374151; border:1px solid #e5e7eb; }
+.tl-badge.status-default    { background:#f3f4f6; color:#374151; border:1px solid #e5e7eb; }
+
+/* Select head */
+.status-select.status-yellow     { background:#facc15; color:#111; }
+.status-select.status-darkyellow { background:#ca8a04; color:#fff; }
+.status-select.status-blue       { background:#dbeafe; color:#1e3a8a; }
+.status-select.status-green      { background:#dcfce7; color:#14532d; }
+.status-select.status-lime       { background:#ecfccb; color:#365314; }
+.status-select.status-purple     { background:#ede9fe; color:#4c1d95; }
+.status-select.status-pink       { background:#fce7f3; color:#9d174d; }
+.status-select.status-red        { background:#fee2e2; color:#7f1d1d; }
+.status-select.status-white      { background:#fff; color:#374151; }
+.status-select.status-default    { background:#f3f4f6; color:#374151; }
+
+/* Email body – plain text (eml) */
+.email-body-pre {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  white-space: pre-wrap;      /* keep line breaks but wrap long lines */
+  margin: 0;
+  padding: 0.5rem 0;
+}
+
+/* Email body – HTML version */
+.email-body-html {
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+/* Small note under the email body */
+.email-note {
+  margin-top: 0.75rem;
+  font-size: 12px;
+  color: #666;
+}
+
+/* Email attachment grid – Gmail-style tiles */
+.email-attach-title {
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #555;
+}
+
+.email-attach-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.email-attach {
+  width: 220px;            /* more square */
+  height: 120px;
+  border-radius: 10px;
+  border: 1px solid #e1e4ea;
+  background: #fafbff;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: space-between;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.email-attach:hover {
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.07);
+  transform: translateY(-1px);
+}
+
+.email-attach-icon {
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: #e53935;
+  color: #fff;
+}
+
+.email-attach-name {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.3;
+  color: #222;
+  text-align: left;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;    /* max 2 lines like Gmail tiles */
+  -webkit-box-orient: vertical;
+}
+
+.email-attach-top {
+  flex: 1 1 auto;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #f1f3f7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.email-attach-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;      /* fill like Gmail thumbnail */
+  display: block;
+}
+
+.email-attach-thumb.placeholder {
+  font-size: 24px;
+  font-weight: 700;
+  color: #c62828;
+}
+
+.email-attach-bottom {
+  flex: 0 0 auto;
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.email-attach {
+  width: 220px;
+  height: 130px;
+  border-radius: 10px;
+  border: 1px solid #e1e4ea;
+  background: #fafbff;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.email-attach:hover {
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+
+.email-attach-preview {
+  flex: 1;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #f3f4f8;
+}
+
+.email-attach-frame {
+  width: 130%;
+  height: 130%;
+  border: none;
+  transform: translate(-8%, -8%);
+  pointer-events: none;   /* so clicks go to the button, not the iframe */
+}
+
+.email-attach-footer {
+  display: flex;
+  align-items: center;
+  margin-top: 6px;
+  gap: 6px;
+}
+
+/* Right-panel PDF/image preview: clean, rounded, no black borders */
+.doc-card .doc-preview {
+  position: relative;
+  width: 100%;
+  height: 140px;              /* adjust height if you like */
+  overflow: hidden;           /* clip inner iframe/img to radius */
+  border-radius: 12px 12px 0 0;
+  background: #fff;
+}
+
+.doc-card .doc-preview iframe {
+  width: 100%;
+  height: 100%;
+  border: none;               /* removes black border */
+  pointer-events: none;       /* so clicks go to the button, not the iframe */
+}
+
+.doc-card .doc-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: 12px 12px 0 0;
+}
+
+.draft-picker {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  border-radius: 10px;
+  background: #fafbff;
+  border: 1px solid #dde3ff;
+}
+
+.draft-picker-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.draft-picker-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.draft-picker-item {
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid #d0d4ff;
+  background: #ffffff;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+/* 🔹 DRAFT AREA: always Verdana */
+.email-draft-preview {
+  margin-top: 0.75rem;
+  border-radius: 10px;
+  border: 1px solid #e0e4f0;
+  background: #ffffff;
+  overflow: hidden;
+
+  /* force Verdana in the block itself */
+  font-family: Verdana, Geneva, sans-serif;
+}
+
+/* make EVERYTHING inside the draft use Verdana */
+.email-draft-preview * {
+  font-family: Verdana, Geneva, sans-serif;
+}
+
+.email-draft-textarea {
+  width: 100%;
+  height: 500px;
+  border: none;
+  border-top: 1px solid #e0e4f0;
+  padding: 0.75rem;
+  min-height: 250px;
+  max-height: 600px;
+  resize: vertical;
+  /* force Verdana for typing as well */
+  font-family: Verdana, Geneva, sans-serif;
+  font-size: 0.9rem;
+  background: #fcfcff;
+}
+
+.email-draft-note {
+  padding: 0 0.75rem 0.75rem;
+  font-size: 0.78rem;
+  color: #777;
+}
+
+/* Email draft header: To-field above the body */
+.email-draft-header {
+  padding: 0.6rem 0.75rem 0.4rem;
+  background: #f9fafb;
+  border-bottom: 1px solid #e0e4f0;
+}
+
+.email-draft-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.email-draft-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  min-width: 28px;
+  color: #374151;
+}
+
+.email-draft-to {
+  flex: 1;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+  background: #ffffff;
+}
+
+.email-draft-to:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.35);
+}
+
+/* Toolbar row with Cancel + Send */
+.email-draft-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.45rem 0.75rem;
+  border-bottom: 1px solid #e0e4f0;
+  background: #ffffff;
+}
+
+.email-draft-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #111827;
+}
+
+.email-draft-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.email-draft-to {
+  pointer-events: auto;
+  position: relative;
+  z-index: 10;
+}
+
+.email-draft-header,
+.email-draft-row {
+  position: relative;
+  z-index: 10;
+}
+
+.draft-picker {
+  z-index: 9999;
+}
+
+.email-draft-preview {
+  z-index: 10000;
+  position: relative;
 }
