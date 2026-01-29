@@ -14,4 +14,4 @@
 # React single-page app fallback
 
 [functions]
-  included_files = ["service-account.json"]
+  included_files = ["netlify/functions/service-account.enc.json"]
