@@ -71,7 +71,7 @@ function PasswordGate({ children }) {
         }}
       >
         <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
-          ActuarySpace — Siya
+          ActuarySpace — {PERSONA.toUpperCase() === "YOLANDIE" ? "Yolandie" : PERSONA.toUpperCase() === "SIYA" ? "Siya" : "Unknown"}
         </div>
         <div style={{ opacity: 0.85, marginBottom: 14 }}>
           Enter password to continue.
@@ -1297,6 +1297,17 @@ export default function App() {
   const [descDraft, setDescDraft] = useState("");
 
   const pendingCFRef = useRef(new Map()); // cardId -> { fieldName: expiryTs }
+
+  useEffect(() => {
+  const nice =
+    PERSONA.toUpperCase() === "YOLANDIE"
+      ? "Yolandie"
+      : PERSONA.toUpperCase() === "SIYA"
+      ? "Siya"
+      : "Unknown";
+
+  document.title = `ActuarySpace — ${nice}`;
+  }, []);
 
   useEffect(() => {
     const onNotify = (e) => {
