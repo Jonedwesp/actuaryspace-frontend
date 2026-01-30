@@ -1,15 +1,9 @@
 // netlify/functions/trello.js
-console.log("[TRELLO FUNC VERSION] 2026-01-30 vSAFE 🔥 COMMIT TEST");
 
-// ---- In-memory caches (persist per warm Netlify function instance) ----
-let CACHE_SHORT = { ts: 0, body: null }; // buckets cache (lists+cards)
-let CACHE_LONG = { ts: 0, members: null, cfs: null }; // members+customFields cache
-
-const SHORT_TTL_MS = 15_000; // serve buckets from cache for 15s
-const LONG_TTL_MS = 5 * 60_000; // members/customFields cache for 5 minutes
+console.log("[TRELLO FUNC VERSION] 2026-01-30 vSAFE YOL-LISTS ✅");
 
 export async function handler(event) {
-  const VERSION = "2026-01-30 vSAFE";
+  const VERSION = "2026-01-30 vSAFE YOL-LISTS";
   console.log("[TRELLO FUNC VERSION]", VERSION);
 
   const { TRELLO_KEY, TRELLO_TOKEN, TRELLO_BOARD_ID } = process.env;
@@ -28,126 +22,78 @@ export async function handler(event) {
   )}`;
 
   try {
-    const now = Date.now();
-
-    // ✅ If we have a fresh cached response, return it immediately.
-    if (CACHE_SHORT.body && now - CACHE_SHORT.ts < SHORT_TTL_MS) {
-      return resp(200, { version: VERSION, cached: true, ...CACHE_SHORT.body });
-    }
-
-    // Decide whether to refresh members/customFields
-    const needLong = !(
-      CACHE_LONG.members &&
-      CACHE_LONG.cfs &&
-      now - CACHE_LONG.ts < LONG_TTL_MS
-    );
-
-    // Always fetch lists + cards. Fetch members/customFields only when LONG cache expires.
-    const reqs = [
+    // fetch lists, cards(+customFieldItems), members, and board customFields
+    const [listsRes, cardsRes, membersRes, cfRes] = await Promise.all([
       fetch(
         `${base}/boards/${TRELLO_BOARD_ID}/lists?cards=none&filter=open&${auth}`
       ),
+      // include desc so we can show/edit the card Description in the app
       fetch(
         `${base}/boards/${TRELLO_BOARD_ID}/cards?filter=open&fields=name,idList,due,idMembers,labels,shortLink,desc&customFieldItems=true&${auth}`
       ),
-    ];
+      fetch(`${base}/boards/${TRELLO_BOARD_ID}/members?${auth}`),
+      fetch(`${base}/boards/${TRELLO_BOARD_ID}/customFields?${auth}`),
+    ]);
 
-    if (needLong) {
-      reqs.push(fetch(`${base}/boards/${TRELLO_BOARD_ID}/members?${auth}`));
-      reqs.push(fetch(`${base}/boards/${TRELLO_BOARD_ID}/customFields?${auth}`));
-    }
-
-    const resArr = await Promise.all(reqs);
-    const [listsRes, cardsRes, membersRes, cfRes] = resArr;
-
-    // ✅ Special handling: If Trello rate-limits cards, serve cached buckets if possible
-    if (cardsRes && cardsRes.status === 429) {
-      const retryAfter =
-        cardsRes.headers?.get("retry-after") ||
-        cardsRes.headers?.get("Retry-After") ||
-        "10";
-
-      console.error("[TRELLO] 429 rate limit on cards. Serving cache if possible.", {
-        retryAfter,
-      });
-
-      if (CACHE_SHORT.body) {
-        return resp(200, {
-          version: VERSION,
-          cached: true,
-          rateLimited: true,
-          retryAfter,
-          ...CACHE_SHORT.body,
-        });
-      }
-
-      return resp(429, { version: VERSION, error: "Trello rate limited", retryAfter });
-    }
-
-    // Basic HTTP diagnostics (helps when Trello auth fails etc.)
-    // Note: members/customFields might be undefined if using LONG cache
-    if (
-      !listsRes?.ok ||
-      !cardsRes?.ok ||
-      (needLong && (!membersRes?.ok || !cfRes?.ok))
-    ) {
-      const listsTxt = await listsRes?.text().catch(() => "");
-      const cardsTxt = await cardsRes?.text().catch(() => "");
-      const membersTxt = needLong
-        ? await membersRes?.text().catch(() => "")
-        : "(cached)";
-      const cfTxt = needLong ? await cfRes?.text().catch(() => "") : "(cached)";
+    // Basic HTTP diagnostics (helps when Trello rate-limits / auth fails)
+    if (!listsRes.ok || !cardsRes.ok || !membersRes.ok || !cfRes.ok) {
+      const [listsTxt, cardsTxt, membersTxt, cfTxt] = await Promise.all([
+        listsRes.text().catch(() => ""),
+        cardsRes.text().catch(() => ""),
+        membersRes.text().catch(() => ""),
+        cfRes.text().catch(() => ""),
+      ]);
 
       console.error("[TRELLO] Upstream HTTP failure", {
-        lists: { status: listsRes?.status, body: (listsTxt || "").slice(0, 400) },
-        cards: { status: cardsRes?.status, body: (cardsTxt || "").slice(0, 400) },
-        members: {
-          status: needLong ? membersRes?.status : "cached",
-          body: (membersTxt || "").slice(0, 400),
-        },
-        customFields: {
-          status: needLong ? cfRes?.status : "cached",
-          body: (cfTxt || "").slice(0, 400),
-        },
+        lists: { status: listsRes.status, body: listsTxt.slice(0, 400) },
+        cards: { status: cardsRes.status, body: cardsTxt.slice(0, 400) },
+        members: { status: membersRes.status, body: membersTxt.slice(0, 400) },
+        customFields: { status: cfRes.status, body: cfTxt.slice(0, 400) },
       });
 
       return resp(502, {
         version: VERSION,
         error: "Upstream Trello HTTP error",
         upstream: {
-          lists: listsRes?.status,
-          cards: cardsRes?.status,
-          members: needLong ? membersRes?.status : "cached",
-          customFields: needLong ? cfRes?.status : "cached",
+          lists: listsRes.status,
+          cards: cardsRes.status,
+          members: membersRes.status,
+          customFields: cfRes.status,
         },
       });
     }
 
-    const [lists, cards] = await Promise.all([
+    const [lists, cards, members] = await Promise.all([
       listsRes.json().catch(() => []),
       cardsRes.json().catch(() => []),
+      membersRes.json().catch(() => []),
     ]);
 
-    // ---- LONG cache populate (members + customFields) ----
-    if (needLong) {
-      const membersJson = await membersRes.json().catch(() => []);
-      const cfRaw = await cfRes.text().catch(() => "[]");
-      let cfJson = [];
-      try {
-        cfJson = JSON.parse(cfRaw);
-      } catch {
-        cfJson = [];
-      }
+    // ✅ custom fields: be defensive + log the real Trello error
+    let boardCFsRawText = "";
+    let boardCFs = [];
 
-      CACHE_LONG = {
-        ts: Date.now(),
-        members: Array.isArray(membersJson) ? membersJson : [],
-        cfs: Array.isArray(cfJson) ? cfJson : [],
-      };
+    try {
+      boardCFsRawText = await cfRes.text();
+      const parsed = JSON.parse(boardCFsRawText);
+      boardCFs = Array.isArray(parsed) ? parsed : [];
+      if (!Array.isArray(parsed)) {
+        console.error("[TRELLO] customFields NOT array", {
+          status: cfRes.status,
+          body: parsed,
+        });
+      }
+    } catch (e) {
+      console.error("[TRELLO] customFields parse failed", {
+        status: cfRes.status,
+        raw: boardCFsRawText?.slice(0, 600),
+        err: e?.message || String(e),
+      });
+      boardCFs = [];
     }
 
-    const members = CACHE_LONG.members || [];
-    const safeBoardCFs = Array.isArray(CACHE_LONG.cfs) ? CACHE_LONG.cfs : [];
+    // Force array no matter what
+    const safeBoardCFs = Array.isArray(boardCFs) ? boardCFs : [];
 
     const membersById = Object.fromEntries(
       (Array.isArray(members) ? members : []).map((m) => [
@@ -179,12 +125,18 @@ export async function handler(event) {
     // If the frontend passes ?lists=Name1,Name2, keep that behaviour (but be case-safe)
     const wantSet = new Set(wantLists.map((s) => s.toLowerCase()));
 
-    // Persona ALWAYS wins for ActuarySpace
+    // ✅ Persona ALWAYS wins (these MUST match your real Trello list titles)
     const personaTitles =
       persona === "SIYA"
         ? ["Siya", "Siya - Review"]
         : persona === "YOLANDIE"
-        ? ["Yolandie", "Yolandie - Review"]
+        ? [
+            "Yolandie to Data Capture",
+            "Yolandie to Analyst",
+            "Yolandie to Data Analyst",
+            "Yolandie to Reviewer",
+            "Yolandie to Send",
+          ]
         : [];
 
     // Default: persona-based selection
@@ -215,32 +167,27 @@ export async function handler(event) {
           // 1) existing label-badges for your card colours
           const labelBadges = (Array.isArray(c.labels) ? c.labels : []).map((l) => {
             const text = l.name || l.color || "Label";
-            const type = /RAF LOE/i.test(text)
-              ? "amber"
-              : /RAF LOS/i.test(text)
-              ? "teal"
-              : "green";
+            const type =
+              /RAF LOE/i.test(text) ? "amber" :
+              /RAF LOS/i.test(text) ? "teal"  :
+              "green";
             return { type, text };
           });
 
           // 2) translate customFieldItems into a {Priority, Active, Status}
           const customFields = {};
-          (Array.isArray(c.customFieldItems) ? c.customFieldItems : []).forEach(
-            (item) => {
-              const field = cfById[item.idCustomField];
-              if (!field) return;
+          (Array.isArray(c.customFieldItems) ? c.customFieldItems : []).forEach((item) => {
+            const field = cfById[item.idCustomField];
+            if (!field) return;
 
-              // Only support the 3 dropdowns we care about
-              const name = (field.name || "").trim();
-              if (!["Priority", "Active", "Status"].includes(name)) return;
+            // Only support the 3 dropdowns we care about
+            const name = (field.name || "").trim();
+            if (!["Priority", "Active", "Status"].includes(name)) return;
 
-              // list/dropdown -> item.idValue => option text
-              const text = item.idValue
-                ? optionTextById.get(item.idValue) || ""
-                : "";
-              if (text) customFields[name] = text;
-            }
-          );
+            // list/dropdown -> item.idValue => option text
+            const text = item.idValue ? (optionTextById.get(item.idValue) || "") : "";
+            if (text) customFields[name] = text;
+          });
 
           // 3) merge those into text badges your UI understands ("Priority: X", etc.)
           //    Ensure there's exactly ONE canonical Priority badge and make it come FIRST.
@@ -252,8 +199,7 @@ export async function handler(event) {
               .toUpperCase();
 
             if (p === "HIGH URGENT" || p === "HIGH-URGENT") return "HIGH URGENT";
-            if (p === "URGENT + IMPORTANT" || p === "URGENT+IMPORTANT")
-              return "URGENT + IMPORTANT";
+            if (p === "URGENT + IMPORTANT" || p === "URGENT+IMPORTANT") return "URGENT + IMPORTANT";
             if (p === "URGENT") return "URGENT";
             if (p === "NEW CLIENT" || p === "NEW-CLIENT") return "NEW CLIENT";
             return "";
@@ -263,13 +209,9 @@ export async function handler(event) {
           if (customFields.Priority) {
             const canon = canonicalPriority(customFields.Priority);
             const priorityClass =
-              canon === "HIGH URGENT"
-                ? "priority-green"
-                : canon === "URGENT + IMPORTANT"
-                ? "priority-red"
-                : canon === "URGENT" || canon === "NEW CLIENT"
-                ? "priority-purple"
-                : "priority-default";
+              canon === "HIGH URGENT"        ? "priority-green"  :
+              canon === "URGENT + IMPORTANT" ? "priority-red"    :
+              (canon === "URGENT" || canon === "NEW CLIENT") ? "priority-purple" : "priority-default";
 
             if (canon) prioBadge = { text: `Priority: ${canon}`, type: priorityClass };
           }
@@ -302,16 +244,13 @@ export async function handler(event) {
         }),
     }));
 
-    // ✅ Save SHORT cache of what we return
-    CACHE_SHORT = { ts: Date.now(), body: { buckets } };
-
     // ✅ Include version so you can prove which deploy answered
-    return resp(200, { version: VERSION, cached: false, buckets });
+    return resp(200, { version: VERSION, buckets });
   } catch (e) {
     console.error("[TRELLO] handler fatal", e);
     return resp(500, {
-      version: "2026-01-30 vSAFE",
-      error: e.message || "Trello fetch failed",
+      version: VERSION,
+      error: e?.message || "Trello fetch failed",
     });
   }
 }
