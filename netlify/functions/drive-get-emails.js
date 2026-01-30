@@ -1,54 +1,72 @@
 // netlify/functions/drive-get-emails.js
-import { google } from "googleapis";
+import { JWT } from "google-auth-library";
 import { loadServiceAccount } from "./_google-creds.js";
 
-function getDriveClient() {
-  const creds = loadServiceAccount();
+const EMAIL_FOLDER_ID = "1bpvc1e2VbtHsyrEDdzJANYNXDUp0Qr2l";
 
-  const auth = new google.auth.GoogleAuth({
-    credentials: creds,
-    scopes: ["https://www.googleapis.com/auth/drive.readonly"],
-  });
-
-  return google.drive({ version: "v3", auth });
+function resp(statusCode, obj) {
+  return {
+    statusCode,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(obj),
+  };
 }
 
-// 👇 Email folder for ONE demo case
-const EMAIL_FOLDER_ID = "1bpvc1e2VbtHsyrEDdzJANYNXDUp0Qr2l";
+// Extract Subject from raw .eml (works even if extra headers exist)
+function extractSubject(raw, fallbackName = "") {
+  const m = raw.match(/^Subject:\s*(.*)$/mi);
+  if (m && m[1]) return m[1].trim();
+  return fallbackName.replace(/\.eml$/i, "") || "Client Instruction (Data Centre)";
+}
 
 export async function handler() {
   try {
-    const drive = getDriveClient();
+    const sa = loadServiceAccount();
 
-    const list = await drive.files.list({
-      q: `'${EMAIL_FOLDER_ID}' in parents and trashed = false and mimeType = 'message/rfc822'`,
-      fields: "files(id, name)",
-      pageSize: 10,
+    const client = new JWT({
+      email: sa.client_email,
+      key: sa.private_key,
+      scopes: ["https://www.googleapis.com/auth/drive.readonly"],
     });
 
-    const files = list.data.files || [];
+    await client.authorize();
+
+    // 1) List .eml files inside EMAIL_FOLDER_ID
+    const q = `'${EMAIL_FOLDER_ID}' in parents and trashed = false and mimeType = 'message/rfc822'`;
+
+    const listRes = await client.request({
+      url: "https://www.googleapis.com/drive/v3/files",
+      method: "GET",
+      params: {
+        q,
+        pageSize: 10,
+        fields: "files(id,name)",
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
+      },
+    });
+
+    const files = listRes.data?.files || [];
     const withSubjects = [];
 
+    // 2) Download each .eml and parse Subject
     for (const f of files) {
       try {
-        const res = await drive.files.get(
-          { fileId: f.id, alt: "media" },
-          { responseType: "arraybuffer" }
-        );
-        const raw = Buffer.from(res.data).toString("utf8");
-
-        const m = raw.match(/^Subject:\s*(.*)$/mi);
-        const subject = m
-          ? m[1].trim()
-          : f.name.replace(/\.eml$/i, "") || "Client Instruction (Data Centre)";
-
-        withSubjects.push({
-          id: f.id,
-          name: f.name,
-          subject,
+        const emlRes = await client.request({
+          url: `https://www.googleapis.com/drive/v3/files/${f.id}`,
+          method: "GET",
+          params: { alt: "media" },
+          responseType: "arraybuffer",
         });
-      } catch (err) {
-        console.error("subject parse failed for", f.id, err);
+
+        const raw = Buffer.from(emlRes.data).toString("utf8");
+        const subject = extractSubject(raw, f.name);
+
+        withSubjects.push({ id: f.id, name: f.name, subject });
+      } catch (e) {
         withSubjects.push({
           id: f.id,
           name: f.name,
@@ -57,15 +75,9 @@ export async function handler() {
       }
     }
 
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ ok: true, files: withSubjects }),
-    };
+    return resp(200, { ok: true, files: withSubjects });
   } catch (err) {
     console.error("drive-get-emails error:", err);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ ok: false, error: err.message }),
-    };
+    return resp(500, { ok: false, error: err.message || String(err) });
   }
 }
