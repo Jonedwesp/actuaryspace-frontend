@@ -1,34 +1,29 @@
 // netlify/functions/drive-list.js
-import fetch from "node-fetch";
-import { loadServiceAccount } from "./_google-creds.js";
-import { JWT } from "google-auth-library";
+const { google } = require("googleapis");
+const { loadServiceAccount } = require("./_google-creds.cjs");
 
-export async function handler() {
+exports.handler = async function handler() {
   try {
     const creds = loadServiceAccount();
 
-    const client = new JWT({
-      email: creds.client_email,
-      key: creds.private_key,
+    const auth = new google.auth.GoogleAuth({
+      credentials: creds,
       scopes: ["https://www.googleapis.com/auth/drive.readonly"],
     });
 
-    const token = await client.authorize();
+    const drive = google.drive({ version: "v3", auth });
 
-    const res = await fetch(
-      "https://www.googleapis.com/drive/v3/files?q=trashed=false&pageSize=20&fields=files(id,name,mimeType,parents)",
-      {
-        headers: {
-          Authorization: `Bearer ${token.access_token}`,
-        },
-      }
-    );
-
-    const data = await res.json();
+    const res = await drive.files.list({
+      q: "trashed = false",
+      pageSize: 20,
+      fields: "files(id, name, mimeType, parents)",
+      includeItemsFromAllDrives: true,
+      supportsAllDrives: true,
+    });
 
     return {
       statusCode: 200,
-      body: JSON.stringify({ ok: true, files: data.files || [] }),
+      body: JSON.stringify({ ok: true, files: res.data.files || [] }, null, 2),
     };
   } catch (err) {
     console.error("Drive error (drive-list):", err);
@@ -37,4 +32,4 @@ export async function handler() {
       body: JSON.stringify({ ok: false, error: err.message }),
     };
   }
-}
+};
