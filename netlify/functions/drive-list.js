@@ -1,35 +1,43 @@
 // netlify/functions/drive-list.js
-const { google } = require("googleapis");
+const { JWT } = require("google-auth-library");
 const { loadServiceAccount } = require("./_google-creds.cjs");
 
-exports.handler = async function handler() {
+exports.handler = async function () {
   try {
     const creds = loadServiceAccount();
 
-    const auth = new google.auth.GoogleAuth({
-      credentials: creds,
+    const client = new JWT({
+      email: creds.client_email,
+      key: creds.private_key,
       scopes: ["https://www.googleapis.com/auth/drive.readonly"],
     });
 
-    const drive = google.drive({ version: "v3", auth });
+    await client.authorize();
 
-    const res = await drive.files.list({
-      q: "trashed = false",
-      pageSize: 20,
-      fields: "files(id, name, mimeType, parents)",
-      includeItemsFromAllDrives: true,
-      supportsAllDrives: true,
+    // Drive files.list via raw HTTP
+    const res = await client.request({
+      url: "https://www.googleapis.com/drive/v3/files",
+      method: "GET",
+      params: {
+        q: "trashed = false",
+        pageSize: 20,
+        fields: "files(id,name,mimeType,parents)",
+        includeItemsFromAllDrives: true,
+        supportsAllDrives: true,
+      },
     });
 
     return {
       statusCode: 200,
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ok: true, files: res.data.files || [] }, null, 2),
     };
   } catch (err) {
-    console.error("Drive error (drive-list):", err);
+    console.error("drive-list error:", err);
     return {
       statusCode: 500,
-      body: JSON.stringify({ ok: false, error: err.message }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ok: false, error: err.message || String(err) }),
     };
   }
 };
