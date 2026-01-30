@@ -854,6 +854,15 @@ function RightPanel() {
         if (!res.ok) {
           const txt = await res.text().catch(() => "");
           console.error("[TRELLO] HTTP error", res.status, txt);
+
+          // If Trello rate-limits (429), back off hard for a minute
+          if (res.status === 502 && txt.includes('"cards":429')) {
+            window.__TRELLO_BACKOFF_UNTIL__ = Date.now() + 60_000;
+          }
+          if (res.status === 429) {
+            window.__TRELLO_BACKOFF_UNTIL__ = Date.now() + 60_000;
+          }
+
           return;
         }
 
@@ -1055,7 +1064,7 @@ function RightPanel() {
     }
 
     fetchTrello();
-    const id = setInterval(fetchTrello, 3000);
+    const id = setInterval(fetchTrello, 10000);
     return () => clearInterval(id);
   }, []);
 
