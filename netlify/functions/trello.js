@@ -2,11 +2,6 @@
 console.log("[TRELLO FUNC VERSION] 2026-01-30 vSAFE 🔥 COMMIT TEST");
 
 export async function handler(event) {
-  return {
-    statusCode: 418,
-    body: JSON.stringify({ test: "SIYA HARD STOP" }),
-  };
-
   const VERSION = "2026-01-30 vSAFE";
   console.log("[TRELLO FUNC VERSION]", VERSION);
 
