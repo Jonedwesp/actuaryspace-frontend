@@ -1,5 +1,3 @@
-const PERSONA = import.meta.env.VITE_PERSONA || "UNKNOWN";
-
 // src/App.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
@@ -7,6 +5,128 @@ import "./App.css";
 import trelloIcon from "./assets/Trello Pic.png";
 import gmailIcon from "./assets/Gmail pic.png";
 import whatsappIcon from "./assets/WhatsApp.png";
+
+const PERSONA = import.meta.env.VITE_PERSONA || "UNKNOWN";
+
+const PERSONA_TRELLO_LISTS =
+  PERSONA.toUpperCase() === "SIYA"
+    ? ["Siya", "Siya - Review"]
+    : PERSONA.toUpperCase() === "YOLANDIE"
+    ? [
+        "Yolandie to Data Capture",
+        "Yolandie to Analyst",
+        "Yolandie to Data Analyst",
+        "Yolandie to Reviewer",
+        "Yolandie to Send",
+      ]
+    : [];
+
+/* ---------- Password Gate ---------- */
+const APP_PASSWORD = import.meta.env.VITE_APP_PASSWORD || "";
+console.log("[PW GATE] enabled?", !!APP_PASSWORD, "len=", APP_PASSWORD.length);
+
+function PasswordGate({ children }) {
+  const [pw, setPw] = React.useState("");
+  const [err, setErr] = React.useState("");
+
+  // If no password set in Netlify env, don't gate (avoids locking yourself out by accident)
+  const enabled = !!APP_PASSWORD;
+
+  const unlocked =
+    !enabled || localStorage.getItem("APP_UNLOCKED") === "1";
+
+  const tryUnlock = () => {
+    if (!enabled) return;
+    if (pw === APP_PASSWORD) {
+      localStorage.setItem("APP_UNLOCKED", "1");
+      setErr("");
+      window.location.reload(); // simplest: reload into unlocked state
+    } else {
+      setErr("Wrong password.");
+    }
+  };
+
+  if (unlocked) return children;
+
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        display: "grid",
+        placeItems: "center",
+        padding: 24,
+        background: "#0b0f17",
+        color: "white",
+        fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial",
+      }}
+    >
+      <div
+        style={{
+          width: "min(420px, 92vw)",
+          background: "rgba(255,255,255,0.06)",
+          border: "1px solid rgba(255,255,255,0.12)",
+          borderRadius: 16,
+          padding: 20,
+          boxShadow: "0 20px 60px rgba(0,0,0,0.45)",
+        }}
+      >
+        <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
+          ActuarySpace — Siya
+        </div>
+        <div style={{ opacity: 0.85, marginBottom: 14 }}>
+          Enter password to continue.
+        </div>
+
+        <input
+          type="password"
+          value={pw}
+          onChange={(e) => setPw(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") tryUnlock();
+          }}
+          placeholder="Password"
+          style={{
+            width: "100%",
+            padding: "12px 12px",
+            borderRadius: 12,
+            border: "1px solid rgba(255,255,255,0.18)",
+            outline: "none",
+            background: "rgba(255,255,255,0.08)",
+            color: "white",
+            fontSize: 14,
+          }}
+        />
+
+        {err && (
+          <div style={{ marginTop: 10, color: "#ff9aa2", fontSize: 13 }}>
+            {err}
+          </div>
+        )}
+
+        <button
+          onClick={tryUnlock}
+          style={{
+            marginTop: 12,
+            width: "100%",
+            padding: "12px 12px",
+            borderRadius: 12,
+            border: "none",
+            background: "white",
+            color: "#0b0f17",
+            fontWeight: 700,
+            cursor: "pointer",
+          }}
+        >
+          Unlock
+        </button>
+
+        <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>
+          Tip: If you change the password in Netlify later, clear site data / localStorage.
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /* ---------- helpers ---------- */
 function formatUKTime(date) {
@@ -60,17 +180,13 @@ function formatDueLine(d) {
   return `Due ${day} ${month} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
-function loadAvatarModules() {
-  const modules = import.meta.glob("./slack-profiles/*.{png,jpg,jpeg,webp,gif}", {
-    eager: true,
-    import: "default",
-  });
+// Vite-only: this is compile-time transformed (works in prod)
+const _AVATAR_MODULES = import.meta.glob(
+  "./slack-profiles/*.{png,PNG,jpg,JPG,jpeg,JPEG,webp,WEBP,gif,GIF}",
+  { eager: true, import: "default" }
+);
 
-  console.log("avatar modules", modules);
-  return modules;
-}
-
-const _AVATAR_MODULES = loadAvatarModules();
+console.log("avatar modules", _AVATAR_MODULES);
 
 const AVATARS = (() => {
   const map = {};
@@ -730,6 +846,8 @@ function RightPanel() {
   useEffect(() => {
     async function fetchTrello() {
       try {
+        console.log("[UI] VITE_PERSONA =", import.meta.env.VITE_PERSONA);
+
         const res = await fetch(`/.netlify/functions/trello`);
 
         // 🔎 Log status + raw text if not OK
@@ -803,18 +921,21 @@ function RightPanel() {
           };
         });
 
-        const YOLANDIE_TITLES = [
-          "Yolandie to Data Capture",   // 👈 NEW FIRST BUCKET
-          "Yolandie to Analyst",
-          "Yolandie to Data Analyst",
-          "Yolandie to Reviewer",
-          "Yolandie to Send",
-        ];
+        const persona = (import.meta.env.VITE_PERSONA || "").toLowerCase().trim();
 
-        const filtered = mapped.filter((b) => YOLANDIE_TITLES.includes(b.title));
-        if (filtered.length > 0) {
-          mapped = filtered;
-        }
+        const PERSONA_TITLES =
+          persona === "siya"
+            ? ["Siya", "Siya - Review"]
+            : [
+                "Yolandie to Data Capture",
+                "Yolandie to Analyst",
+                "Yolandie to Data Analyst",
+                "Yolandie to Reviewer",
+                "Yolandie to Send",
+              ];
+
+        const filtered = mapped.filter((b) => PERSONA_TITLES.includes(b.title));
+        if (filtered.length > 0) mapped = filtered;
 
         let latestMerged = null;
 
@@ -934,7 +1055,7 @@ function RightPanel() {
     }
 
     fetchTrello();
-    const id = setInterval(fetchTrello, 1000);
+    const id = setInterval(fetchTrello, 3000);
     return () => clearInterval(id);
   }, []);
 
@@ -2421,10 +2542,11 @@ const handleEmailAction = (actionKey) => {
                     }}
                   >
                     <option value="" disabled>Select…</option>
-                    <option>Yolandie to Analyst</option>
-                    <option>Yolandie to Data Analyst</option>
-                    <option>Yolandie to Reviewer</option>
-                    <option>Yolandie to Send</option>
+                    {PERSONA_TRELLO_LISTS.map((listName) => (
+                      <option key={listName} value={listName}>
+                        {listName}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -2491,6 +2613,7 @@ const handleEmailAction = (actionKey) => {
     ]);
 
   return (
+  <PasswordGate>
     <div className="app">
       {/* LEFT */}
       <div className="left-panel">
@@ -2509,7 +2632,10 @@ const handleEmailAction = (actionKey) => {
               <button
                 className="notif-close"
                 title="Dismiss"
-                onClick={(e) => { e.stopPropagation(); dismissNotification(n.id); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  dismissNotification(n.id);
+                }}
               >
                 ×
               </button>
@@ -2519,7 +2645,11 @@ const handleEmailAction = (actionKey) => {
       </div>
 
       {/* MIDDLE */}
-      <div className={`middle-panel ${currentView.app === "email" && emailPreview ? "has-email-preview" : ""}`}>
+      <div
+        className={`middle-panel ${
+          currentView.app === "email" && emailPreview ? "has-email-preview" : ""
+        }`}
+      >
         <div className="panel-title">
           {currentView.app === "whatsapp" && currentView.contact
             ? `WhatsApp — ${currentView.contact}`
@@ -2532,7 +2662,6 @@ const handleEmailAction = (actionKey) => {
 
         <div className="middle-content">{middleContent}</div>
 
-        {/* shared bottom text bar (also show for email) */}
         <div className="chat-bar">
           <textarea
             className="chat-textarea"
@@ -2551,7 +2680,7 @@ const handleEmailAction = (actionKey) => {
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                handleSend(); // no-op for email; only WhatsApp/Slack send logic runs
+                handleSend();
               }
             }}
           />
@@ -2566,9 +2695,9 @@ const handleEmailAction = (actionKey) => {
         </div>
       </div>
 
-            {/* RIGHT */}
       {/* RIGHT */}
       <RightPanel />
     </div>
-  );
+  </PasswordGate>
+);
 }
