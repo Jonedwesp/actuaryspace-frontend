@@ -60,35 +60,14 @@ function formatDueLine(d) {
   return `Due ${day} ${month} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
-/* ---------- Dynamic avatars: grab ALL images under src ---------- */
 function loadAvatarModules() {
-  // Vite: glob everything image-like under this directory
-  if (typeof import.meta !== "undefined" && typeof import.meta.glob === "function") {
-    const all = import.meta.glob(
-      "./**/*.{png,PNG,jpg,JPG,jpeg,JPEG,webp,WEBP,gif,GIF}",
-      { eager: true, import: "default" }
-    );
-    console.log("avatar modules", all);   // 🔍 should NOT be empty
-    return all;
-  }
+  const modules = import.meta.glob("./slack-profiles/*.{png,jpg,jpeg,webp,gif}", {
+    eager: true,
+    import: "default",
+  });
 
-  // CRA/Webpack fallback – safe to leave in
-  try {
-    const ctx = require.context(
-      ".",               // current folder + subfolders
-      true,
-      /\.(png|jpe?g|webp|gif)$/i
-    );
-    const map = {};
-    ctx.keys().forEach((k) => {
-      map[k] = ctx(k);
-    });
-    console.log("avatar modules (webpack)", map);
-    return map;
-  } catch (e) {
-    console.warn("No avatar modules found", e);
-    return {};
-  }
+  console.log("avatar modules", modules);
+  return modules;
 }
 
 const _AVATAR_MODULES = loadAvatarModules();
