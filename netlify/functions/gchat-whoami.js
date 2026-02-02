@@ -1,20 +1,17 @@
 export async function handler(event) {
   try {
-    // IMPORTANT: env values sometimes get pasted URL-encoded (like 1%2F%2F...)
-    // This safely turns it back into 1//...
-    const RT_RAW = process.env.AS_GCHAT_RT || "";
-    const RT = safeDecode(RT_RAW).trim();
+    const RT_RAW = process.env.AS_GCHAT_RT;
+    const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+    const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 
-    const CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || "").trim();
-    const CLIENT_SECRET = (process.env.GOOGLE_CLIENT_SECRET || "").trim();
-
-    if (!RT) return json(400, { ok: false, error: "Missing AS_GCHAT_RT in env", hint: "Set raw refresh token (starts with 1//...), not URL-encoded." });
+    if (!RT_RAW) return json(400, { ok: false, error: "Missing AS_GCHAT_RT in env" });
     if (!CLIENT_ID || !CLIENT_SECRET) return json(400, { ok: false, error: "Missing GOOGLE_CLIENT_ID/SECRET in env" });
 
-    // 1) swap refresh token -> access token
-    const tokenUrl = "https://oauth2.googleapis.com/token";
+    // Decode if it was pasted URL-encoded (e.g. 1%2F%2F...)
+    const RT = decodeURIComponent(RT_RAW);
 
-    const tokenRes = await fetch(tokenUrl, {
+    // 1) refresh token -> access token
+    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -25,70 +22,45 @@ export async function handler(event) {
       }),
     });
 
-    const tokenRaw = await tokenRes.text();
-
-    let tokenJson = null;
-    try {
-      tokenJson = JSON.parse(tokenRaw);
-    } catch {
-      return json(502, {
-        ok: false,
-        where: "token_parse",
-        status: tokenRes.status,
-        tokenUrl,
-        rawFirst200: tokenRaw.slice(0, 200),
-      });
-    }
+    const tokenText = await tokenRes.text();
+    let tokenJson = {};
+    try { tokenJson = JSON.parse(tokenText); } catch {}
 
     if (!tokenRes.ok) {
       return json(502, {
         ok: false,
         where: "token",
         status: tokenRes.status,
+        rawFirst200: tokenText.slice(0, 200),
         tokenJson,
-        hint:
-          tokenJson?.error === "invalid_grant"
-            ? "invalid_grant usually means: refresh token revoked/expired, wrong OAuth client (ID/secret mismatch), or refresh token is still encoded."
-            : undefined,
       });
     }
 
     const accessToken = tokenJson.access_token;
-    if (!accessToken) return json(502, { ok: false, where: "token", tokenJson, error: "No access_token returned" });
+    if (!accessToken) return json(502, { ok: false, where: "token", tokenJson });
 
-    // 2) call Chat API as whoever owns that refresh token (Siya)
-    const meRes = await fetch("https://chat.googleapis.com/v1/spaces", {
+    // 2) USER MODE test: list spaces (pageSize=1)
+    const spacesRes = await fetch("https://chat.googleapis.com/v1/spaces?pageSize=1", {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
-    const meRaw = await meRes.text();
+    const spacesText = await spacesRes.text();
+    let spacesJson = {};
+    try { spacesJson = JSON.parse(spacesText); } catch {}
 
-    let meJson = null;
-    try {
-      meJson = JSON.parse(meRaw);
-    } catch {
+    if (!spacesRes.ok) {
       return json(502, {
         ok: false,
-        where: "chat.users.me_parse",
-        status: meRes.status,
-        rawFirst200: meRaw.slice(0, 200),
+        where: "chat.spaces.list",
+        status: spacesRes.status,
+        rawFirst200: spacesText.slice(0, 200),
+        spacesJson,
       });
     }
 
-    if (!meRes.ok) return json(502, { ok: false, where: "chat.users.me", status: meRes.status, meJson });
-
-    return json(200, { ok: true, me: meJson });
+    return json(200, { ok: true, spaces: spacesJson });
   } catch (err) {
     return json(500, { ok: false, error: String(err?.message || err) });
-  }
-}
-
-function safeDecode(s) {
-  try {
-    // only decode if it looks encoded
-    return /%[0-9A-Fa-f]{2}/.test(s) ? decodeURIComponent(s) : s;
-  } catch {
-    return s;
   }
 }
 
