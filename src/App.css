@@ -1166,3 +1166,18 @@ html, body {
   z-index: 10000;
   position: relative;
 }
+
+.connect-google-btn {
+  background: #1a73e8;
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 999px;
+  text-decoration: none;
+  transition: background 0.15s ease;
+}
+
+.connect-google-btn:hover {
+  background: #1558b0;
+}
