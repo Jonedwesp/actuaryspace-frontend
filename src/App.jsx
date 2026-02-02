@@ -2690,7 +2690,7 @@ const handleEmailAction = (actionKey) => {
               href="/.netlify/functions/google-auth-start"
               className="connect-google-btn"
             >
-              Connect Google
+              {googleConnected ? "Reconnect Google" : "Connect Google"}
             </a>
           )}
         </div>
