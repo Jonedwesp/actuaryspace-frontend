@@ -2681,18 +2681,12 @@ const handleEmailAction = (actionKey) => {
               : "Chat / Gemini Output"}
           </span>
 
-          {document.cookie.includes("AS_GCHAT_OK=1") ? (
-            <span className="google-connected">
-              Google Connected
-            </span>
-          ) : (
-            <a
-              href="/.netlify/functions/google-auth-start"
-              className="connect-google-btn"
-            >
-              {googleConnected ? "Reconnect Google" : "Connect Google"}
-            </a>
-          )}
+          <a
+            href="/.netlify/functions/google-auth-start"
+            className="connect-google-btn"
+          >
+            Connect / Reconnect Google
+          </a>
         </div>
 
         <div className="middle-content">{middleContent}</div>
