@@ -2,32 +2,38 @@
 export async function handler(event) {
   try {
     const clientId = process.env.GOOGLE_CLIENT_ID;
-    const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT;
+    const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT; // ✅ confirmed by envcheck
 
     if (!clientId || !redirectUri) {
       return {
         statusCode: 500,
-        body: "Missing GOOGLE_CLIENT_ID or GOOGLE_OAUTH_REDIRECT in env",
+        headers: { "Cache-Control": "no-store" },
+        body: JSON.stringify({
+          ok: false,
+          error: "Missing GOOGLE_CLIENT_ID or GOOGLE_OAUTH_REDIRECT in env",
+          hasClientId: Boolean(clientId),
+          hasRedirect: Boolean(redirectUri),
+        }),
       };
     }
 
-    const state = encodeURIComponent(
-      JSON.stringify({
-        ts: Date.now(),
-        // later we can add: userId, returnTo, etc.
-      })
-    );
+    const state = Buffer.from(
+      JSON.stringify({ ts: Date.now() })
+    ).toString("base64url");
 
     const params = new URLSearchParams({
       client_id: clientId,
       redirect_uri: redirectUri,
       response_type: "code",
-      access_type: "offline", // gives refresh_token (important)
-      prompt: "consent",      // force refresh_token on first connect
+
+      // IMPORTANT: refresh token
+      access_type: "offline",
+      prompt: "consent",
       include_granted_scopes: "true",
+
       state,
 
-      // Scopes for Chat read/write
+      // Google Chat + identity
       scope: [
         "https://www.googleapis.com/auth/chat.messages",
         "https://www.googleapis.com/auth/chat.spaces",
@@ -38,12 +44,10 @@ export async function handler(event) {
       ].join(" "),
     });
 
-    const url = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-
     return {
       statusCode: 302,
       headers: {
-        Location: url,
+        Location: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`,
         "Cache-Control": "no-store",
       },
       body: "",
@@ -51,6 +55,7 @@ export async function handler(event) {
   } catch (err) {
     return {
       statusCode: 500,
+      headers: { "Cache-Control": "no-store" },
       body: `google-auth-start error: ${err?.message || String(err)}`,
     };
   }
