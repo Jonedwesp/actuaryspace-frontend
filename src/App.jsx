@@ -2670,14 +2670,29 @@ const handleEmailAction = (actionKey) => {
           currentView.app === "email" && emailPreview ? "has-email-preview" : ""
         }`}
       >
-        <div className="panel-title">
-          {currentView.app === "whatsapp" && currentView.contact
-            ? `WhatsApp — ${currentView.contact}`
-            : currentView.app === "email"
-            ? `Gmail — ${email.subject}`
-            : currentView.app === "trello"
-            ? `Trello — Card`
-            : "Chat / Gemini Output"}
+        <div className="panel-title" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span>
+            {currentView.app === "whatsapp" && currentView.contact
+              ? `WhatsApp — ${currentView.contact}`
+              : currentView.app === "email"
+              ? `Gmail — ${email.subject}`
+              : currentView.app === "trello"
+              ? `Trello — Card`
+              : "Chat / Gemini Output"}
+          </span>
+
+          {document.cookie.includes("AS_GCHAT_OK=1") ? (
+            <span className="google-connected">
+              Google Connected
+            </span>
+          ) : (
+            <a
+              href="/.netlify/functions/google-auth-start"
+              className="connect-google-btn"
+            >
+              Connect Google
+            </a>
+          )}
         </div>
 
         <div className="middle-content">{middleContent}</div>
