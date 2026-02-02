@@ -57,7 +57,7 @@ export async function handler(event) {
     if (!accessToken) return json(502, { ok: false, where: "token", tokenJson, error: "No access_token returned" });
 
     // 2) call Chat API as whoever owns that refresh token (Siya)
-    const meRes = await fetch("https://chat.googleapis.com/v1/users/me", {
+    const meRes = await fetch("https://chat.googleapis.com/v1/spaces", {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
