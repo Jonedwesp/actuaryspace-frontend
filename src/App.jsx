@@ -1272,6 +1272,17 @@ export default function App() {
 
   const [currentView, setCurrentView] = useState({ app: "none", contact: null });
 
+  /* Google Chat */
+  const [gchatSpaces, setGchatSpaces] = useState([]);
+  const [gchatLoading, setGchatLoading] = useState(false);
+  const [gchatError, setGchatError] = useState("");
+  const [gchatSelectedSpace, setGchatSelectedSpace] = useState(null);
+
+  const [gchatMessages, setGchatMessages] = useState([]);
+  const [gchatMsgLoading, setGchatMsgLoading] = useState(false);
+  const [gchatMsgError, setGchatMsgError] = useState("");
+  const [gchatComposer, setGchatComposer] = useState("");
+
   const seenDriveEmailIdsRef = useRef(new Set());
 
   /* WhatsApp */
@@ -1327,6 +1338,87 @@ export default function App() {
     window.addEventListener("notify", onNotify);
     return () => window.removeEventListener("notify", onNotify);
   }, []);
+
+  // Google Chat: load spaces when we enter the Google Chat view
+  useEffect(() => {
+    if (currentView.app !== "gchat") return;
+
+    let cancelled = false;
+
+    async function loadSpaces() {
+      try {
+        setGchatLoading(true);
+        setGchatError("");
+
+        const res = await fetch("/.netlify/functions/gchat-spaces");
+        const json = await res.json().catch(() => ({}));
+
+        if (!res.ok || json.ok !== true) {
+          throw new Error(json?.error || `Failed to load spaces (HTTP ${res.status})`);
+        }
+
+        if (!cancelled) {
+          setGchatSpaces(Array.isArray(json.spaces) ? json.spaces : []);
+          setGchatSelectedSpace(null);
+
+          // reset thread state
+          setGchatMessages([]);
+          setGchatMsgError("");
+          setGchatComposer("");
+        }
+      } catch (err) {
+        if (!cancelled) setGchatError(String(err?.message || err));
+      } finally {
+        if (!cancelled) setGchatLoading(false);
+      }
+    }
+
+    loadSpaces();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentView.app]);
+
+  // Google Chat: load messages when a space is selected
+  useEffect(() => {
+    if (currentView.app !== "gchat") return;
+    if (!gchatSelectedSpace?.id) return;
+
+    let cancelled = false;
+
+    async function loadMessages() {
+      try {
+        setGchatMsgLoading(true);
+        setGchatMsgError("");
+
+        const res = await fetch(
+          `/.netlify/functions/gchat-messages?space=${encodeURIComponent(
+            gchatSelectedSpace.id
+          )}`
+        );
+        const json = await res.json().catch(() => ({}));
+
+        if (!res.ok || json.ok !== true) {
+          throw new Error(json?.error || `Failed to load messages (HTTP ${res.status})`);
+        }
+
+        if (!cancelled) {
+          setGchatMessages(Array.isArray(json.messages) ? json.messages : []);
+        }
+      } catch (err) {
+        if (!cancelled) setGchatMsgError(String(err?.message || err));
+      } finally {
+        if (!cancelled) setGchatMsgLoading(false);
+      }
+    }
+
+    loadMessages();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentView.app, gchatSelectedSpace?.id]);
 
       // 🔔 Poll Data Centre (Google Drive) for new instruction emails
   useEffect(() => {
@@ -1865,7 +1957,74 @@ const handleEmailAction = (actionKey) => {
       );
     }
 
-        if (currentView.app === "email") {
+    if (currentView.app === "gchat") {
+      return (
+        <div className="gchat-shell">
+          {/* LEFT: spaces list */}
+          <div className="gchat-list">
+            <div className="gchat-list-head">Google Chat</div>
+
+            {gchatLoading && <div className="gchat-muted">Loading…</div>}
+            {gchatError && <div className="gchat-error">{gchatError}</div>}
+
+            {!gchatLoading && !gchatError && gchatSpaces.map((s) => (
+              <button
+                key={s.id}
+                className={`gchat-item ${gchatSelectedSpace?.id === s.id ? "active" : ""}`}
+                onClick={() => setGchatSelectedSpace(s)}
+              >
+                <div className="gchat-avatar">
+                  {(s.name || "?").slice(0, 1).toUpperCase()}
+                </div>
+
+                <div className="gchat-item-text">
+                  <div className="gchat-item-title">{s.name}</div>
+                  <div className="gchat-item-sub">{s.type}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {/* RIGHT: thread placeholder */}
+          <div className="gchat-thread">
+            <div className="gchat-topbar">
+              <div className="gchat-top-title">
+                {gchatSelectedSpace ? gchatSelectedSpace.name : "Select a space"}
+              </div>
+            </div>
+
+            <div className="gchat-thread-body">
+              {!gchatSelectedSpace && "Choose a space on the left."}
+
+              {gchatSelectedSpace && (
+                <>
+                  {gchatMsgLoading && <div className="gchat-muted">Loading messages…</div>}
+                  {gchatMsgError && <div className="gchat-error">{gchatMsgError}</div>}
+
+                  {!gchatMsgLoading && !gchatMsgError && (
+                    <div className="gchat-msg-list">
+                      {gchatMessages.map((m) => (
+                        <div key={m.id} className="gchat-msg">
+                          <div className="gchat-meta">
+                            <span className="gchat-sender">{m.sender?.name || "Unknown"}</span>
+                            <span className="gchat-time">
+                              {m.createTime ? new Date(m.createTime).toLocaleString("en-GB") : ""}
+                            </span>
+                          </div>
+                          <div className="gchat-bubble">{m.text || ""}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+      if (currentView.app === "email") {
       const att = (email && email.attachments) || [];
       const actions = (email && email.actions) || [];
 
@@ -2680,6 +2839,14 @@ const handleEmailAction = (actionKey) => {
               ? `Trello — Card`
               : "Chat / Gemini Output"}
           </span>
+
+          <button
+            className="connect-google-btn"
+            onClick={() => setCurrentView({ app: "gchat", contact: null })}
+            type="button"
+          >
+            Google Chat
+          </button>
 
           <a
             href="/.netlify/functions/google-auth-start"
