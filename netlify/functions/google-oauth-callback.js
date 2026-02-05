@@ -120,8 +120,10 @@ export async function handler(event) {
   return {
     statusCode: 302,
     headers: {
-      "Set-Cookie": headers,
       Location: "/?google=connected",
+    },
+    multiValueHeaders: {
+      "Set-Cookie": headers, // ✅ Put the array here!
     },
     body: "",
   };
