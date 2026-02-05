@@ -7,10 +7,10 @@ export async function handler(event) {
     if (!RT_RAW) return json(400, { ok: false, error: "Missing AS_GCHAT_RT in env" });
     if (!CLIENT_ID || !CLIENT_SECRET) return json(400, { ok: false, error: "Missing GOOGLE_CLIENT_ID/SECRET in env" });
 
-    // Decode if it was pasted URL-encoded (e.g. 1%2F%2F...)
+    // Decode if it was pasted URL-encoded
     const RT = decodeURIComponent(RT_RAW);
 
-    // 1) refresh token -> access token
+    // 1) Exchange refresh token -> access token
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -27,38 +27,35 @@ export async function handler(event) {
     try { tokenJson = JSON.parse(tokenText); } catch {}
 
     if (!tokenRes.ok) {
-      return json(502, {
-        ok: false,
-        where: "token",
-        status: tokenRes.status,
-        rawFirst200: tokenText.slice(0, 200),
-        tokenJson,
-      });
+      return json(502, { ok: false, where: "token", status: tokenRes.status, raw: tokenText });
     }
 
     const accessToken = tokenJson.access_token;
-    if (!accessToken) return json(502, { ok: false, where: "token", tokenJson });
+    if (!accessToken) return json(502, { ok: false, where: "token", error: "No access token returned" });
 
-    // 2) USER MODE test: list spaces (pageSize=1)
-    const spacesRes = await fetch("https://chat.googleapis.com/v1/spaces?pageSize=1", {
+    // 2) GET USER INFO (Who am I?)
+    // We use the oauth2/v2/userinfo endpoint to get the numeric ID
+    const userRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
-    const spacesText = await spacesRes.text();
-    let spacesJson = {};
-    try { spacesJson = JSON.parse(spacesText); } catch {}
+    const userJson = await userRes.json().catch(() => ({}));
 
-    if (!spacesRes.ok) {
-      return json(502, {
-        ok: false,
-        where: "chat.spaces.list",
-        status: spacesRes.status,
-        rawFirst200: spacesText.slice(0, 200),
-        spacesJson,
-      });
+    if (!userRes.ok) {
+      return json(502, { ok: false, where: "userinfo", status: userRes.status, error: userJson });
     }
 
-    return json(200, { ok: true, spaces: spacesJson });
+    // 3) Format as Google Chat Resource Name: "users/{id}"
+    // This allows the frontend to strictly match "msg.sender.name"
+    const chatName = `users/${userJson.id}`;
+
+    return json(200, { 
+      ok: true, 
+      name: chatName, // e.g. "users/1073..."
+      email: userJson.email,
+      picture: userJson.picture
+    });
+
   } catch (err) {
     return json(500, { ok: false, error: String(err?.message || err) });
   }

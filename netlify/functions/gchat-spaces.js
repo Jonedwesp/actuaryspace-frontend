@@ -1,4 +1,5 @@
-export async function handler(event) {
+// netlify/functions/gchat-spaces.js
+export async function handler() {
   try {
     const RT_RAW = process.env.AS_GCHAT_RT;
     const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -9,7 +10,7 @@ export async function handler(event) {
 
     const RT = decodeURIComponent(RT_RAW);
 
-    // 1) refresh token -> access token
+    // refresh -> access
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -21,55 +22,31 @@ export async function handler(event) {
       }),
     });
 
-    const tokenText = await tokenRes.text();
-    let tokenJson = {};
-    try { tokenJson = JSON.parse(tokenText); } catch {}
-
-    if (!tokenRes.ok) {
-      return json(502, {
-        ok: false,
-        where: "token",
-        status: tokenRes.status,
-        rawFirst200: tokenText.slice(0, 200),
-        tokenJson,
-      });
+    const tokenJson = await tokenRes.json().catch(() => ({}));
+    if (!tokenRes.ok || !tokenJson.access_token) {
+      return json(502, { ok: false, where: "token", tokenJson });
     }
 
     const accessToken = tokenJson.access_token;
-    if (!accessToken) return json(502, { ok: false, where: "token", tokenJson });
 
-    // 2) list spaces
+    // list spaces
     const url = new URL("https://chat.googleapis.com/v1/spaces");
-    url.searchParams.set("pageSize", "100");
-    // Optional: request only what we need
+    url.searchParams.set("pageSize", "200");
     url.searchParams.set("fields", "spaces(name,displayName,spaceType,spaceDetails),nextPageToken");
 
     const res = await fetch(url.toString(), {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
-    const text = await res.text();
-    let data = {};
-    try { data = JSON.parse(text); } catch {}
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return json(502, { ok: false, where: "chat.spaces.list", data });
 
-    if (!res.ok) {
-      return json(502, {
-        ok: false,
-        where: "chat.spaces.list",
-        status: res.status,
-        rawFirst200: text.slice(0, 200),
-        data,
-      });
-    }
-
-    const spaces = (data.spaces || []).map(s => ({
-      id: s.name,                       // e.g. "spaces/AAAA..."
-      name: s.displayName || "Unnamed",
-      type: s.spaceType || null,        // "SPACE" / "DM"
-      details: s.spaceDetails || null,  // may be null
+    const spaces = (data.spaces || []).map((s) => ({
+      id: s.name, // "spaces/...."
+      displayName: s.displayName || "", // DMs usually blank
+      type: s.spaceType, // "SPACE" or "DIRECT_MESSAGE"
+      details: s.spaceDetails || null,
     }));
-
-    // NOTE: unread dots are NOT reliable from API; we’ll fake later via “last seen” per space.
 
     return json(200, { ok: true, spaces, nextPageToken: data.nextPageToken || null });
   } catch (err) {

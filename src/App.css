@@ -129,7 +129,9 @@ html, body {
   overflow-y: hidden;
   border-radius: 999px;
   transition: border-radius .15s ease;
+  text-align: left;
 }
+
 .chat-bar.expanded .chat-textarea { border-radius: 14px; }
 .chat-textarea:focus { outline: none; box-shadow: none; }
 .chat-textarea::-webkit-scrollbar { width: 6px; }
@@ -1180,4 +1182,375 @@ html, body {
 
 .connect-google-btn:hover {
   background: #1558b0;
+}
+
+/* ===== Google Chat left list pills ===== */
+
+.gchat-sidebar {
+  padding: 8px 6px;
+}
+
+.gchat-item {
+  width: 100%;
+  max-width: 92%;
+  margin: 4px auto;
+  padding: 4px 10px;
+  min-height: 28px;
+  border-radius: 999px;
+  background: #f1f3f4;
+  border: 1px solid transparent;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+  text-align: left;
+}
+
+.gchat-item:hover {
+  background: #e8f0fe;
+}
+
+.gchat-item.active {
+  background: #d2e3fc;
+  border-color: #aecbfa;
+  box-shadow: inset 0 0 0 1px rgba(26, 115, 232, 0.15);
+}
+
+.gchat-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 0.7rem;
+}
+
+.gchat-item-text {
+  overflow: hidden;
+}
+
+.gchat-item-title {
+  font-size: 0.82rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ===== Google Chat font (Google-like) ===== */
+.gchat-shell,
+.gchat-shell * {
+  font-family: Roboto, "Google Sans", system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Arial, sans-serif;
+  letter-spacing: 0.01em;
+}
+
+/* ===== Google Chat messages ===== */
+
+.gchat-msg + .gchat-msg {
+  margin-top: 8px;
+}
+
+.gchat-msg {
+  display: flex;
+  gap: 10px;
+  margin: 10px 0;
+}
+
+.gchat-msg.mine {
+  justify-content: flex-end;
+}
+
+.gchat-msg.mine .gchat-msg-content {
+  margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.gchat-avatar-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: #e6e9ef;
+  display: grid;
+  place-items: center;
+  flex: 0 0 32px;
+  overflow: hidden;
+}
+
+.gchat-avatar-circle img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.gchat-avatar-circle span {
+  font-weight: 600;
+  font-size: 14px;
+  color: #374151;
+}
+
+.gchat-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 0.85rem;
+  color: #555;
+  font-weight: 500;
+}
+
+.gchat-msg.mine .gchat-meta {
+  justify-content: flex-end;
+}
+
+.gchat-bubble {
+  display: inline-block;
+  background: #f3f4f6;
+  border-radius: 14px;
+  padding: 8px 10px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  max-width: 520px;
+  width: fit-content;
+  position: relative;
+  transition: background 0.15s ease;
+}
+
+.gchat-msg.mine .gchat-bubble {
+  background: #d2e3fc;
+}
+
+.gchat-msg.theirs .gchat-bubble:hover {
+  background: #e5e7eb;
+}
+
+/* ===== Google Chat reactions ===== */
+
+.gchat-react-picker {
+  position: absolute;
+  top: -10px;
+  right: 6px;
+  transform: translateY(-100%);
+  display: flex;
+  gap: 6px;
+  background: white;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 999px;
+  padding: 6px 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  z-index: 20;
+}
+
+.gchat-react-option {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 4px;
+}
+
+.gchat-react-option.heart {
+  filter: saturate(1.2);
+}
+
+.gchat-reaction-row {
+  margin-top: 6px;
+  display: flex;
+  gap: 6px;
+}
+
+.gchat-reaction-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  font-size: 13px;
+}
+
+.gchat-react-bar {
+  position: absolute;
+  top: -10px;
+  right: -8px;
+  display: flex;
+  gap: 6px;
+  background: white;
+  border-radius: 999px;
+  padding: 4px 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  z-index: 20;
+}
+
+/* ===== Chat bar + upload preview (Polished) ===== */
+
+.chat-bar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px; /* Gap between preview and text input */
+  align-items: stretch; /* Critical: keeps everything aligned left-to-right */
+  padding: 10px 12px; /* Consistent padding wrapper */
+}
+
+/* The container for the card */
+.chat-upload-preview {
+  width: 100%;
+  display: flex;
+  justify-content: flex-start;
+  padding-left: 2px; /* Slight alignment tweak to match text cursor */
+}
+
+/* The actual file card */
+.chat-upload-card {
+  width: 200px; /* Slightly wider for better text fit */
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #dadce0;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.3);
+  overflow: hidden;
+  transition: background 0.2s;
+}
+
+.chat-upload-card:hover {
+  background: #f8f9fa;
+}
+
+/* The Red PDF Icon Box */
+.chat-upload-icon {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  border-radius: 4px;
+  background: #ea4335; /* Google Red */
+  color: white;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+}
+
+/* Filename and Size */
+.chat-upload-meta {
+  min-width: 0; /* allows text truncation to work */
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chat-upload-name {
+  font-weight: 500;
+  font-size: 13px;
+  color: #202124;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-upload-size {
+  font-size: 11px;
+  color: #5f6368;
+}
+
+/* The X button */
+.chat-upload-remove {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: #5f6368;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  line-height: 1;
+  margin-left: 4px;
+}
+
+.chat-upload-remove:hover {
+  background: rgba(95, 99, 104, 0.1);
+  color: #202124;
+}
+
+/* Input Row (Textarea + buttons) */
+.chat-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  width: 100%;
+}
+
+/* ===== Plus button ===== */
+
+.chat-plus-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-left: 10px;
+}
+
+.chat-plus-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  background: #ffffff;
+  color: #111;
+  font-size: 22px;
+  line-height: 0;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.chat-plus-btn:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.chat-plus-menu {
+  position: absolute;
+  right: 0px;
+  bottom: 44px;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+  padding: 6px;
+  z-index: 1000;
+  min-width: 150px;
+}
+
+.chat-plus-item {
+  border: none;
+  background: transparent;
+  padding: 10px 12px;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  border-radius: 10px;
+  font-size: 14px;
+}
+
+.chat-plus-item:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+/* kill any pseudo-element dots */
+.chat-plus-wrap::before,
+.chat-plus-wrap::after {
+  content: none !important;
+  display: none !important;
+}
+
+.chat-bar.has-file {
+  border-radius: 10px; /* 👈 ADJUST THIS: 18px is usually perfect for the "tall" state */
 }

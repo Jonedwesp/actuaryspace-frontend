@@ -1,18 +1,19 @@
-[build]
+[build]   
   command   = "npm run build"
-  publish   = "dist"
+  publish   = "build"
   functions = "netlify/functions"
 
-[dev]
+[dev
   # Runs CRA locally (port 3001), Netlify proxies at the dev port below
-  command     = "vite"
-  targetPort  = 5173
+  command     = "npm start"
+  targetPort  = 3001
   port        = 8888          # change to 8889 if 8888 is busy
   autoLaunch  = false
   functions   = "netlify/functions"
 
 # React single-page app fallback
+[[redirects]]
+  from = "/*"
+  to   = "/index.html"
+  status = 200
 
-[functions]
-  directory = "netlify/functions"
-  included_files = ["netlify/functions/service-account.enc.json"]

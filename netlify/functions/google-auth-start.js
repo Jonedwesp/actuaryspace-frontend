@@ -1,62 +1,48 @@
-// netlify/functions/google-auth-start.js
 export async function handler(event) {
-  try {
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT; // ✅ confirmed by envcheck
+  const qs = event.queryStringParameters || {};
+  const as = String(qs.as || "").toLowerCase();
+  const setup = String(qs.setup || "");
 
-    if (!clientId || !redirectUri) {
-      return {
-        statusCode: 500,
-        headers: { "Cache-Control": "no-store" },
-        body: JSON.stringify({
-          ok: false,
-          error: "Missing GOOGLE_CLIENT_ID or GOOGLE_OAUTH_REDIRECT in env",
-          hasClientId: Boolean(clientId),
-          hasRedirect: Boolean(redirectUri),
-        }),
-      };
-    }
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  
+  // KEEP LOCALHOST for now to avoid "redirect_uri_mismatch"
+  const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT;
 
-    const state = Buffer.from(
-      JSON.stringify({ ts: Date.now() })
-    ).toString("base64url");
-
-    const params = new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: redirectUri,
-      response_type: "code",
-
-      // IMPORTANT: refresh token
-      access_type: "offline",
-      prompt: "consent",
-      include_granted_scopes: "true",
-
-      state,
-
-      // Google Chat + identity
-      scope: [
-        "https://www.googleapis.com/auth/chat.messages",
-        "https://www.googleapis.com/auth/chat.spaces",
-        "https://www.googleapis.com/auth/chat.memberships",
-        "openid",
-        "email",
-        "profile",
-      ].join(" "),
-    });
-
-    return {
-      statusCode: 302,
-      headers: {
-        Location: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`,
-        "Cache-Control": "no-store",
-      },
-      body: "",
-    };
-  } catch (err) {
+  if (!clientId || !redirectUri) {
     return {
       statusCode: 500,
-      headers: { "Cache-Control": "no-store" },
-      body: `google-auth-start error: ${err?.message || String(err)}`,
+      body: "Missing GOOGLE_CLIENT_ID or GOOGLE_OAUTH_REDIRECT",
     };
   }
+
+  const SCOPES = [
+    "openid",
+    "email",
+    "profile",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
+    "https://www.googleapis.com/auth/chat.messages",
+    "https://www.googleapis.com/auth/chat.spaces",
+    "https://www.googleapis.com/auth/chat.memberships",
+    // ❌ REMOVED: chat.users.readonly (This was causing the Error 400)
+  ];
+
+  const stateObj = { ts: Date.now(), as, setup };
+  const state = Buffer.from(JSON.stringify(stateObj)).toString("base64url");
+
+  const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+  authUrl.searchParams.set("client_id", clientId);
+  authUrl.searchParams.set("redirect_uri", redirectUri);
+  authUrl.searchParams.set("response_type", "code");
+  authUrl.searchParams.set("scope", SCOPES.join(" "));
+  authUrl.searchParams.set("access_type", "offline");
+  authUrl.searchParams.set("prompt", "consent");
+  authUrl.searchParams.set("include_granted_scopes", "true");
+  authUrl.searchParams.set("state", state);
+
+  return {
+    statusCode: 302,
+    headers: { Location: authUrl.toString() },
+    body: "",
+  };
 }

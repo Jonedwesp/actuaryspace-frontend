@@ -146,7 +146,102 @@ function formatUKTimeWithSeconds(date) {
     hour12: false,
   });
 }
-const now = new Date();
+
+function formatGchatTime(isoString) {
+  if (!isoString) return "";
+
+  const now = new Date();
+  const msgTime = new Date(isoString);
+
+  const diffMs = now - msgTime;
+  const diffMin = Math.max(0, Math.floor(diffMs / 60000));
+  const diffHr = diffMin / 60;
+
+  const sameDay =
+    now.getFullYear() === msgTime.getFullYear() &&
+    now.getMonth() === msgTime.getMonth() &&
+    now.getDate() === msgTime.getDate();
+
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+
+  const isYesterday =
+    msgTime.getFullYear() === yesterday.getFullYear() &&
+    msgTime.getMonth() === yesterday.getMonth() &&
+    msgTime.getDate() === yesterday.getDate();
+
+  // 1. within last hour → "32min"
+  if (diffMin < 60) {
+    return `${diffMin}min`;
+  }
+
+  // 2. today but >1 hour → "10:34 AM"
+  if (sameDay) {
+    return msgTime.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+
+  // 3. yesterday → "Yesterday, 10:34 AM"
+  if (isYesterday) {
+    return `Yesterday, ${msgTime.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+    })}`;
+  }
+
+  // calendar days difference (more reliable than diffHr/24)
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfMsgDay = new Date(msgTime.getFullYear(), msgTime.getMonth(), msgTime.getDate());
+  const daysAgo = Math.floor((startOfToday - startOfMsgDay) / 86400000);
+
+  // 4. 2–6 days ago
+  if (daysAgo >= 2 && daysAgo <= 6) {
+    return msgTime.toLocaleString("en-US", {
+      weekday: "short",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+
+  // 5. ≥ 7 days ago → "Jan 23, 09:15 PM"
+  return `${msgTime.toLocaleString("en-US", { month: "short" })} ${msgTime.getDate()}, ${msgTime.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+  })}`;
+}
+
+function normalizeGChatMessage(m) {
+  return m?.message || m;
+}
+
+function getMsgTs(m) {
+  const msg = normalizeGChatMessage(m);
+  return new Date(msg?.createTime || msg?.updateTime || 0).getTime();
+}
+
+function msgKey(m) {
+  const msg = normalizeGChatMessage(m);
+  return msg?.name || msg?.id || "";
+}
+
+function dedupeMergeMessages(prev, incoming) {
+  const seen = new Set((prev || []).map((m) => msgKey(m)).filter(Boolean));
+  const merged = [...(prev || [])];
+
+  for (const m of incoming || []) {
+    const msg = normalizeGChatMessage(m);
+    const k = msgKey(msg);
+    if (!k) continue;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    merged.push(msg);
+  }
+
+  merged.sort((a, b) => getMsgTs(a) - getMsgTs(b));
+  return merged;
+}
 
 /* ----- Trello date helpers ----- */
 function pad2(n) { return String(n).padStart(2, "0"); }
@@ -1269,19 +1364,66 @@ export default function App() {
   const nextIdRef = useRef(0);
   const rotateIdxRef = useRef(0);
   const emailRotateRef = useRef(0);
-
-  const [currentView, setCurrentView] = useState({ app: "none", contact: null });
+  const chatTextareaRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const [showPlusMenu, setShowPlusMenu] = useState(false);
 
   /* Google Chat */
+  const gchatBodyRef = useRef(null);
+
   const [gchatSpaces, setGchatSpaces] = useState([]);
   const [gchatLoading, setGchatLoading] = useState(false);
   const [gchatError, setGchatError] = useState("");
   const [gchatSelectedSpace, setGchatSelectedSpace] = useState(null);
 
   const [gchatMessages, setGchatMessages] = useState([]);
+  const [gchatMe, setGchatMe] = useState(null);
   const [gchatMsgLoading, setGchatMsgLoading] = useState(false);
   const [gchatMsgError, setGchatMsgError] = useState("");
   const [gchatComposer, setGchatComposer] = useState("");
+  const [gchatDmNames, setGchatDmNames] = useState({});
+  const [gchatAutoScroll, setGchatAutoScroll] = useState(true);
+  const [pendingUpload, setPendingUpload] = useState(null); // { file: File, kind: "pdf" }
+
+  /* 🔴 NEW — Google Chat reactions UI state */
+  const [hoveredMsgId, setHoveredMsgId] = useState(null);
+  const [reactions, setReactions] = useState({});
+
+  function toggleReaction(messageId, type) {
+  setReactions((prev) => {
+    const current = prev[messageId] || [];
+    const exists = current.includes(type);
+    const next = exists
+      ? current.filter((x) => x !== type)
+      : [...current, type];
+    return { ...prev, [messageId]: next };
+  });
+}
+
+useEffect(() => {
+    const saved = localStorage.getItem("GCHAT_ME");
+    if (saved) setGchatMe(saved);
+  }, []);
+
+  useEffect(() => {
+    const close = (e) => {
+      if (e.target.closest?.(".chat-plus-wrap")) return;
+      setShowPlusMenu(false);
+    };
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, []);
+
+  // ✅ put scroll effect AFTER the above state exists
+  useEffect(() => {
+    const el = gchatBodyRef.current;
+    if (!el) return;
+    if (!gchatAutoScroll) return;
+
+    el.scrollTop = el.scrollHeight;
+  }, [gchatMessages, gchatSelectedSpace?.id, gchatAutoScroll]);
+
+  const [currentView, setCurrentView] = useState({ app: "none", contact: null });
 
   const seenDriveEmailIdsRef = useRef(new Set());
 
@@ -1339,7 +1481,7 @@ export default function App() {
     return () => window.removeEventListener("notify", onNotify);
   }, []);
 
-  // Google Chat: load spaces when we enter the Google Chat view
+  // Google Chat: load spaces AND identity when we enter the Google Chat view
   useEffect(() => {
     if (currentView.app !== "gchat") return;
 
@@ -1360,8 +1502,6 @@ export default function App() {
         if (!cancelled) {
           setGchatSpaces(Array.isArray(json.spaces) ? json.spaces : []);
           setGchatSelectedSpace(null);
-
-          // reset thread state
           setGchatMessages([]);
           setGchatMsgError("");
           setGchatComposer("");
@@ -1373,52 +1513,122 @@ export default function App() {
       }
     }
 
+    // 👇 NEW: Identify "Siya" immediately
+    async function fetchWhoAmI() {
+      try {
+        const res = await fetch("/.netlify/functions/gchat-whoami");
+        const json = await res.json().catch(() => ({}));
+        
+        // Match what the backend returns (json.name = "users/123...")
+        const myId = json.name || json.user?.name || json.resourceName;
+
+        if (myId && !cancelled) {
+          console.log("identified current user as:", myId);
+          setGchatMe(myId);
+          localStorage.setItem("GCHAT_ME", myId);
+        }
+      } catch (err) {
+        console.error("Failed to identify current user:", err);
+      }
+    }
+
     loadSpaces();
+    fetchWhoAmI(); // 👈 Call the new function
 
     return () => {
       cancelled = true;
     };
   }, [currentView.app]);
 
-  // Google Chat: load messages when a space is selected
   useEffect(() => {
-    if (currentView.app !== "gchat") return;
-    if (!gchatSelectedSpace?.id) return;
+  if (currentView.app !== "gchat") return;
+  if (!gchatSpaces.length) return;
 
-    let cancelled = false;
+  const dms = gchatSpaces.filter(
+    (s) => s.type === "DIRECT_MESSAGE" && !gchatDmNames[s.id]
+  );
+  if (!dms.length) return;
 
-    async function loadMessages() {
+  (async () => {
+    for (const dm of dms) {
       try {
-        setGchatMsgLoading(true);
-        setGchatMsgError("");
-
         const res = await fetch(
-          `/.netlify/functions/gchat-messages?space=${encodeURIComponent(
-            gchatSelectedSpace.id
-          )}`
+          `/.netlify/functions/gchat-dm-name?space=${encodeURIComponent(dm.id)}`
         );
+
+        if (!res.ok) continue;
+
         const json = await res.json().catch(() => ({}));
 
-        if (!res.ok || json.ok !== true) {
-          throw new Error(json?.error || `Failed to load messages (HTTP ${res.status})`);
-        }
+        if (json.ok && json.names) {
+          const label =
+            Object.values(json.names)[0] ||
+            dm.displayName ||
+            "Direct Message";
 
-        if (!cancelled) {
-          setGchatMessages(Array.isArray(json.messages) ? json.messages : []);
+          setGchatDmNames((prev) => ({
+            ...prev,
+            [dm.id]: label,
+          }));
         }
       } catch (err) {
-        if (!cancelled) setGchatMsgError(String(err?.message || err));
-      } finally {
-        if (!cancelled) setGchatMsgLoading(false);
+        console.error("DM name resolve failed", dm.id, err);
       }
     }
+  })();
+}, [currentView.app, gchatSpaces]);
 
-    loadMessages();
+  // Google Chat: load + poll messages when a space is selected
+useEffect(() => {
+  if (currentView.app !== "gchat") return;
+  if (!gchatSelectedSpace?.id) return;
 
-    return () => {
-      cancelled = true;
-    };
-  }, [currentView.app, gchatSelectedSpace?.id]);
+  let cancelled = false;
+
+  async function fetchLatestAndMerge() {
+    try {
+      setGchatMsgError("");
+
+      const res = await fetch(
+        `/.netlify/functions/gchat-messages?space=${encodeURIComponent(
+          gchatSelectedSpace.id
+        )}`
+      );
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok || json.ok !== true) {
+        throw new Error(
+          json?.error || `Failed to load messages (HTTP ${res.status})`
+        );
+      }
+
+      const incomingRaw = Array.isArray(json.messages) ? json.messages : [];
+      const incoming = incomingRaw.map((m) => normalizeGChatMessage(m));
+
+      if (!cancelled) {
+        setGchatMessages((prev) => dedupeMergeMessages(prev, incoming));
+      }
+    } catch (err) {
+      if (!cancelled) setGchatMsgError(String(err?.message || err));
+    }
+  }
+
+  // reset thread for the newly selected space + do initial load
+  setGchatMessages([]);
+  setGchatMsgLoading(true);
+
+  fetchLatestAndMerge().finally(() => {
+    if (!cancelled) setGchatMsgLoading(false);
+  });
+
+  // poll every 4 seconds (tune if you want)
+  const pollId = setInterval(fetchLatestAndMerge, 4000);
+
+  return () => {
+    cancelled = true;
+    clearInterval(pollId);
+  };
+}, [currentView.app, gchatSelectedSpace?.id]);
 
       // 🔔 Poll Data Centre (Google Drive) for new instruction emails
   useEffect(() => {
@@ -1646,90 +1856,92 @@ export default function App() {
     return hit || fallback;
   };
 
-        const onNotificationClick = async (n) => {
-    // 🟢 Trello notifications (existing behaviour)
-    if (n.alt === "Trello") {
-      setTrelloMenuOpen(false);
-      setCurrentView({ app: "trello", contact: null });
-      setTrelloCard(buildTrelloCardFromNotif(n.text));
-      return;
-    }
+  const onNotificationClick = async (n) => {
+  // 🟢 Trello notifications (existing behaviour)
+  if (n.alt === "Trello") {
+    setTrelloMenuOpen(false);
+    setCurrentView({ app: "trello", contact: null });
+    setTrelloCard(buildTrelloCardFromNotif(n.text));
+    return;
+  }
 
-    // 📨 Gmail-style notifications from Data Centre (Drive)
-    if (n.alt === "Gmail" && n.driveEmail) {
+  // 📨 Gmail-style notifications from Data Centre (Drive)
+  if (n.alt === "Gmail" && n.driveEmail) {
+    try {
+      // 🔁 UPDATED: fetch attachments scoped to THIS email
+      const res = await fetch(
+        `/.netlify/functions/drive-get-email-attachments?id=${encodeURIComponent(
+          n.driveEmail.id
+        )}`
+      );
+      const json = await res.json().catch(() => ({}));
+      const files = Array.isArray(json.files) ? json.files : [];
+
+      const attachments = files.map((f) => {
+        const mime = f.mimeType || "application/pdf";
+        const baseUrl = `/.netlify/functions/drive-download?id=${encodeURIComponent(
+          f.id
+        )}&name=${encodeURIComponent(f.name)}&mimeType=${encodeURIComponent(mime)}`;
+
+        return {
+          id: f.id,
+          name: f.name,
+          type: "pdf",
+          url: baseUrl,
+          thumbUrl: f.thumbnailLink || f.webViewLink || baseUrl,
+        };
+      });
+
+      let bodyText = "But the original .eml is stored in the Data Centre.";
       try {
-        // ... existing Gmail logic stays exactly as you had it ...
-        const res = await fetch("/.netlify/functions/drive-get-source-docs");
-        const json = await res.json().catch(() => ({}));
-        const pdfFiles = (json.files || []).filter(
-          (f) => f.mimeType === "application/pdf"
+        const bodyRes = await fetch(
+          `/.netlify/functions/drive-get-eml?id=${encodeURIComponent(
+            n.driveEmail.id
+          )}`
         );
-
-        const attachments = pdfFiles.map((f) => {
-          const mime = f.mimeType || "application/pdf";
-          const baseUrl = `/.netlify/functions/drive-download?id=${encodeURIComponent(
-            f.id
-          )}&name=${encodeURIComponent(f.name)}&mimeType=${encodeURIComponent(mime)}`;
-
-          return {
-            id: f.id,
-            name: f.name,
-            type: "pdf",
-            url: baseUrl,
-            thumbUrl: f.thumbnailLink || f.webViewLink || baseUrl,
-          };
-        });
-
-        let bodyText = "But the original .eml is stored in the Data Centre.";
-        try {
-          const bodyRes = await fetch(
-            `/.netlify/functions/drive-get-eml?id=${encodeURIComponent(
-              n.driveEmail.id
-            )}`
-          );
-          const bodyJson = await bodyRes.json().catch(() => ({}));
-          if (bodyJson && bodyJson.ok && bodyJson.bodyText) {
-            bodyText = bodyJson.bodyText;
-          }
-        } catch (err) {
-          console.error("Failed to fetch .eml body:", err);
+        const bodyJson = await bodyRes.json().catch(() => ({}));
+        if (bodyJson && bodyJson.ok && bodyJson.bodyText) {
+          bodyText = bodyJson.bodyText;
         }
-
-        const subject =
-          (n.driveEmail.subject && n.driveEmail.subject.trim()) ||
-          n.driveEmail.name.replace(/\.eml$/i, "") ||
-          "Client Instruction (Data Centre)";
-
-        setEmailPreview(null);
-        setEmail({
-          id: n.driveEmail.id,
-          subject,
-          fromName: "Client Instruction (Data Centre)",
-          fromEmail: "via Data Centre <agentyolandie@gmail.com>",
-          to: ["Yolandie <yolandie@actuaryspace.co.za>"],
-          time: n.time,
-          body: bodyText,
-          attachments,
-          actions: [
-            { key: "submit_trello", label: "Submit to Trello" },
-            { key: "update_tracker", label: "Update AC Tracker" },
-          ],
-        });
-
-        window.dispatchEvent(
-          new CustomEvent("setClientFiles", {
-            detail: { files: attachments },
-          })
-        );
-
-        setCurrentView({ app: "email", contact: null });
       } catch (err) {
-        console.error("Failed to open email from notification:", err);
+        console.error("Failed to fetch .eml body:", err);
       }
 
-      return;
+      const subject =
+        (n.driveEmail.subject && n.driveEmail.subject.trim()) ||
+        n.driveEmail.name.replace(/\.eml$/i, "") ||
+        "Client Instruction (Data Centre)";
+
+      setEmailPreview(null);
+      setEmail({
+        id: n.driveEmail.id,
+        subject,
+        fromName: "Client Instruction (Data Centre)",
+        fromEmail: "via Data Centre <agentyolandie@gmail.com>",
+        to: ["Yolandie <yolandie@actuaryspace.co.za>"],
+        time: n.time,
+        body: bodyText,
+        attachments,
+        actions: [
+          { key: "submit_trello", label: "Submit to Trello" },
+          { key: "update_tracker", label: "Update AC Tracker" },
+        ],
+      });
+
+      window.dispatchEvent(
+        new CustomEvent("setClientFiles", {
+          detail: { files: attachments },
+        })
+      );
+
+      setCurrentView({ app: "email", contact: null });
+    } catch (err) {
+      console.error("Failed to open email from notification:", err);
     }
-  };
+
+    return;
+  }
+};
 
   /* dismiss notif */
   const dismissNotification = (id) => {
@@ -1885,43 +2097,115 @@ const handleEmailAction = (actionKey) => {
   );
 };
 
-  /* send + auto reply (WhatsApp only) */
-  const handleSend = () => {
-    const text = inputValue.trim();
-    if (!text) return;
+  /* send + auto reply (WhatsApp + Google Chat) */
+const handleSend = async () => {
+  const text = inputValue.trim();
+  // Allow empty text if we are uploading a file
+  if (!text && !pendingUpload) return;
 
-    if (currentView.app === "whatsapp" && currentView.contact) {
-      const contact = currentView.contact;
+  // WhatsApp (unchanged)
+  if (currentView.app === "whatsapp" && currentView.contact) {
+    const contact = currentView.contact;
 
+    setWaChats((prev) => {
+      const list = prev[contact] ? [...prev[contact]] : [];
+      list.push({ from: "me", text, time: formatUKTime(new Date()) });
+      return { ...prev, [contact]: list };
+    });
+
+    const delay = 1000 + Math.floor(Math.random() * 2000);
+    const reply =
+      WA_AUTO_REPLIES[Math.floor(Math.random() * WA_AUTO_REPLIES.length)];
+
+    setTimeout(() => {
       setWaChats((prev) => {
         const list = prev[contact] ? [...prev[contact]] : [];
-        list.push({ from: "me", text, time: formatUKTime(new Date()) });
+        list.push({ from: "them", text: reply, time: formatUKTime(new Date()) });
         return { ...prev, [contact]: list };
       });
+    }, delay);
 
-      const delay = 1000 + Math.floor(Math.random() * 2000);
-      const reply =
-        WA_AUTO_REPLIES[Math.floor(Math.random() * WA_AUTO_REPLIES.length)];
-
-      setTimeout(() => {
-        setWaChats((prev) => {
-          const list = prev[contact] ? [...prev[contact]] : [];
-          list.push({ from: "them", text: reply, time: formatUKTime(new Date()) });
-          return { ...prev, [contact]: list };
-        });
-      }, delay);
-
-      // clear input after sending
-      setInputValue("");
-      const ta = document.querySelector(".chat-textarea");
-      if (ta) {
-        ta.style.height = "auto";
-        ta.style.overflowY = "hidden";
-        const chatBar = ta.closest(".chat-bar");
-        if (chatBar) chatBar.classList.remove("expanded");
-      }
+    setInputValue("");
+    const ta = document.querySelector(".chat-textarea");
+    if (ta) {
+      ta.style.height = "auto";
+      ta.style.overflowY = "hidden";
+      const chatBar = ta.closest(".chat-bar");
+      if (chatBar) chatBar.classList.remove("expanded");
     }
-  };
+    return;
+  }
+
+  // Google Chat
+  if (currentView.app === "gchat" && gchatSelectedSpace) {
+    try {
+      let json = {};
+
+      if (pendingUpload) {
+        // --- UPLOAD FLOW ---
+        const reader = new FileReader();
+        reader.readAsDataURL(pendingUpload.file);
+        
+        await new Promise((resolve) => {
+          reader.onload = async () => {
+            const base64Content = reader.result.split(",")[1];
+            
+            const res = await fetch("/.netlify/functions/gchat-upload", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                space: gchatSelectedSpace.id,
+                text: text, // optional caption
+                filename: pendingUpload.file.name,
+                mimeType: pendingUpload.file.type,
+                fileBase64: base64Content
+              }),
+            });
+            json = await res.json().catch(() => ({}));
+            resolve();
+          };
+        });
+
+      } else {
+        // --- TEXT ONLY FLOW ---
+        const res = await fetch("/.netlify/functions/gchat-send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            space: gchatSelectedSpace.id,
+            text,
+          }),
+        });
+        json = await res.json().catch(() => ({}));
+      }
+
+      if (json.ok && json.message) {
+        const me = json.message?.sender?.name;
+        if (me && !gchatMe) {
+          setGchatMe(me);
+          localStorage.setItem("GCHAT_ME", me);
+        }
+
+        setGchatMessages((prev) => dedupeMergeMessages(prev, [json.message]));
+      }
+
+      setPendingUpload(null);
+
+    } catch (err) {
+      console.error("gchat-send/upload failed:", err);
+    }
+
+    setInputValue("");
+    const ta = document.querySelector(".chat-textarea");
+    if (ta) {
+      ta.style.height = "auto";
+      ta.style.overflowY = "hidden";
+      const chatBar = ta.closest(".chat-bar");
+      if (chatBar) chatBar.classList.remove("expanded");
+    }
+    return;
+  }
+};
 
   /* middle renderer */
   const middleContent = useMemo(() => {
@@ -1957,72 +2241,248 @@ const handleEmailAction = (actionKey) => {
       );
     }
 
-    if (currentView.app === "gchat") {
-      return (
-        <div className="gchat-shell">
-          {/* LEFT: spaces list */}
-          <div className="gchat-list">
-            <div className="gchat-list-head">Google Chat</div>
+if (currentView.app === "gchat") {
+  return (
+    <div className="gchat-shell" style={{ display: "flex", height: "100%" }}>
+      {/* LEFT 1/4 — spaces + DMs */}
+      <div
+        className="gchat-sidebar"
+        style={{
+          width: "25%",
+          borderRight: "1px solid #ddd",
+          overflowY: "auto",
+          padding: "8px",
+        }}
+      >
+        {/* Google Chat header removed */}
 
-            {gchatLoading && <div className="gchat-muted">Loading…</div>}
-            {gchatError && <div className="gchat-error">{gchatError}</div>}
+        {gchatLoading && <div className="gchat-muted">Loading…</div>}
+        {gchatError && <div className="gchat-error">{gchatError}</div>}
 
-            {!gchatLoading && !gchatError && gchatSpaces.map((s) => (
-              <button
-                key={s.id}
-                className={`gchat-item ${gchatSelectedSpace?.id === s.id ? "active" : ""}`}
-                onClick={() => setGchatSelectedSpace(s)}
-              >
-                <div className="gchat-avatar">
-                  {(s.name || "?").slice(0, 1).toUpperCase()}
-                </div>
+        {!gchatLoading &&
+        !gchatError &&
+        gchatSpaces.map((s) => {
+          const title =
+            s.type === "DIRECT_MESSAGE"
+              ? gchatDmNames[s.id] || s.displayName || "Direct Message"
+              : s.displayName || "Unnamed";
 
-                <div className="gchat-item-text">
-                  <div className="gchat-item-title">{s.name}</div>
-                  <div className="gchat-item-sub">{s.type}</div>
-                </div>
-              </button>
-            ))}
-          </div>
+          return (
+            <button
+              key={s.id}
+              className={`gchat-item ${
+                gchatSelectedSpace?.id === s.id ? "active" : ""
+              }`}
+              style={{
+                width: "100%",
+                display: "flex",
+                gap: "8px",
+                padding: "8px",
+                marginBottom: "4px",
+                textAlign: "left",
+              }}
+              onClick={() => setGchatSelectedSpace(s)}
+            >
+              {/* avatar removed intentionally */}
 
-          {/* RIGHT: thread placeholder */}
-          <div className="gchat-thread">
-            <div className="gchat-topbar">
-              <div className="gchat-top-title">
-                {gchatSelectedSpace ? gchatSelectedSpace.name : "Select a space"}
+              <div className="gchat-item-text">
+                <div className="gchat-item-title">{title}</div>
               </div>
-            </div>
+            </button>
+          );
+        })}
+        </div>
 
-            <div className="gchat-thread-body">
-              {!gchatSelectedSpace && "Choose a space on the left."}
-
-              {gchatSelectedSpace && (
-                <>
-                  {gchatMsgLoading && <div className="gchat-muted">Loading messages…</div>}
-                  {gchatMsgError && <div className="gchat-error">{gchatMsgError}</div>}
-
-                  {!gchatMsgLoading && !gchatMsgError && (
-                    <div className="gchat-msg-list">
-                      {gchatMessages.map((m) => (
-                        <div key={m.id} className="gchat-msg">
-                          <div className="gchat-meta">
-                            <span className="gchat-sender">{m.sender?.name || "Unknown"}</span>
-                            <span className="gchat-time">
-                              {m.createTime ? new Date(m.createTime).toLocaleString("en-GB") : ""}
-                            </span>
-                          </div>
-                          <div className="gchat-bubble">{m.text || ""}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
+      {/* RIGHT 3/4 — message thread */}
+      <div
+        className="gchat-thread"
+        style={{
+          width: "75%",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <div
+          className="gchat-topbar"
+          style={{
+            borderBottom: "1px solid #ddd",
+            padding: "8px",
+          }}
+        >
+          <div className="gchat-top-title">
+            {gchatSelectedSpace
+              ? gchatSelectedSpace.type === "DIRECT_MESSAGE"
+                ? gchatDmNames[gchatSelectedSpace.id] ||
+                  gchatSelectedSpace.displayName ||
+                  "Direct Message"
+                : gchatSelectedSpace.displayName || "Unnamed"
+              : "Select a space"}
           </div>
         </div>
-      );
-    }
+
+        <div
+          className="gchat-thread-body"
+          ref={gchatBodyRef}
+          onScroll={() => {
+            const el = gchatBodyRef.current;
+            if (!el) return;
+
+            const atBottom =
+              el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+
+            setGchatAutoScroll(atBottom);
+          }}
+          style={{
+            flex: 1,
+            overflowY: "auto",
+            padding: "12px"
+          }}
+        >
+          {!gchatSelectedSpace && "Choose a space on the left."}
+
+          {gchatSelectedSpace && (
+            <>
+              {gchatMsgLoading && <div className="gchat-muted">Loading messages…</div>}
+              {gchatMsgError && <div className="gchat-error">{gchatMsgError}</div>}
+
+              {!gchatMsgLoading && !gchatMsgError && (
+                <div className="gchat-msg-list">
+                  {gchatMessages.map((m, idx) => {
+                    const msg = normalizeGChatMessage(m);
+                    const senderName = msg?.sender?.displayName || "Unknown";
+                    const msgId =
+                      msg?.name ||
+                      msg?.id ||
+                      `${msg?.createTime || msg?.updateTime || "no-ts"}-${idx}`;
+
+                    const avatar = avatarFor(senderName);
+                    const isMine = !!gchatMe && msg?.sender?.name === gchatMe;
+
+                    return (
+                      <div
+                        key={msgId}
+                        className={`gchat-msg ${isMine ? "mine" : "theirs"}`}
+                        style={{ position: "relative" }}
+                      >
+                        {!isMine && (
+                          <div className="gchat-avatar-circle">
+                            {avatar ? (
+                              <img src={avatar} alt={senderName} />
+                            ) : (
+                              <span>{senderName.slice(0, 1).toUpperCase()}</span>
+                            )}
+                          </div>
+                        )}
+
+                        <div
+                          className="gchat-msg-content"
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: isMine ? "flex-end" : "flex-start",
+                            position: "relative",
+                          }}
+                        >
+                          <div className="gchat-meta">
+                            {!isMine && <strong>{senderName}</strong>}
+                            <span className="gchat-time">
+                              {formatGchatTime(msg?.createTime)}
+                            </span>
+                          </div>
+
+                          <div
+                            className="gchat-bubble"
+                            onMouseEnter={() => setHoveredMsgId(msgId)}
+                            onMouseLeave={() => setHoveredMsgId(null)}
+                            style={{ position: "relative" }}
+                          >
+                            {msg?.text || msg?.formattedText || ""}
+                          </div>
+
+                          {!isMine && hoveredMsgId === msgId && (
+                            <div
+                              className="gchat-react-bar"
+                              style={{
+                                position: "absolute",
+                                top: "18px",
+                                right: "-6px",
+                                display: "flex",
+                                gap: "6px",
+                                background: "#fff",
+                                padding: "6px 10px",
+                                borderRadius: "999px",
+                                boxShadow: "0 4px 14px rgba(0,0,0,0.18)",
+                                zIndex: 50,
+                              }}
+                            >
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleReaction(msgId, "like");
+                                }}
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  cursor: "pointer",
+                                  fontSize: "18px",
+                                }}
+                              >
+                                👍
+                              </button>
+
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleReaction(msgId, "heart");
+                                }}
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  cursor: "pointer",
+                                  fontSize: "18px",
+                                }}
+                              >
+                                ❤️
+                              </button>
+                            </div>
+                          )}
+
+                          {Array.isArray(reactions[msgId]) && reactions[msgId].length > 0 && (
+                            <div className="gchat-reaction-row">
+                              {reactions[msgId].map((r) => (
+                                <button
+                                  key={r}
+                                  className={`gchat-reaction-pill ${r}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleReaction(msgId, r);
+                                  }}
+                                  style={{
+                                    border: "none",
+                                    background: "none",
+                                    cursor: "pointer",
+                                    padding: 0,
+                                  }}
+                                >
+                                  {r === "like" ? "👍" : "❤️"}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+    </div>
+  );
+}
 
       if (currentView.app === "email") {
       const att = (email && email.attachments) || [];
@@ -2778,18 +3238,35 @@ const handleEmailAction = (actionKey) => {
 
     return <div className="chat-output" />;
       }, [
-      currentView,
-      waChats,
-      email,
-      emailPreview,
-      trelloCard,
-      trelloMenuOpen,
-      descEditing,
-      descDraft,
-      showDraftPicker,
-      selectedDraftTemplate,
-      draftTo,
-    ]);
+        currentView,
+
+        // WhatsApp
+        waChats,
+
+        // Google Chat (IMPORTANT — this is the fix)
+        gchatSpaces,
+        gchatLoading,
+        gchatError,
+        gchatSelectedSpace,
+        gchatMessages,
+        gchatMsgLoading,
+        gchatMsgError,
+        gchatDmNames,
+        gchatMe,
+
+        // Email
+        email,
+        emailPreview,
+        showDraftPicker,
+        selectedDraftTemplate,
+        draftTo,
+
+        // Trello
+        trelloCard,
+        trelloMenuOpen,
+        descEditing,
+        descDraft,
+      ]);
 
   return (
   <PasswordGate>
@@ -2835,8 +3312,8 @@ const handleEmailAction = (actionKey) => {
               ? `WhatsApp — ${currentView.contact}`
               : currentView.app === "email"
               ? `Gmail — ${email.subject}`
-              : currentView.app === "trello"
-              ? `Trello — Card`
+              : currentView.app === "gchat"
+              ? "Google Chat"
               : "Chat / Gemini Output"}
           </span>
 
@@ -2858,39 +3335,136 @@ const handleEmailAction = (actionKey) => {
 
         <div className="middle-content">{middleContent}</div>
 
-        <div className="chat-bar">
-          <textarea
-            className="chat-textarea"
-            placeholder={
-              currentView.app === "whatsapp" && currentView.contact
-                ? `Message ${currentView.contact}`
-                : currentView.app === "email"
-                ? "Add a note or instruction about this email"
-                : "Ask anything"
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/pdf"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (!f) return;
+
+            // PDF-only for now
+            if (f.type !== "application/pdf") {
+              setEmail((prev) =>
+                prev ? { ...prev, systemNote: "Only PDF uploads are supported for now." } : prev
+              );
+              e.target.value = "";
+              setShowPlusMenu(false);
+              return;
             }
-            rows={1}
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            ref={handleAutoGrow}
-            onInput={(e) => handleAutoGrow(e.currentTarget)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-          />
-          {inputValue.trim() && (
-            <button className="send-btn" onClick={handleSend} aria-label="Send">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="12" y1="19" x2="12" y2="5" />
-                <polyline points="5 12 12 5 19 12" />
-              </svg>
-            </button>
+
+            setPendingUpload({ file: f, kind: "pdf" });
+            setShowPlusMenu(false);
+            e.target.value = "";
+          }}
+        />
+
+        <div className={`chat-bar ${pendingUpload ? "has-file" : ""}`}>
+          {pendingUpload && (
+            <div className="chat-upload-preview">
+              <div className="chat-upload-card" title={pendingUpload.file.name}>
+                <div className="chat-upload-icon">PDF</div>
+
+                <div className="chat-upload-meta">
+                  <div className="chat-upload-name">{pendingUpload.file.name}</div>
+                  <div className="chat-upload-size">
+                    {(pendingUpload.file.size / 1024 / 1024).toFixed(2)} MB
+                  </div>
+                </div>
+
+                <button
+                  className="chat-upload-remove"
+                  type="button"
+                  onClick={() => setPendingUpload(null)}
+                  aria-label="Remove upload"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
           )}
+
+          <div className="chat-input-row">
+            <textarea
+              ref={chatTextareaRef}
+              className="chat-textarea"
+              placeholder={
+                currentView.app === "gchat" && !gchatSelectedSpace
+                  ? "Select a space to start chatting"
+                  : currentView.app === "whatsapp" && currentView.contact
+                  ? `Message ${currentView.contact}`
+                  : currentView.app === "email"
+                  ? "Add a note or instruction about this email"
+                  : "Ask anything"
+              }
+              rows={1}
+              value={inputValue}
+              disabled={currentView.app === "gchat" && !gchatSelectedSpace}
+              onChange={(e) => setInputValue(e.target.value)}
+              onInput={(e) => handleAutoGrow(e.currentTarget)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  if (currentView.app === "gchat" && !gchatSelectedSpace) return;
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+            />
+
+            {currentView.app === "gchat" && gchatSelectedSpace && (
+              <div className="chat-plus-wrap" style={{ position: "relative" }}>
+                <button
+                  type="button"
+                  className="chat-plus-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowPlusMenu((v) => !v);
+                  }}
+                  aria-label="More"
+                >
+                  +
+                </button>
+
+                {showPlusMenu && (
+                  <div className="chat-plus-menu">
+                    <button
+                      type="button"
+                      className="chat-plus-item"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowPlusMenu(false);
+                        fileInputRef.current?.click();
+                      }}
+                    >
+                      Upload file
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {inputValue.trim() && (
+              <button className="send-btn" onClick={handleSend} aria-label="Send">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  width="14"
+                  height="14"
+                  fill="none"
+                  stroke="white"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <line x1="12" y1="19" x2="12" y2="5" />
+                  <polyline points="5 12 12 5 19 12" />
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
       </div>
-
       {/* RIGHT */}
       <RightPanel />
     </div>
