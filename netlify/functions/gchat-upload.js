@@ -1,34 +1,40 @@
+// netlify/functions/gchat-upload.js
+import dotenv from "dotenv";
+dotenv.config();
+
 export async function handler(event) {
+  // 1. Log Start
+  console.log("🚀 [gchat-upload] Function started.");
+
   try {
-    if (event.httpMethod !== "POST") {
-      return json(405, { ok: false, error: "POST only" });
+    if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
+
+    // 2. Log Body Parsing
+    let body;
+    try {
+      body = JSON.parse(event.body);
+    } catch (e) {
+      console.error("❌ [gchat-upload] JSON Parse failed. Body too large?");
+      return json(400, { ok: false, error: "Invalid JSON body" });
     }
 
-    const body = safeJson(event.body);
-    let space = String(body?.space || "").trim();
-    const filename = String(body?.filename || "file").trim();
-    const mimeType = String(body?.mimeType || "application/octet-stream").trim();
-    const fileBase64 = String(body?.fileBase64 || "");
-    const text = String(body?.text || "").trim();
+    const { space, filename, mimeType, fileBase64 } = body;
 
-    if (!space) return json(400, { ok: false, error: "Missing body.space" });
-    if (!fileBase64) return json(400, { ok: false, error: "Missing body.fileBase64" });
+    if (!space || !fileBase64) {
+      console.error("❌ [gchat-upload] Missing space or fileBase64.");
+      return json(400, { ok: false, error: "Missing space or file data" });
+    }
 
-    // Clean space ID
-    space = space.replace(/^\/+/, "");
-    space = space.replace(/\/messages\/?$/i, "");
-    if (!space.startsWith("spaces/")) space = `spaces/${space}`;
+    console.log(`📦 [gchat-upload] File: ${filename}, Size (Base64): ${fileBase64.length} chars`);
 
-    // Auth (same as gchat-send)
-    const RT_RAW = process.env.AS_GCHAT_RT;
+    const RT = process.env.AS_GCHAT_RT;
     const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
     const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 
-    if (!RT_RAW || !CLIENT_ID || !CLIENT_SECRET) {
-      return json(500, { ok: false, error: "Missing env vars" });
-    }
+    if (!RT) return json(400, { ok: false, error: "Missing AS_GCHAT_RT" });
 
-    const RT = decodeURIComponent(RT_RAW);
+    // 3. Authenticate
+    console.log("🔄 [gchat-upload] Refreshing token...");
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -40,63 +46,72 @@ export async function handler(event) {
       }),
     });
     
-    if (!tokenRes.ok) return json(502, { ok: false, error: "Auth failed" });
     const tokenJson = await tokenRes.json();
+    if (!tokenJson.access_token) {
+      console.error("❌ [gchat-upload] Auth failed:", tokenJson);
+      return json(502, { ok: false, error: "Auth failed", details: tokenJson });
+    }
     const accessToken = tokenJson.access_token;
 
-    // 1. Upload Media
-    const uploadUrl = `https://chat.googleapis.com/upload/v1/${encodeURI(space)}/attachments:upload?uploadType=media&filename=${encodeURIComponent(filename)}`;
+    // 4. Decode File
+    console.log("🛠 [gchat-upload] decoding buffer...");
     const fileBuffer = Buffer.from(fileBase64, "base64");
+    console.log(`🛠 [gchat-upload] Buffer size: ${fileBuffer.length} bytes`);
+
+    // 5. Upload to Google
+    // Ensure space ID is clean (some APIs want "spaces/AAA", some want "AAA")
+    // The upload API expects: https://chat.googleapis.com/upload/v1/spaces/{SPACE_ID}/attachments:upload
+    
+    // Note: If 'space' already contains 'spaces/', we use it as is.
+    const uploadUrl = `https://chat.googleapis.com/upload/v1/${space}/attachments:upload?filename=${encodeURIComponent(filename)}`;
+    
+    console.log(`📤 [gchat-upload] POSTing to ${uploadUrl}`);
 
     const uploadRes = await fetch(uploadUrl, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
-        "Content-Type": mimeType,
-        "Content-Length": fileBuffer.length,
+        "Content-Type": mimeType || "application/octet-stream",
+        "Content-Length": fileBuffer.length.toString(),
       },
       body: fileBuffer,
     });
 
-    if (!uploadRes.ok) {
-      const txt = await uploadRes.text();
-      return json(502, { ok: false, error: "Media upload failed", details: txt });
+    const uploadJson = await uploadRes.json().catch(err => ({ error: "JSON Parse Error on Google Resp", raw: err }));
+    
+    console.log("📥 [gchat-upload] Google Response:", JSON.stringify(uploadJson).slice(0, 200));
+
+    if (!uploadJson.attachmentDataRef) {
+      console.error("❌ [gchat-upload] Upload failed. Response:", uploadJson);
+      return json(502, { ok: false, error: "Media upload failed", details: uploadJson });
     }
 
-    const uploadJson = await uploadRes.json();
     const attachmentDataRef = uploadJson.attachmentDataRef;
+    console.log("✅ [gchat-upload] Upload Success! Sending Message...");
 
-    // 2. Create Message with Attachment
-    const msgUrl = `https://chat.googleapis.com/v1/${encodeURI(space)}/messages`;
-    const msgBody = {
-      text: text, // can be empty if just sending file
-      attachmentUpload: { attachmentDataRef },
-    };
-
+    // 6. Send Message with Attachment
+    const msgUrl = `https://chat.googleapis.com/v1/${space}/messages`;
     const msgRes = await fetch(msgUrl, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(msgBody),
+      body: JSON.stringify({
+        text: body.text || "", // Optional caption
+        attachment: [
+          { attachmentDataRef: attachmentDataRef }
+        ]
+      }),
     });
 
     const msgJson = await msgRes.json();
-
-    if (!msgRes.ok) {
-      return json(502, { ok: false, error: "Message creation failed", details: msgJson });
-    }
-
     return json(200, { ok: true, message: msgJson });
 
   } catch (err) {
-    return json(500, { ok: false, error: String(err?.message || err) });
+    console.error("🔥 [gchat-upload] CRASH:", err);
+    return json(500, { ok: false, error: String(err) });
   }
-}
-
-function safeJson(s) {
-  try { return JSON.parse(s || "{}"); } catch { return {}; }
 }
 
 function json(statusCode, body) {

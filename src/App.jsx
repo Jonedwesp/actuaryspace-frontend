@@ -5,12 +5,20 @@ import "./App.css";
 import trelloIcon from "./assets/Trello Pic.png";
 import gmailIcon from "./assets/Gmail pic.png";
 import whatsappIcon from "./assets/WhatsApp.png";
+import gchatIcon from "./assets/Google Chat.png";
 
 const PERSONA = import.meta.env.VITE_PERSONA || "UNKNOWN";
 
 const PERSONA_TRELLO_LISTS =
   PERSONA.toUpperCase() === "SIYA"
-    ? ["Siya", "Siya - Review"]
+    ? [
+        "Siya - Review", // Requested at Top
+        "Siya",
+        "Bonolo S",      // Team member
+        "Bonisa",        // Team member
+        "Songeziwe",     // Team member
+        "Enock"          // Team member
+      ]
     : PERSONA.toUpperCase() === "YOLANDIE"
     ? [
         "Yolandie to Data Capture",
@@ -778,232 +786,512 @@ async function setCardDescription(cardId, desc) {
   return json;
 }
 
-const LABEL_OPTIONS = [
-  "Breach of Contract","Paid Payment arrangement","Personal injury",
-  "Non-RAF LOE","Pension Calculations","Labour","RAF LOE"
-];
-const PRIORITY_OPTIONS = ["HIGH URGENT","URGENT + IMPORTANT","URGENT","NEW CLIENT"];
-// Put "Working on it" first (as requested)
-const ACTIVE_OPTIONS = ["Working on it","Not working on it"];
+/* --- CUSTOM FIELD OPTIONS & COLORS --- */
 
-// NEW: map Active value -> badge/select color class
-function activeTypeFromText(txt) {
-  const v = String(txt || "").trim().toLowerCase();
-  if (v === "working on it") return "active-green";
-  if (v === "not working on it") return "active-orange";
-  return "active-default";
-}
+const PRIORITY_OPTIONS = [
+  "HIGH URGENT",
+  "URGENT + IMPORTANT",
+  "URGENT",
+  "NEW CLIENT"
+];
+
+const ACTIVE_OPTIONS = [
+  "Working on it",
+  "Not working on it",
+  "Do not move card"
+];
+
 const STATUS_OPTIONS = [
-  "To Do - RAF","To Do - Other","Doing Data Review","Asking IP",
-  "Ready to be reviewed - 24hr","Ready to be reviewed - URGENT",
-  "Ready to be reviewed - New Client","Urgent Ready to be reviewed - Long Cases",
-  "2nd Review","Analyst to Update","Reviewer Respond","Ready to send",
-  "Waiting for client info","Approved","Pause","Actuary Expert","Asking Senior Analyst",
-  "Capturing Data","Data Review","Checklist Doing"
+  "To Do - RAF",
+  "To Do - Other",
+  "Doing",
+  "Data Review",
+  "Asking IP",
+  "Ready to be reviewed - 24hr",
+  "Ready to be reviewed - URGENT",
+  "Ready to be reviewed - New Client Urgent",
+  "Ready to be reviewed - Longer Cases",
+  "2nd Review",
+  "Analyst to Update",
+  "Reviewer Respond",
+  "Ready To Send",
+  "Waiting for client info",
+  "Approved",
+  "Actuary Expert",
+  "Pause",
+  "Asking Senior Analyst",
+  "Capturing Data",
+  "Checklist Doing"
 ];
 
-function canonicalPriority(txt) {
-  const p = String(txt || "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toUpperCase();
-  if (p === "HIGH URGENT" || p === "HIGH-URGENT") return "HIGH URGENT";
-  if (p === "URGENT + IMPORTANT" || p === "URGENT+IMPORTANT") return "URGENT + IMPORTANT";
-  if (p === "URGENT") return "URGENT";
-  if (p === "NEW CLIENT" || p === "NEW-CLIENT") return "NEW CLIENT";
-  return ""; // unknown/blank
+// Helper: Get the CSS class for the Select Box based on the selected value
+function getCFColorClass(field, value) {
+  const v = (value || "").trim();
+  if (!v) return "cf-grey-light"; // Default
+
+  // --- PRIORITY ---
+  if (field === "Priority") {
+    if (v === "HIGH URGENT") return "cf-green-light";
+    if (v === "URGENT + IMPORTANT") return "cf-red-light";
+    if (v === "URGENT") return "cf-pink-light";
+    if (v === "NEW CLIENT") return "cf-pink-light";
+  }
+
+  // --- ACTIVE ---
+  if (field === "Active") {
+    if (v === "Working on it") return "cf-green-light";
+    if (v === "Not working on it") return "cf-orange-light";
+    if (v === "Do not move card") return "cf-red-light";
+  }
+
+  // --- STATUS ---
+  if (field === "Status") {
+    // Orange
+    if (["To Do - RAF", "Ready to be reviewed - Longer Cases", "Pause"].includes(v)) return "cf-orange-light";
+    // Blue
+    if (["To Do - Other", "Data Review", "Ready to be reviewed - URGENT", "Analyst to Update", "Actuary Expert"].includes(v)) return "cf-blue-light";
+    // Green
+    if (["Doing", "Ready To Send", "Capturing Data", "Data Review"].includes(v)) return "cf-green-light";
+    // Purple
+    if (["Asking IP", "Waiting for client info", "Approved"].includes(v)) return "cf-purple-light";
+    // Pink
+    if (["Ready to be reviewed - 24hr"].includes(v)) return "cf-pink-light";
+    // Yellow
+    if (["Ready to be reviewed - New Client Urgent", "Asking Senior Analyst"].includes(v)) return "cf-yellow-light";
+    // Grey
+    if (["2nd Review", "Checklist Doing"].includes(v)) return "cf-grey-light";
+    // Red
+    if (["Reviewer Respond"].includes(v)) return "cf-red-light";
+  }
+
+  return "cf-grey-light";
 }
+
+/* Exact Colors from Screenshot 11 */
+const ALL_LABEL_OPTIONS = [
+  // Green
+  { name: "Breach of Contract", bg: "#baf3db", color: "#164b35" },
+  { name: "Paid", bg: "#baf3db", color: "#164b35" },
+  { name: "Payment arrangement", bg: "#baf3db", color: "#164b35" },
+  { name: "Personal injury", bg: "#baf3db", color: "#164b35" },
+  { name: "Financial Loss and Damages", bg: "#4bce97", color: "#164b35" },
+  { name: "Non-RAF LOE", bg: "#4bce97", color: "#164b35" },
+  { name: "Pension Calculations", bg: "#1f845a", color: "#ffffff" },
+  
+  // Yellow/Gold
+  { name: "Labour", bg: "#f8e6a0", color: "#533f04" },
+  { name: "Maintenance", bg: "#f5cd47", color: "#533f04" },
+  { name: "Investment Portfolio Calc", bg: "#9a782d", color: "#ffffff" },
+  { name: "Training", bg: "#9a782d", color: "#ffffff" },
+  
+  // Orange
+  { name: "Innovation", bg: "#ffe2bd", color: "#5f3811" },
+  { name: "Medical Expenses", bg: "#ffe2bd", color: "#5f3811" },
+  { name: "Past Medical Negligence", bg: "#faa53d", color: "#5f3811" },
+  { name: "Arbitration", bg: "#b65c02", color: "#ffffff" },
+  
+  // Red
+  { name: "Benefits Calculation", bg: "#ffd2cc", color: "#5d1f1a" },
+  { name: "Bond Calculation", bg: "#ffd2cc", color: "#5d1f1a" },
+  { name: "Forensic Audit", bg: "#f87462", color: "#5d1f1a" },
+  { name: "RyanGPT", bg: "#c9372c", color: "#ffffff" },
+  { name: "Waiting payment", bg: "#c9372c", color: "#ffffff" },
+  
+  // Purple
+  { name: "Broken Contract Calc", bg: "#dfd8fd", color: "#352c63" },
+  { name: "Building Model", bg: "#dfd8fd", color: "#352c63" },
+  { name: "Other", bg: "#9f8fef", color: "#352c63" },
+  { name: "Deceased Estate", bg: "#6e5dc6", color: "#ffffff" },
+];
+
+function getLabelStyle(name) {
+  const found = ALL_LABEL_OPTIONS.find(l => l.name.toLowerCase() === (name || "").toLowerCase());
+  if (found) return { backgroundColor: found.bg, color: found.color };
+  return { backgroundColor: "#091e420f", color: "#172b4d" }; // Default grey
+}
+
+// Keep these for backward compatibility
+function canonicalPriority(txt) {
+  const p = String(txt || "").replace(/\s+/g, " ").trim().toUpperCase();
+  if (p.includes("HIGH URGENT")) return "HIGH URGENT";
+  if (p.includes("URGENT + IMPORTANT")) return "URGENT + IMPORTANT";
+  if (p === "URGENT") return "URGENT";
+  if (p.includes("NEW CLIENT")) return "NEW CLIENT";
+  return "";
+}
+
 function priorityTypeFromText(txt) {
   const p = canonicalPriority(txt);
-  return p === "HIGH URGENT"        ? "priority-green"  :
-         p === "URGENT + IMPORTANT" ? "priority-red"    :
-         (p === "URGENT" || p === "NEW CLIENT") ? "priority-purple" :
-         "priority-default";
+  return getCFColorClass("Priority", p).replace("cf-", "priority-");
 }
 
 function statusTypeFromText(txt) {
-  const v = String(txt || "").trim().toLowerCase();
-  if (v.startsWith("to do - raf")) return "status-yellow";
-  if (v.startsWith("to do - other")) return "status-blue";
-  if (v === "doing") return "status-green";
-  if (v === "data review") return "status-lime";
-  if (v === "asking ip") return "status-purple";
-  if (v.includes("ready to be reviewed - 24hr")) return "status-pink";
-  if (v.includes("ready to be reviewed - urgent")) return "status-blue";
-  if (v.includes("ready to be reviewed - new client urgent")) return "status-yellow";
-  if (v.includes("urgent ready to be reviewed - longer cases")) return "status-darkyellow";
-  if (v === "2nd review" || v === "checklist doing") return "status-white";
-  if (v === "analyst to update") return "status-blue";
-  if (v === "reviewer respond") return "status-red";
-  if (v === "ready to send") return "status-green";
-  if (v === "waiting for client info") return "status-purple";
-  if (v === "approved") return "status-purple";
-  if (v === "pause") return "status-yellow";
-  if (v === "actuary expert") return "status-blue";
-  if (v === "asking senior analyst") return "status-yellow";
-  if (v === "capturing data") return "status-green";
-  return "status-default";
+  return getCFColorClass("Status", txt).replace("cf-", "status-"); 
+}
+
+function activeTypeFromText(txt) {
+  return getCFColorClass("Active", txt).replace("cf-", "active-");
+}
+
+// Helper to assign specific colors and shades to standard labels
+function getLabelColor(text) {
+  const t = (text || "").toLowerCase().trim();
+
+  // --- GREEN ---
+  // Light Green
+  if (["breach of contract", "paid", "payment arrangement", "personal injury"].some(k => t.includes(k))) return "label-green-light";
+  // Normal Green
+  if (["financial loss", "non-raf loe", "raf loe", "raf los"].some(k => t.includes(k))) return "label-green-norm";
+  // Dark Green
+  if (["pension calculations"].some(k => t.includes(k))) return "label-green-dark";
+
+  // --- YELLOW ---
+  // Light Yellow
+  if (["labour"].some(k => t.includes(k))) return "label-yellow-light";
+  // Normal Yellow
+  if (["maintenance"].some(k => t.includes(k))) return "label-yellow-norm";
+
+  // --- BROWN (Mapped to Trello's Orange/Neutral shades) ---
+  // Normal Brown
+  if (["investment portfolio", "training"].some(k => t.includes(k))) return "label-brown-norm";
+
+  // --- ORANGE ---
+  // Light Orange
+  if (["innovation", "medical expenses"].some(k => t.includes(k))) return "label-orange-light";
+  // Normal Orange
+  if (["past medical negligence"].some(k => t.includes(k))) return "label-orange-norm";
+  // Dark Orange
+  if (["arbitration"].some(k => t.includes(k))) return "label-orange-dark";
+
+  // --- RED ---
+  // Light Red
+  if (["benefits calculation", "bond calculation"].some(k => t.includes(k))) return "label-red-light";
+  // Normal Red
+  if (["forensic audit"].some(k => t.includes(k))) return "label-red-norm";
+  // Dark Red
+  if (["ryangpt", "waiting payment"].some(k => t.includes(k))) return "label-red-dark";
+
+  // --- PURPLE ---
+  // Light Purple
+  if (["broken contract", "building model"].some(k => t.includes(k))) return "label-purple-light";
+  // Normal Purple
+  if (["other"].some(k => t === "other" || t.includes("other -"))) return "label-purple-norm";
+  // Dark Purple
+  if (["deceased estate"].some(k => t.includes(k))) return "label-purple-dark";
+
+  // --- BLUE (Extra ones from your previous list if needed) ---
+  if (["non-raf los", "share valuation", "farm", "joint actuarial", "professional negligence", "wrongful", "divorce", "accrual", "commercial", "ip los", "general damages", "interest"].some(k => t.includes(k))) return "label-blue-norm";
+
+  return "label-default";
 }
 
 function ensureBadgeTypes(badges = []) {
   return (badges || []).map(b => {
     const t = b?.text || "";
+    
+    // 1. Status / Active (Bottom Row)
     if (/^Active\s*:/i.test(t)) {
       const val = t.replace(/^Active\s*:\s*/i, "");
-      return { ...b, type: b.type || activeTypeFromText(val) };
-    }
-    if (/^Priority\s*:/i.test(t)) {
-      const val = t.replace(/^Priority\s*:\s*/i, "");
-      return { ...b, type: b.type || priorityTypeFromText(val) };
+      return { ...b, type: b.type || activeTypeFromText(val), isBottom: true };
     }
     if (/^Status\s*:/i.test(t)) {
       const val = t.replace(/^Status\s*:\s*/i, "");
-      return { ...b, type: b.type || statusTypeFromText(val) };
+      return { ...b, type: b.type || statusTypeFromText(val), isBottom: true };
     }
-    return b;
+    
+    // 2. Priority (MOVED TO BOTTOM ROW) 
+    if (/^Priority\s*:/i.test(t)) {
+      const val = t.replace(/^Priority\s*:\s*/i, "");
+      // 👇 Changed isTop -> isBottom
+      return { ...b, type: b.type || priorityTypeFromText(val), isBottom: true }; 
+    }
+
+    // 3. Standard Labels (Top Row) - Assign colors dynamically
+    return { ...b, type: b.type || getLabelColor(t), isTop: true };
   });
 }
 
-function RightPanel() {
+// 👇 NEW HELPER: Match card titles to Trello Cover Colors
+function getTrelloCoverColor(title) {
+  const t = String(title || "").toLowerCase();
+  if (t.includes("out of office")) return "#6CC3E0";  // 👈 CHANGED: Light Blue (Sky)
+  if (t.includes("training - analyst")) return "#579dff"; // Trello Blue
+  if (t.includes("innovation gold")) return "#faa53d"; // Trello Orange/Gold
+  return null;
+}
+
+const RightPanel = React.memo(function RightPanel() {
   const [preview, setPreview] = React.useState(null);
-
-  // Live Trello buckets (unchanged)
   const [trelloBuckets, setTrelloBuckets] = useState([]);
-
-  // NEW: files that App pushes in via setClientFiles event
   const [clientFiles, setClientFiles] = useState([]);
 
-  // helper: update a single card in the visible columns immediately (no waiting for poll)
-  const patchCardInBuckets = (cardId, updater) => {
-    setTrelloBuckets((prev) => {
-      const copy = prev.map((b) => ({ ...b, cards: [...b.cards] }));
-      for (const b of copy) {
-        const idx = b.cards.findIndex((c) => c.id === cardId);
-        if (idx !== -1) {
-          const old = b.cards[idx];
-          b.cards[idx] =
-            typeof updater === "function" ? updater(old) : { ...old, ...updater };
-          break;
-        }
-      }
-      return copy;
+  // --- DRAG AND DROP STATE ---
+  const [dragging, setDragging] = useState(false);
+  const dragItem = useRef(); // Tracks { grpI, itemI } (Group Index, Item Index)
+  const dragNode = useRef(); // Tracks the actual HTML element
+  const lastMoveTime = useRef(0); // 👈 ADD THIS
+  const hasSnapshotRef = useRef(false);
+
+  // 👇 ADD THIS: Initialize with your default order
+  const listOrderRef = useRef(
+    PERSONA.toUpperCase() === "SIYA"
+      ? ["Siya - Review", "Siya", "Bonolo S", "Bonisa", "Songeziwe", "Enock"]
+      : ["Yolandie to Data Capture", "Yolandie to Analyst", "Yolandie to Data Analyst", "Yolandie to Reviewer", "Yolandie to Send"]
+  );
+
+  // --- LIST REORDERING LOGIC ---
+
+  const handleListDragStart = (e, index) => {
+    e.stopPropagation(); // Don't trigger card drags
+    dragItem.current = { listIdx: index };
+    dragNode.current = e.currentTarget;
+    e.dataTransfer.effectAllowed = 'move';
+
+    // 👇 THIS FIXES THE PREVIEW
+    // Set the drag image to the entire Column (parent of the header), not just the Header
+    if (e.currentTarget.parentElement) {
+        e.dataTransfer.setDragImage(e.currentTarget.parentElement, 20, 20);
+    }
+
+    setDragging(true);
+  };
+
+  const handleListDragEnter = (e, index) => {
+    // 1. Only run if we are dragging a LIST (not a card)
+    if (!dragItem.current || dragItem.current.listIdx === undefined) return;
+    
+    // 2. Don't swap if we are hovering the same list
+    if (dragItem.current.listIdx === index) return;
+
+    setTrelloBuckets(prev => {
+      const newList = [...prev];
+      // Move the list in the array
+      const item = newList.splice(dragItem.current.listIdx, 1)[0];
+      newList.splice(index, 0, item);
+      
+      // 🛑 CRITICAL: Update the Ref so the next Trello Poll respects this order!
+      listOrderRef.current = newList.map(b => b.title);
+      
+      return newList;
+    });
+
+    // Update tracker
+    dragItem.current.listIdx = index;
+  };
+
+  // 1. Start Dragging (Overlay Strategy)
+  const handleDragStart = (e, params) => {
+    dragItem.current = params;
+    dragNode.current = e.currentTarget;
+
+    const rect = dragNode.current.getBoundingClientRect();
+    const ghost = dragNode.current.cloneNode(true);
+    
+    // Force Styles
+    Object.assign(ghost.style, {
+        position: "fixed", top: `${rect.top}px`, left: `${rect.left}px`,
+        width: `${rect.width}px`, height: `${rect.height}px`,
+        zIndex: "9999", pointerEvents: "none", transition: "none",
+        transform: "rotate(5deg)", opacity: "1", background: "#fff",
+        boxShadow: "0 15px 30px rgba(0,0,0,0.3)" 
+    });
+
+    document.body.appendChild(ghost);
+    void ghost.offsetWidth; // Force Reflow
+    e.dataTransfer.setDragImage(ghost, 20, 20);
+
+    setTimeout(() => {
+        if (document.body.contains(ghost)) document.body.removeChild(ghost);
+        setDragging(true); 
+    }, 0);
+  };
+
+  const handleColumnDragEnter = (grpI) => {
+    // ✅ SAFETY CHECK: If dragging a LIST, stop immediately.
+    if (dragItem.current?.listIdx !== undefined) return;
+
+    // If not dragging, or if we are already in this bucket, do nothing
+    if (!dragItem.current || dragItem.current.grpI === undefined || dragItem.current.grpI === grpI) return;
+
+    setTrelloBuckets((oldBuckets) => {
+      let newBuckets = JSON.parse(JSON.stringify(oldBuckets));
+
+      const dragGrpIdx = dragItem.current.grpI;
+      const dragItemIdx = dragItem.current.itemI;
+      
+      // Safety: Ensure source bucket exists
+      if (!newBuckets[dragGrpIdx]) return oldBuckets;
+
+      const cardToMove = newBuckets[dragGrpIdx].cards[dragItemIdx];
+      if (!cardToMove) return newBuckets;
+
+      // ... rest of code (Move the card)
+      newBuckets[dragGrpIdx].cards.splice(dragItemIdx, 1);
+      newBuckets[grpI].cards.push(cardToMove);
+      dragItem.current = { grpI, itemI: newBuckets[grpI].cards.length - 1 };
+
+      return newBuckets;
     });
   };
 
-  const prevCardListRef = useRef(new Map()); // cardId -> listTitle
-  const hasSnapshotRef = useRef(false);
-  const YOLANDIE_BUCKETS = new Set([
-    "Yolandie to Analyst",
-    "Yolandie to Data Analyst",
-    "Yolandie to Reviewer",
-    "Yolandie to Send",
-  ]);
+  // 2. Drag Enter (The "Make Space" Logic)
+  const handleDragEnter = (e, params) => {
+    // If not dragging or hovering over the same card, do nothing
+    if (
+        !dragItem.current || 
+        (dragItem.current.grpI === params.grpI && dragItem.current.itemI === params.itemI)
+    ) return;
 
-  const recentNotifsRef = useRef(new Map());
-  const NOTIF_DEDUP_MS = 4000;
+    // Deep copy the buckets to mutate them
+    setTrelloBuckets(oldBuckets => {
+        let newBuckets = JSON.parse(JSON.stringify(oldBuckets));
+        
+        // Get the card being dragged
+        const dragGrpIdx = dragItem.current.grpI;
+        const dragItemIdx = dragItem.current.itemI;
+        const cardToMove = newBuckets[dragGrpIdx].cards[dragItemIdx];
 
-  const pendingCFRightRef = useRef(new Map());
+        // Remove from old spot
+        newBuckets[dragGrpIdx].cards.splice(dragItemIdx, 1);
+        
+        // Insert into new spot
+        const targetGrpIdx = params.grpI;
+        const targetItemIdx = params.itemI;
+        newBuckets[targetGrpIdx].cards.splice(targetItemIdx, 0, cardToMove);
 
-  // 🔊 Listen for "setClientFiles" events from App (email open / clear)
-  useEffect(() => {
-    function onSetClientFiles(e) {
-      const files = (e.detail && e.detail.files) || [];
-      setClientFiles(Array.isArray(files) ? files : []);
-      setPreview(null); // reset any preview
+        // IMPORTANT: Update our Ref so we know where the item is NOW
+        dragItem.current = params;
+        
+        return newBuckets;
+    });
+  };
+
+  // 3. End Dragging (Safe Version)
+  const handleDragEnd = async () => {
+    // If we already cleaned up, stop.
+    if (!dragItem.current) return;
+
+    setDragging(false);
+    
+    // Clean up CSS
+    if (dragNode.current) {
+        dragNode.current.style.transform = "";
+        dragNode.current.style.opacity = "";
     }
 
-    window.addEventListener("setClientFiles", onSetClientFiles);
-    return () => window.removeEventListener("setClientFiles", onSetClientFiles);
-  }, []);
+    lastMoveTime.current = Date.now(); 
 
-  // 🔊 Listen for preview requests from App (when right-panel tile is clicked)
-  useEffect(() => {
-    function onOpenEmailAttachmentPreview(e) {
-      const file = e.detail?.file;
-      if (!file) return;
-      setPreview(file);
+    const { grpI, itemI } = dragItem.current;
+    const destList = trelloBuckets[grpI];
+    const card = destList.cards[itemI];
+    
+    if (destList && card) {
+        console.log(`Moving card to List: ${destList.title}, Index: ${itemI}`);
+        
+        fetch("/.netlify/functions/trello-move", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ 
+                cardId: card.id, 
+                targetListId: destList.id,
+                newIndex: itemI 
+            }),
+        }).catch(e => console.error("Move failed", e));
     }
 
-    window.addEventListener(
-      "openEmailAttachmentPreview",
-      onOpenEmailAttachmentPreview
-    );
+    // Clear refs immediately so we don't fire twice
+    dragItem.current = null;
+    dragNode.current = null;
+  };
 
-    return () => {
-      window.removeEventListener(
-        "openEmailAttachmentPreview",
-        onOpenEmailAttachmentPreview
-      );
-    };
-  }, []);
+  // 4. Style Helper
+  const getStyles = (grpI, itemI) => {
+      // Only show placeholder if we are ACTIVELY dragging
+      if (dragging && dragItem.current?.grpI === grpI && dragItem.current?.itemI === itemI) {
+          return "tl-card dnd-placeholder"; 
+      }
+      return "tl-card";
+  };
 
-  // --- Trello polling (unchanged from your working version) ---
+  /* ... (Keep your existing Helpers: patchCardInBuckets, refs, useEffects) ... */
+  // NOTE: For brevity, I am hiding the helper functions I didn't change (like onSetClientFiles). 
+  // ensure you KEEP them in your file. 
+  
+  // (Paste your existing useEffects here: setClientFiles, openEmailAttachmentPreview, fetchTrello, bucketsUpdated)
+  // ... [PASTE YOUR EXISTING USE EFFECTS HERE] ...
+
+  // To save space, I will jump to the return statement where the DRAG EVENTS are attached.
+
+  // --- BULLETPROOF TRELLO POLLING (Anti-429) ---
   useEffect(() => {
-    async function fetchTrello() {
+    let isMounted = true;
+    let pollTimer = null;
+
+    async function fetchTrello(force = false) {
+      if (!isMounted) return;
+
+      // 1. SAFETY CHECKS
+      if (document.hidden && !force) return; 
+      if (dragging && !force) return;
+      if (Date.now() - lastMoveTime.current < 2000 && !force) return;
+
+      // 2. RATE LIMITING (The "Mutex")
+      const now = Date.now();
+      const lastFetch = parseInt(localStorage.getItem("lastTrelloFetch") || "0");
+      
+      // If fetched < 8 seconds ago, SKIP (unless forced)
+      if (!force && (now - lastFetch < 8000)) return;
+
+      // 3. LOCK & FETCH
+      localStorage.setItem("lastTrelloFetch", now.toString());
+
       try {
-        console.log("[UI] VITE_PERSONA =", import.meta.env.VITE_PERSONA);
-
-        const res = await fetch(`/.netlify/functions/trello`);
-
-        // 🔎 Log status + raw text if not OK
+        const res = await fetch(`/.netlify/functions/trello?t=${now}`);
+        
+        // Handle 429 specifically
         if (!res.ok) {
-          const txt = await res.text().catch(() => "");
-          console.error("[TRELLO] HTTP error", res.status, txt);
-
-          // If Trello rate-limits (429), back off hard for a minute
-          if (res.status === 502 && txt.includes('"cards":429')) {
-            window.__TRELLO_BACKOFF_UNTIL__ = Date.now() + 60_000;
-          }
-          if (res.status === 429) {
-            window.__TRELLO_BACKOFF_UNTIL__ = Date.now() + 60_000;
-          }
-
-          return;
+           if (res.status === 429) console.warn("Trello Rate Limit Hit - Cooling down...");
+           return;
         }
 
-        const json = await res.json();
-        console.log("[TRELLO] raw JSON from function:", json);
+        let json = await res.json();
+        
+        // Double check move time
+        if (Date.now() - lastMoveTime.current < 2000 && !force) return;
+        if (!isMounted) return;
 
-        // Handle multiple possible shapes:
-        // { buckets: [...] }  OR  [...]  OR  { lists: [...] }
-        const rawBuckets = Array.isArray(json?.buckets)
-          ? json.buckets
-          : Array.isArray(json)
-          ? json
-          : Array.isArray(json?.lists)
-          ? json.lists
-          : [];
+        // --- YOUR ORIGINAL DATA PROCESSING LOGIC ---
+        let rawBuckets = Array.isArray(json?.buckets) ? json.buckets : (Array.isArray(json) ? json : []);
 
-        console.log("[TRELLO] rawBuckets after shape-detect:", rawBuckets);
+        // 1. DEFINE TEAM DATA
+        const TEAM_DATA = [
+          { id: "list-siya-review", title: "Siya - Review", cards: [] },
+          { id: "list-siya", title: "Siya", cards: [] },
+          { id: "list-bonolo", title: "Bonolo S", cards: [] },
+          { id: "list-bonisa", title: "Bonisa", cards: [] },
+          { id: "list-songeziwe", title: "Songeziwe", cards: [] },
+          { id: "list-enock", title: "Enock", cards: [] }
+        ];
 
-        if (!rawBuckets.length) {
-          // nothing came back – surface this in UI as a fake column so you see *something*
-          setTrelloBuckets([
-            {
-              id: "demo-empty",
-              title: "No Trello data",
-              cards: [
-                {
-                  id: "demo-card",
-                  title: "Trello function returned no lists/cards",
-                  due: "",
-                  badges: [],
-                  eta: "",
-                  people: [],
-                  listId: "demo-empty",
-                  list: "No Trello data",
-                  labels: [],
-                  customFields: {},
-                  description:
-                    "Check /.netlify/functions/trello logs or response shape.",
-                },
-              ],
-            },
-          ]);
-          return;
-        }
+        // 2. ROBUST MERGE
+        TEAM_DATA.forEach(teamList => {
+          const existingIndex = rawBuckets.findIndex(b => {
+             const apiTitle = (b.title || b.name || b.list || "").trim().toLowerCase();
+             const myTitle  = teamList.title.trim().toLowerCase();
+             return apiTitle === myTitle;
+          });
 
-        // Map whatever comes back – be defensive on title/name fields
+          if (existingIndex === -1) {
+            rawBuckets.push(teamList);
+          } else {
+            const existingBucket = rawBuckets[existingIndex];
+            // Clean cards
+            const realCards = existingBucket.cards || [];
+            rawBuckets[existingIndex] = { ...existingBucket, cards: realCards };
+          }
+        });
+
+        // 3. MAP FIELDS
         let mapped = rawBuckets.map((b) => {
           const title = b.title || b.name || b.list || "";
           return {
@@ -1011,198 +1299,124 @@ function RightPanel() {
             title,
             cards: (b.cards || []).map((c) => ({
               id: c.id,
-              title: c.title,
+              title: c.name || c.title,
               due: c.due || "",
               badges: ensureBadgeTypes(Array.isArray(c.badges) ? c.badges : []),
-              eta: "",
-              people: c.people || [],
-              listId: c.listId || b.id,
-              list: c.list || title,
-              labels: c.labels || [],
+              labels: c.labels || [], 
+              people: c.idMembers || c.people || [],
+              listId: b.id,
+              list: title,
               customFields: c.customFields || {},
-              description: c.description || "",
+              description: c.desc || c.description || "",
+              cover: c.cover || null
             })),
           };
         });
 
-        const persona = (import.meta.env.VITE_PERSONA || "").toLowerCase().trim();
+        // 4. PERSONA FILTER
+        let persona = (import.meta.env.VITE_PERSONA || "").toLowerCase().trim();
+        if (!persona || persona === "unknown") persona = "siya"; 
 
-        const PERSONA_TITLES =
-          persona === "siya"
-            ? ["Siya", "Siya - Review"]
-            : [
-                "Yolandie to Data Capture",
-                "Yolandie to Analyst",
-                "Yolandie to Data Analyst",
-                "Yolandie to Reviewer",
-                "Yolandie to Send",
-              ];
+        const PERSONA_TITLES = persona === "siya"
+            ? ["Siya - Review", "Siya", "Bonolo S", "Bonisa", "Songeziwe", "Enock"]
+            : ["Yolandie to Data Capture", "Yolandie to Analyst", "Yolandie to Data Analyst", "Yolandie to Reviewer", "Yolandie to Send"];
 
-        const filtered = mapped.filter((b) => PERSONA_TITLES.includes(b.title));
-        if (filtered.length > 0) mapped = filtered;
-
-        let latestMerged = null;
-
-        setTrelloBuckets((prev) => {
-          const now = Date.now();
-          const prevById = new Map();
-          for (const b of prev) {
-            for (const c of b.cards || []) prevById.set(c.id, c);
-          }
-
-          const merged = mapped.map((b) => ({
-            ...b,
-            cards: (b.cards || []).map((c) => {
-              const prevCard = prevById.get(c.id);
-              if (!prevCard) return c;
-
-              const pend = pendingCFRightRef.current.get(c.id) || {};
-              const keepBadgeIfPending = (label) => {
-                const isPending = pend[label] && pend[label] > now;
-                if (!isPending) return c.badges;
-
-                const prevBadge = (prevCard.badges || []).find((x) =>
-                  new RegExp(`^${label}\\s*:\\s*`, "i").test(x?.text || "")
-                );
-                if (!prevBadge) return c.badges;
-
-                const others = (c.badges || []).filter(
-                  (x) =>
-                    !new RegExp(`^${label}\\s*:\\s*`, "i").test(x?.text || "")
-                );
-                return [prevBadge, ...others];
-              };
-
-              let badges = c.badges || [];
-              badges = keepBadgeIfPending("Priority");
-              badges = keepBadgeIfPending("Active");
-              badges = keepBadgeIfPending("Status");
-              badges = ensureBadgeTypes(badges);
-              return { ...c, badges };
-            }),
-          }));
-
-          latestMerged = merged;
-          return merged;
+        let filtered = mapped.filter((b) => PERSONA_TITLES.includes(b.title));
+        
+        // 5. SORT LOGIC
+        filtered.sort((a, b) => {
+          let idxA = listOrderRef.current.indexOf(a.title);
+          let idxB = listOrderRef.current.indexOf(b.title);
+          if (idxA === -1) idxA = 999;
+          if (idxB === -1) idxB = 999;
+          return idxA - idxB;
         });
 
-        window.dispatchEvent(
-          new CustomEvent("bucketsUpdated", {
-            detail: { buckets: latestMerged || mapped },
-          })
-        );
+        if (filtered.length > 0) mapped = filtered;
 
-        // snapshot logic unchanged…
-        const currCardList = new Map();
-        for (const b of mapped) {
-          for (const c of b.cards) {
-            const stableId =
-              c.id ||
-              c.shortLink ||
-              c.idShort ||
-              (typeof c.url === "string"
-                ? c.url.split("/").pop()
-                : null) ||
-              `${b.id}:${c.title}`;
-            if (!stableId) continue;
-            currCardList.set(stableId, b.title);
-          }
-        }
+        // --- END USER LOGIC ---
 
-        if (hasSnapshotRef.current) {
-          const nowTs = Date.now();
-          for (const [cardId, newList] of currCardList) {
-            const oldList = prevCardListRef.current.get(cardId);
-            if (YOLANDIE_BUCKETS.has(newList) && oldList !== newList) {
-              const targetBucket = mapped.find((b) => b.title === newList);
-              const card = targetBucket?.cards.find((c) => {
-                const stableId =
-                  c.id ||
-                  c.shortLink ||
-                  c.idShort ||
-                  (typeof c.url === "string"
-                    ? c.url.split("/").pop()
-                    : null) ||
-                  `${targetBucket.id}:${c.title}`;
-                return stableId === cardId;
-              });
-              const title = card?.title || "Card";
+        // Only update if data changed (Simple check)
+        setTrelloBuckets(prev => {
+            if (JSON.stringify(prev) === JSON.stringify(mapped)) return prev;
+            hasSnapshotRef.current = true;
+            return mapped;
+        });
 
-              const key = `${cardId}|${oldList || "unknown"}->${newList}`;
-              const lastTs = recentNotifsRef.current.get(key);
-              if (!lastTs || nowTs - lastTs > NOTIF_DEDUP_MS) {
-                window.dispatchEvent(
-                  new CustomEvent("notify", {
-                    detail: {
-                      text: `Card "${title}" arrived in ${newList}${
-                        oldList ? ` from ${oldList}` : ""
-                      }`,
-                      cardId,
-                    },
-                  })
-                );
-                recentNotifsRef.current.set(key, nowTs);
-              }
-              for (const [k, ts] of recentNotifsRef.current) {
-                if (nowTs - ts > NOTIF_DEDUP_MS * 3)
-                  recentNotifsRef.current.delete(k);
-              }
-            }
-          }
-        }
-
-        prevCardListRef.current = currCardList;
-        hasSnapshotRef.current = true;
       } catch (err) {
-        console.error("Error loading Trello via function:", err);
+        console.error("Trello Poll Error:", err);
       }
     }
 
+    // Initial Fetch
     fetchTrello();
-    const id = setInterval(fetchTrello, 10000);
-    return () => clearInterval(id);
-  }, []);
 
-  // Allow App() to patch visible cards instantly
+    // Poll every 12 seconds (Safe zone for Trello API)
+    pollTimer = setInterval(() => fetchTrello(), 12000);
+
+    return () => {
+        isMounted = false; 
+        clearInterval(pollTimer);
+    };
+  }, [dragging]);
+
+  // ... (keep allow patch buckets logic) ...
+  // --- LISTEN FOR INSTANT UPDATES (Fixes Right Pane Delay) ---
   useEffect(() => {
-    function onPatchBuckets(e) {
-      const { cardId, updater } = e.detail || {};
-      if (!cardId || !updater) return;
-      patchCardInBuckets(cardId, updater);
+    function handlePatch(e) {
+      const { cardId, updater } = e.detail;
+      setTrelloBuckets(prevBuckets => {
+        // Deep clone to avoid mutation reference issues
+        const newBuckets = prevBuckets.map(b => ({
+          ...b,
+          cards: b.cards.map(c => {
+            if (c.id !== cardId) return c;
+            
+            // Apply the update (e.g., change Priority)
+            const updatedCard = updater(c);
+            
+            // Re-calculate badges for the Right Panel view immediately
+            const newBadges = [];
+            
+            // 1. Priority
+            if (updatedCard.customFields?.Priority) {
+               newBadges.push({ text: `Priority: ${updatedCard.customFields.Priority}`, isBottom: true });
+            }
+            // 2. Status
+            if (updatedCard.customFields?.Status) {
+               newBadges.push({ text: `Status: ${updatedCard.customFields.Status}`, isBottom: true });
+            }
+            // 3. Active
+            if (updatedCard.customFields?.Active) {
+               newBadges.push({ text: `Active: ${updatedCard.customFields.Active}`, isBottom: true });
+            }
+            
+            // Preserve labels
+            updatedCard.labels.forEach(l => newBadges.push({ text: l, isBottom: false }));
+            
+            updatedCard.badges = ensureBadgeTypes(newBadges);
+            return updatedCard;
+          })
+        }));
+        return newBuckets;
+      });
     }
-    window.addEventListener("patchCardInBuckets", onPatchBuckets);
-    return () => window.removeEventListener("patchCardInBuckets", onPatchBuckets);
+
+    window.addEventListener("patchCardInBuckets", handlePatch);
+    return () => window.removeEventListener("patchCardInBuckets", handlePatch);
   }, []);
 
-  // Map clientFiles -> UI files
+  // Map clientFiles -> UI files (unchanged)
   const files = (clientFiles || []).map((f, i) => {
     let type = f.type || "other";
     if (!f.type && f.mimeType) {
       if (f.mimeType === "application/pdf") type = "pdf";
       else if (f.mimeType.startsWith("image/")) type = "img";
-      else if (
-        f.mimeType ===
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-        f.mimeType === "application/vnd.ms-excel"
-      )
-        type = "xls";
+      else if (f.mimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" || f.mimeType === "application/vnd.ms-excel") type = "xls";
     }
-
-    const url =
-      f.url ||
-      (f.id
-        ? `/.netlify/functions/drive-download?id=${encodeURIComponent(f.id)}`
-        : "#");
-
+    const url = f.url || (f.id ? `/.netlify/functions/drive-download?id=${encodeURIComponent(f.id)}` : "#");
     const thumbUrl = f.thumbUrl || url;
-
-    return {
-      id: f.id || `att-${i}`,
-      name: f.name || `Attachment ${i + 1}`,
-      type,
-      url,
-      thumbUrl,
-    };
+    return { id: f.id || `att-${i}`, name: f.name || `Attachment ${i + 1}`, type, url, thumbUrl };
   });
 
   const isImage = (t) => t === "img";
@@ -1215,152 +1429,172 @@ function RightPanel() {
       <div className="right-scroll left-scroll">
         <div className="trello-col-wrap">
           {trelloBuckets.map((bucket, i) => (
-            <div className="tl-col" key={i}>
-              <div className="tl-head">
+            <div 
+                className="tl-col" 
+                key={bucket.id || i}
+                // 1. Mandatory for dropping
+                onDragOver={(e) => e.preventDefault()} 
+                // 2. INTELLIGENT ROUTING: List Swap vs Card Move
+                onDragEnter={(e) => {
+                    e.preventDefault();
+                    if (dragging) {
+                        // If dragging a LIST -> Reorder Lists
+                        if (dragItem.current?.listIdx !== undefined) handleListDragEnter(e, i);
+                        // If dragging a CARD -> Move Card to this List
+                        else handleColumnDragEnter(i);
+                    }
+                }}
+                // 3. Drop Handler
+                onDrop={(e) => {
+                    e.preventDefault();
+                    // Save Card Move
+                    if (dragItem.current?.grpI !== undefined) handleDragEnd();
+                    // Finish List Move
+                    if (dragItem.current?.listIdx !== undefined) setDragging(false);
+                }}
+            >
+              {/* HEADER (Draggable) */}
+              <div 
+                className="tl-head"
+                draggable
+                onDragStart={(e) => handleListDragStart(e, i)}
+                style={{ cursor: "grab" }} 
+              >
                 <span className="tl-title">{bucket.title}</span>
-                <span className="tl-actions">⋮</span>
+                <span className="tl-actions">•••</span>
               </div>
+              
+              {/* CARDS */}
               <div className="tl-cards">
                 {bucket.cards.map((card, j) => (
                   <div
-                    className="tl-card"
                     key={card.id || j}
-                    onClick={() =>
-                      window.dispatchEvent(
-                        new CustomEvent("openTrelloCard", { detail: card })
-                      )
-                    }
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, { grpI: i, itemI: j })}
+                    onDragEnter={dragging ? (e) => handleDragEnter(e, { grpI: i, itemI: j }) : null}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDragEnd={handleDragEnd}
+                    className={getStyles(i, j)}
+                    onClick={() => window.dispatchEvent(new CustomEvent("openTrelloCard", { detail: card }))}
                   >
-                    <div className="tl-card-topbar" />
-                    <div className="pill" />
-                    <div className="tl-card-title">
-                      <strong>{card.title}</strong>{" "}
-                      <span className="tl-muted">({card.due})</span>
-                      {card.trial && (
-                        <div
-                          className="tl-muted"
-                          style={{ fontSize: ".85rem" }}
-                        >
-                          {card.trial}
-                        </div>
-                      )}
-                    </div>
+                     {/* ... (Your Card Content - Colors, Badges, Title, Footer) ... */}
+                     {/* Copy your existing card inner content here if needed, or leave it as is */}
+                     
+                     {/* RE-INSERTING YOUR CARD CONTENT FOR CLARITY: */}
+                     {(() => {
+                      const coverColor = card.cover?.color;
+                      const titleColor = getTrelloCoverColor(card.title);
+                      const colorMap = { sky: "#6CC3E0", orange: "#FAA53D", blue: "#579DFF", green: "#4BCE97", yellow: "#F5CD47", red: "#F87168", purple: "#9F8FEF" };
+                      const finalColor = titleColor || colorMap[coverColor];
+                      if (finalColor) return ( <div className="tl-card-cover" style={{ backgroundColor: finalColor }} /> );
+                      return null;
+                    })()}
 
-                    <div className="tl-badges">
-                      {[...(card.badges || [])]
-                        .sort((a, b) => {
-                          const order = (txt) => {
-                            if (/^Priority\s*:/i.test(txt)) return 0;
-                            if (/^Status\s*:/i.test(txt)) return 1;
-                            if (/^Active\s*:/i.test(txt)) return 2;
-                            return 3;
-                          };
-                          return (
-                            order(a?.text || "") - order(b?.text || "")
-                          );
-                        })
-                        .map((b, k) => (
-                          <span
-                            key={k}
-                            className={`tl-badge ${b.type || ""}`}
-                          >
-                            {b.text}
-                          </span>
-                        ))}
-                    </div>
+                    {(() => {
+                      const labelBadges = (card.labels || []).map(l => ({ text: l, type: getLabelColor(l), isTop: true }));
+                      const labelTexts = new Set(labelBadges.map(b => (b.text || "").toLowerCase().trim()));
+                      const uniqueCardBadges = (card.badges || []).filter(b => !labelTexts.has((b.text || "").toLowerCase().trim()));
+                      const allBadges = [...labelBadges, ...uniqueCardBadges];
+                      const topBadges = allBadges.filter(b => b.isTop);
+                      const bottomBadges = allBadges.filter(b => b.isBottom);
+                      
+                      return (
+                        <>
+                          {topBadges.length > 0 && <div className="tl-badges">{topBadges.map((b, k) => <span key={k} className={`tl-badge ${b.type || "label-default"}`}>{b.text}</span>)}</div>}
+                          <div className="tl-card-title">{card.title}</div>
+                          {bottomBadges.length > 0 && <div className="tl-badges" style={{marginTop:"6px", flexDirection:"column", alignItems:"flex-start", gap:"4px"}}>{bottomBadges.map((b, k) => <span key={k} className={`tl-badge ${b.type || "label-default"}`}>{b.text}</span>)}</div>}
+                        </>
+                      );
+                    })()}
 
-                    <div className="tl-footer">
-                      {card.eta && (
-                        <span className="tl-eta">{card.eta}</span>
-                      )}
-                      {card.people?.length > 0 && (
-                        <div className="tl-people">
-                          {card.people.map((p, idx) => {
-                            const img = avatarFor(p);
-                            return img ? (
-                              <img
-                                key={idx}
-                                className="av-img"
-                                src={img}
-                                alt={p}
-                                title={p}
-                              />
-                            ) : (
-                              <div className="av" key={idx}>
-                                {p}
-                              </div>
-                            );
-                          })}
+                    {(card.description || card.due || (card.people && card.people.length > 0)) && (
+                        <div className="tl-footer">
+                          <div className="tl-icons">
+                            {card.description && <span>≡</span>} 
+                            {card.due && <span>🕒</span>}
+                          </div>
+                          <div className="tl-people">
+                            {card.people?.map((p, idx) => {
+                              const img = avatarFor(p);
+                              return img ? <img key={idx} className="av-img" src={img} alt={p} /> : <div key={idx} className="av">{p.slice(0,1)}</div>;
+                            })}
+                          </div>
                         </div>
-                      )}
-                    </div>
+                    )}
                   </div>
                 ))}
               </div>
 
-              <button className="tl-add">+ Add a card</button>
+              <button className="tl-add"><span>+</span> Add a card</button>
             </div>
           ))}
         </div>
 
-        <div className="panel-title" style={{ marginTop: "0.75rem" }}>
-          Client Files
-        </div>
-                      <div className="doc-grid">
-          {files.map((f) => (
-            <button
-              key={f.id}
-              className={`doc-card ${f.type}`}
-              onClick={() => {
-                window.dispatchEvent(
-                  new CustomEvent("openEmailAttachmentPreview", {
-                    detail: { file: f },
-                  })
-                );
-              }}
-              title={f.name}
-            >
-
+        <div className="panel-title" style={{ marginTop: "0.75rem" }}>Client Files</div>
+        <div className="doc-grid">
+           {files.map((f) => (
+            <button key={f.id} className={`doc-card ${f.type}`} onClick={() => window.dispatchEvent(new CustomEvent("openEmailAttachmentPreview", { detail: { file: f } }))} title={f.name}>
               <div className="doc-preview">
-                {isImage(f.type) ? (
-                  // Real image
-                  <img src={f.thumbUrl || f.url} alt={f.name} />
-                ) : isPdf(f.type) ? (
-                  // PDFs use iframe preview (never <img>)
-                  <iframe
-                    title={f.name}
-                    src={f.url}
-                    className="pdf-frame"
-                  />
-                ) : isExcel(f.type) ? (
-                  <div className="doc-icon">XLS</div>
-                ) : (
-                  <div className="doc-icon">FILE</div>
-                )}
+                {isImage(f.type) ? <img src={f.thumbUrl || f.url} alt={f.name} /> : isPdf(f.type) ? <iframe title={f.name} src={f.url} className="pdf-frame" /> : isExcel(f.type) ? <div className="doc-icon">XLS</div> : <div className="doc-icon">FILE</div>}
               </div>
-
               <div className="doc-info">
-                <span className={`doc-badge ${f.type}`}>
-                  {f.type === "xls" ? "XLSX" : f.type.toUpperCase()}
-                </span>
+                <span className={`doc-badge ${f.type}`}>{f.type === "xls" ? "XLSX" : f.type.toUpperCase()}</span>
                 <span className="doc-name">{f.name}</span>
               </div>
-
               <span className="doc-corner" />
             </button>
           ))}
         </div>
       </div>
-
-      {/* we no longer show a separate modal here; preview is in the email split view */}
     </div>
   );
+});
+
+// 👇 NEW: Text Formatter for GChat (Bolding + Links + Newlines)
+function formatChatText(text) {
+  if (!text) return "";
+  
+  // 1. Split by newlines, URLs, and *bold* markers
+  // Regex captures: (\n) OR (http...) OR (*bold*)
+  const parts = text.split(/(\n|https?:\/\/[^\s]+|\*[^*]+\*)/g);
+
+  return parts.map((part, i) => {
+    // A. Handle Newlines
+    if (part === "\n") return <br key={i} />;
+    
+    // B. Handle URLs
+    if (part.match(/^https?:\/\//)) {
+      return (
+        <a 
+          key={i} 
+          href={part} 
+          target="_blank" 
+          rel="noopener noreferrer" 
+          style={{ color: "#1a73e8", textDecoration: "underline", wordBreak: "break-all" }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {part}
+        </a>
+      );
+    }
+    
+    // C. Handle *Bold*
+    if (part.startsWith("*") && part.endsWith("*") && part.length > 2) {
+      return <strong key={i}>{part.slice(1, -1)}</strong>;
+    }
+
+    // D. Plain Text
+    return part;
+  });
 }
 
 /* ---------- app ---------- */
 export default function App() {
   const [inputValue, setInputValue] = useState("");
   const [notifications, setNotifications] = useState([]);
+  // 👇 NEW state for the label picker
+  const [showLabelPicker, setShowLabelPicker] = useState(false);
+
   const nextIdRef = useRef(0);
   const rotateIdxRef = useRef(0);
   const emailRotateRef = useRef(0);
@@ -1370,6 +1604,12 @@ export default function App() {
 
   /* Google Chat */
   const gchatBodyRef = useRef(null);
+  const [showNewChatModal, setShowNewChatModal] = useState(false);
+  // 👇 CHANGED: Use Ref instead of State for instant typing
+  const newChatEmailRef = useRef(null);
+
+  // 👇 NEW: Track last active space for background polling
+  const lastActiveSpaceRef = useRef(null);
 
   const [gchatSpaces, setGchatSpaces] = useState([]);
   const [gchatLoading, setGchatLoading] = useState(false);
@@ -1384,21 +1624,76 @@ export default function App() {
   const [gchatDmNames, setGchatDmNames] = useState({});
   const [gchatAutoScroll, setGchatAutoScroll] = useState(true);
   const [pendingUpload, setPendingUpload] = useState(null); // { file: File, kind: "pdf" }
+  const [trelloBuckets, setTrelloBuckets] = useState([]); // <--- ADD THIS LINE BACK
+  // Add this near your other state variables
+  const [timerNow, setTimerNow] = useState(Date.now());
+  // 👇 NEW: States for the "Add Time" popup
+  const [showAddTime, setShowAddTime] = useState(false);
+  const [manualHours, setManualHours] = useState("0");
+  const [manualMins, setManualMins] = useState("0");
+
+  // Update the timer every second for visual feedback
+  useEffect(() => {
+    const interval = setInterval(() => setTimerNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // 👇 UPDATED: Persist last active space so notifications work after reload
+  useEffect(() => {
+    if (gchatSelectedSpace) {
+      lastActiveSpaceRef.current = gchatSelectedSpace;
+      localStorage.setItem("LAST_ACTIVE_SPACE_ID", gchatSelectedSpace.id);
+    }
+  }, [gchatSelectedSpace]);
+
+  // 👇 NEW: Audio Recording State
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+
+  // 👇 NEW: Persist last notification time across re-renders
+  const lastNotifiedRef = useRef({ time: Date.now() });
+
+  /* 🔴 NEW — Google Chat reactions UI state */
 
   /* 🔴 NEW — Google Chat reactions UI state */
   const [hoveredMsgId, setHoveredMsgId] = useState(null);
   const [reactions, setReactions] = useState({});
+  const [gchatFilePreview, setGchatFilePreview] = useState(null); // { url, name, type }
 
-  function toggleReaction(messageId, type) {
-  setReactions((prev) => {
-    const current = prev[messageId] || [];
-    const exists = current.includes(type);
-    const next = exists
-      ? current.filter((x) => x !== type)
-      : [...current, type];
-    return { ...prev, [messageId]: next };
-  });
-}
+function calculateTotalMinutes(c) {
+    if (!c || !c.customFields) return 0;
+    
+    const storedDuration = parseFloat(c.customFields.Duration || "0");
+    const startTime = parseFloat(c.customFields.TimerStart || "0");
+
+    let liveMinutes = 0;
+    if (startTime > 0) {
+       // Fix -1m bug: Prevent negative values if system clocks drift slightly
+       const diff = timerNow - startTime;
+       liveMinutes = Math.max(0, diff / 1000 / 60);
+    }
+
+    return Math.floor(storedDuration + liveMinutes);
+  }
+
+function toggleReaction(messageId, type) {
+    // 1. Optimistic UI Update (Instant visual feedback)
+    setReactions((prev) => {
+      const currentList = prev[messageId] || [];
+      const isSame = currentList.includes(type);
+      const next = isSame ? [] : [type]; // "Override" logic
+      return { ...prev, [messageId]: next };
+    });
+
+    // 2. Send to Google (Background API Call)
+    // Note: We only support ADDING for now. 
+    fetch("/.netlify/functions/gchat-react", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageId, type })
+    }).catch(err => console.error("Reaction failed", err));
+  }
 
 useEffect(() => {
     const saved = localStorage.getItem("GCHAT_ME");
@@ -1462,26 +1757,61 @@ useEffect(() => {
   document.title = `ActuarySpace — ${nice}`;
   }, []);
 
+  // src/App.jsx
+
   useEffect(() => {
     const onNotify = (e) => {
-      const { text, cardId } = e.detail || {};
+      // 👇 CHANGED: Destructure icon, alt, spaceId too
+      const { text, cardId, icon, alt, spaceId, driveEmail } = e.detail || {};
+      
       if (!text) return;
-      const unique = `${cardId || "noid"}-${nextIdRef.current++}`;
+
+      const unique = `${cardId || spaceId || "noid"}-${nextIdRef.current++}`;
+      
       const item = {
-        id: `tl-${unique}`,
-        alt: "Trello",
-        icon: trelloIcon,
+        id: `nt-${unique}`,
+        // 👇 CHANGED: Use passed values or fallback to Trello defaults
+        alt: alt || "Trello",
+        icon: icon || trelloIcon,
         text,
         time: formatUKTimeWithSeconds(new Date()),
         cardId,
+        spaceId,     // For Google Chat
+        driveEmail,  // For Gmail
       };
+      
       setNotifications((prev) => [item, ...prev].slice(0, 200));
     };
+    
     window.addEventListener("notify", onNotify);
     return () => window.removeEventListener("notify", onNotify);
   }, []);
 
-  // Google Chat: load spaces AND identity when we enter the Google Chat view
+  // 1. GLOBAL IDENTITY LOADER (Runs once on mount, regardless of view)
+  useEffect(() => {
+    async function fetchWhoAmI() {
+      // Try local storage first to be fast
+      const stored = localStorage.getItem("GCHAT_ME");
+      if (stored) setGchatMe(stored);
+
+      try {
+        const res = await fetch("/.netlify/functions/gchat-whoami");
+        const json = await res.json().catch(() => ({}));
+        const myId = json.name || json.user?.name || json.resourceName;
+
+        if (myId) {
+          console.log("identified current user as:", myId);
+          setGchatMe(myId);
+          localStorage.setItem("GCHAT_ME", myId);
+        }
+      } catch (err) {
+        console.error("Failed to identify current user:", err);
+      }
+    }
+    fetchWhoAmI();
+  }, []);
+
+  // 1.5 SPACE LOADER (Fetches the list of rooms/DMs)
   useEffect(() => {
     if (currentView.app !== "gchat") return;
 
@@ -1500,6 +1830,7 @@ useEffect(() => {
         }
 
         if (!cancelled) {
+          // This populates the list so the next useEffect can name them
           setGchatSpaces(Array.isArray(json.spaces) ? json.spaces : []);
           setGchatSelectedSpace(null);
           setGchatMessages([]);
@@ -1513,70 +1844,87 @@ useEffect(() => {
       }
     }
 
-    // 👇 NEW: Identify "Siya" immediately
-    async function fetchWhoAmI() {
-      try {
-        const res = await fetch("/.netlify/functions/gchat-whoami");
-        const json = await res.json().catch(() => ({}));
-        
-        // Match what the backend returns (json.name = "users/123...")
-        const myId = json.name || json.user?.name || json.resourceName;
-
-        if (myId && !cancelled) {
-          console.log("identified current user as:", myId);
-          setGchatMe(myId);
-          localStorage.setItem("GCHAT_ME", myId);
-        }
-      } catch (err) {
-        console.error("Failed to identify current user:", err);
-      }
-    }
-
     loadSpaces();
-    fetchWhoAmI(); // 👈 Call the new function
 
     return () => {
       cancelled = true;
     };
   }, [currentView.app]);
 
+// 2. CHAT VIEW LOADER (Runs only when opening Chat)
   useEffect(() => {
-  if (currentView.app !== "gchat") return;
-  if (!gchatSpaces.length) return;
+    if (currentView.app !== "gchat") return;
+    if (!gchatSpaces.length) return;
 
-  const dms = gchatSpaces.filter(
-    (s) => s.type === "DIRECT_MESSAGE" && !gchatDmNames[s.id]
-  );
-  if (!dms.length) return;
+    // 1. Find all DMs that are Unnamed OR explicitly called "Direct Message"
+    const dmsToLoad = gchatSpaces.filter(
+      (s) => 
+        s.type === "DIRECT_MESSAGE" && 
+        (!gchatDmNames[s.id] || gchatDmNames[s.id] === "Direct Message") // 👈 THIS IS THE CRITICAL FIX
+    );
 
-  (async () => {
-    for (const dm of dms) {
-      try {
-        const res = await fetch(
-          `/.netlify/functions/gchat-dm-name?space=${encodeURIComponent(dm.id)}`
-        );
+    if (!dmsToLoad.length) return;
 
-        if (!res.ok) continue;
+    // 2. Fire ALL requests in parallel (The "Blast")
+    Promise.all(
+      dmsToLoad.map(async (dm) => {
+        try {
+          const res = await fetch(
+            `/.netlify/functions/gchat-dm-name?space=${encodeURIComponent(dm.id)}`
+          );
+          
+          if (!res.ok) return;
 
-        const json = await res.json().catch(() => ({}));
+          const json = await res.json().catch(() => ({}));
 
-        if (json.ok && json.names) {
-          const label =
-            Object.values(json.names)[0] ||
-            dm.displayName ||
-            "Direct Message";
-
-          setGchatDmNames((prev) => ({
-            ...prev,
-            [dm.id]: label,
-          }));
+          // 3. Incrementally update state as each one lands (Instant Pop-in)
+          if (json.ok && json.names) {
+            const label = Object.values(json.names)[0];
+            // Only update if we got a REAL name (not "Direct Message" again)
+            if (label && label !== "Direct Message") {
+              setGchatDmNames((prev) => ({
+                ...prev,
+                [dm.id]: label,
+              }));
+            }
+          }
+        } catch (err) {
+          console.error("DM name resolution failed for", dm.id, err);
         }
-      } catch (err) {
-        console.error("DM name resolve failed", dm.id, err);
-      }
+      })
+    );
+  }, [currentView.app, gchatSpaces]);
+
+  // 3. NAME LEARNER (The Fix for Sidebar Mismatch)
+  // Watches the active chat. If the header finds a real name, force-update the sidebar list.
+  useEffect(() => {
+    if (!gchatSelectedSpace || !gchatMessages.length) return;
+    if (gchatSelectedSpace.type !== "DIRECT_MESSAGE") return;
+
+    // 1. Get the name we currently have in the list
+    const currentListName = gchatDmNames[gchatSelectedSpace.id];
+
+    // 2. Find the REAL name from the messages (Enock, etc.)
+    const otherMsg = gchatMessages.find(m => {
+      const senderId = m.sender?.name || "";
+      // Ignore myself
+      return senderId && senderId !== gchatMe; 
+    });
+    
+    const realName = otherMsg?.sender?.displayName;
+
+    // 3. If the List says "Direct Message" but the Chat knows "Enock", FIX IT.
+    if (realName && currentListName !== realName) {
+      console.log("🧠 Learning Name:", gchatSelectedSpace.id, "->", realName);
+      
+      setGchatDmNames(prev => {
+        const next = { ...prev, [gchatSelectedSpace.id]: realName };
+        // Save to storage so it persists on refresh
+        localStorage.setItem("GCHAT_DM_NAMES", JSON.stringify(next));
+        return next;
+      });
     }
-  })();
-}, [currentView.app, gchatSpaces]);
+  }, [gchatSelectedSpace, gchatMessages, gchatMe, gchatDmNames]);
 
   // Google Chat: load + poll messages when a space is selected
 useEffect(() => {
@@ -1605,8 +1953,22 @@ useEffect(() => {
       const incomingRaw = Array.isArray(json.messages) ? json.messages : [];
       const incoming = incomingRaw.map((m) => normalizeGChatMessage(m));
 
-      if (!cancelled) {
+        if (!cancelled) {
+        // 👇 CLEANED: Just update the UI, no notifications here
         setGchatMessages((prev) => dedupeMergeMessages(prev, incoming));
+
+        // 👇 NEW: Sync Reactions from History (Server -> Website)
+        setReactions((prev) => {
+          const next = { ...prev };
+          incoming.forEach((msg) => {
+            // If the message has reactions from the server, store them
+            if (msg.reactions && Array.isArray(msg.reactions)) {
+              // We overwrite local state with server truth
+              next[msg.id || msg.name] = msg.reactions;
+            }
+          });
+          return next;
+        });
       }
     } catch (err) {
       if (!cancelled) setGchatMsgError(String(err?.message || err));
@@ -1622,15 +1984,158 @@ useEffect(() => {
   });
 
   // poll every 4 seconds (tune if you want)
-  const pollId = setInterval(fetchLatestAndMerge, 4000);
+    const pollId = setInterval(fetchLatestAndMerge, 4000);
 
-  return () => {
-    cancelled = true;
-    clearInterval(pollId);
-  };
-}, [currentView.app, gchatSelectedSpace?.id]);
+    return () => {
+      cancelled = true;
+      clearInterval(pollId);
+    };
+  }, [currentView.app, gchatSelectedSpace?.id]);
 
-      // 🔔 Poll Data Centre (Google Drive) for new instruction emails
+  // 👇 NEW: Global Background Poller (Production Version)
+  // 👇 NEW: Global Background Poller (Smart Relative Version)
+  useEffect(() => {
+    // We use a ref to track the Last Message ID we have seen in the background
+    const lastSeenMsgIdRef = { current: null };
+
+    const pollGlobal = async () => {
+      let targetSpaceId = lastActiveSpaceRef.current?.id || localStorage.getItem("LAST_ACTIVE_SPACE_ID");
+
+      // Auto-Discovery (Keep this, it's good)
+      if (!targetSpaceId) {
+        try {
+          const res = await fetch("/.netlify/functions/gchat-spaces");
+          const json = await res.json().catch(() => ({}));
+          if (json.ok && json.spaces?.length > 0) {
+            targetSpaceId = json.spaces[0].name;
+            localStorage.setItem("LAST_ACTIVE_SPACE_ID", targetSpaceId);
+            console.log("✅ [Background] Auto-selected:", json.spaces[0].displayName);
+          }
+        } catch (e) {}
+      }
+
+      if (!targetSpaceId) return;
+
+      // Stop if watching
+      const amIWatching = currentView.app === "gchat" && gchatSelectedSpace?.id === targetSpaceId;
+      if (amIWatching) {
+        // If we are watching, reset our tracker so we pick up fresh when we leave
+        lastSeenMsgIdRef.current = null;
+        return;
+      }
+
+      try {
+        const res = await fetch(
+          `/.netlify/functions/gchat-messages?space=${encodeURIComponent(targetSpaceId)}`
+        );
+        const json = await res.json().catch(() => ({}));
+        
+        if (!json.ok || !Array.isArray(json.messages) || json.messages.length === 0) return;
+
+        const msgs = json.messages.map(normalizeGChatMessage);
+        const latestMsg = msgs[msgs.length - 1]; // The newest message on server
+        const latestId = latestMsg.name || latestMsg.id;
+
+        // 1. First Run: Just memorize the ID (don't notify about history)
+        if (!lastSeenMsgIdRef.current) {
+           lastSeenMsgIdRef.current = latestId;
+           return;
+        }
+
+        // 2. Subsequent Runs: If ID changed, it's a NEW message
+        if (latestId !== lastSeenMsgIdRef.current) {
+           lastSeenMsgIdRef.current = latestId; // Update tracker
+
+           // Notify if not me
+           if (latestMsg.sender?.name !== gchatMe) {
+             console.log("🔔 [Background] Notification:", latestMsg.text);
+             
+             const sender = latestMsg.sender?.displayName || "Colleague";
+             let preview = latestMsg.text || "";
+             if (!preview && latestMsg.attachment?.length) preview = "Sent a file";
+
+             window.dispatchEvent(new CustomEvent("notify", {
+                detail: {
+                  text: `${sender}: ${preview}`,
+                  alt: "Google Chat",
+                  icon: gchatIcon,
+                  spaceId: targetSpaceId
+                }
+             }));
+           }
+        }
+      } catch (err) {
+        console.error("Background poll error", err);
+      }
+    };
+
+    // Run every 4 seconds
+    const intervalId = setInterval(pollGlobal, 4000);
+    return () => clearInterval(intervalId);
+  }, [currentView.app, gchatSelectedSpace, gchatMe]);
+
+  // 🔔 Poll Data Centre (Google Drive) for new instruction emails
+  // 👇 NEW: Background Poller (Notifies you when on Trello/Gmail)
+  useEffect(() => {
+    const pollBackground = async () => {
+      // 1. Only run if we are NOT in GChat (GChat has its own real-time poller)
+      //    and we have a space to check.
+      if (currentView.app === "gchat") return;
+      
+      const targetSpace = lastActiveSpaceRef.current;
+      if (!targetSpace) return;
+
+      try {
+        const res = await fetch(
+          `/.netlify/functions/gchat-messages?space=${encodeURIComponent(targetSpace.id)}`
+        );
+        const json = await res.json().catch(() => ({}));
+        if (!json.ok || !Array.isArray(json.messages)) return;
+
+        // Get the last known message timestamp from our LOCAL state
+        const lastMsg = gchatMessages[gchatMessages.length - 1];
+        if (!lastMsg) return;
+
+        const serverMessages = json.messages.map(normalizeGChatMessage);
+        const lastServerMsg = serverMessages[serverMessages.length - 1];
+
+        // If server has a newer message than what we have in memory
+        if (getMsgTs(lastServerMsg) > getMsgTs(lastMsg)) {
+          
+          // Check who sent it
+          if (lastServerMsg.sender?.name !== gchatMe) {
+             const sender = lastServerMsg.sender?.displayName || "Someone";
+             
+             // Handle attachments text
+             let previewText = lastServerMsg.text || "";
+             if (!previewText && lastServerMsg.attachment && lastServerMsg.attachment.length > 0) {
+                 previewText = `Sent an attachment`;
+             }
+             
+             // 🔔 Ding! Notification
+             window.dispatchEvent(new CustomEvent("notify", {
+                detail: {
+                  text: `${sender}: ${previewText}`,
+                  alt: "Google Chat",
+                  icon: gchatIcon,
+                  spaceId: targetSpace.id
+                }
+             }));
+
+             // Update local state silently so we don't notify again for the same msg
+             setGchatMessages((prev) => dedupeMergeMessages(prev, serverMessages));
+          }
+        }
+      } catch (err) {
+        console.error("Background poll failed", err);
+      }
+    };
+
+    const id = setInterval(pollBackground, 5000); // Check every 5s
+    return () => clearInterval(id);
+  }, [currentView.app, gchatMessages, gchatMe]);
+
+  // 🔔 Poll Data Centre (Google Drive) for new instruction emails
   useEffect(() => {
     const seen = seenDriveEmailIdsRef.current;
 
@@ -1759,97 +2264,117 @@ useEffect(() => {
     return () => document.removeEventListener("click", close);
   }, []);
 
-  // NEW: track pending custom field updates to avoid flicker
+  // 1. TRACK PENDING UPDATES (Prevents flickering)
   useEffect(() => {
     function onPendingCF(e) {
-      const { cardId, field, ttlMs = 1500 } = e.detail || {}; // shorten to reduce lag
+      const { cardId, field, ttlMs = 2000 } = e.detail || {}; 
       if (!cardId || !field) return;
       const now = Date.now();
       const m = pendingCFRef.current;
       const rec = m.get(cardId) || {};
-      rec[field] = now + ttlMs;
+      rec[field] = now + ttlMs; // Ignore server updates for this field for 2s
       m.set(cardId, rec);
     }
     window.addEventListener("pendingCF", onPendingCF);
     return () => window.removeEventListener("pendingCF", onPendingCF);
   }, []);
 
+  // 2. RIGHT PANE: INSTANT UPDATE LISTENER (Fixes 10s delay)
   useEffect(() => {
-  function onBucketsUpdated(e) {
-    try {
-      const buckets = (e.detail && e.detail.buckets) || [];
-      if (!trelloCard?.id) return;
-
-      // 1) find fresh copy of the open card
-      let fresh = null;
-      for (const b of buckets) {
-        const hit = (b.cards || []).find(x => x.id === trelloCard.id);
-        if (hit) { fresh = hit; break; }
-      }
-      if (!fresh && trelloCard?.title) {
-        for (const b of buckets) {
-          const hit = (b.cards || []).find(
-            x => (x.title || "").trim() === (trelloCard.title || "").trim()
-          );
-          if (hit) { fresh = hit; break; }
-        }
-      }
-      if (!fresh) return;
-
-      // 2) which CFs are pending from THIS modal?
-      const now = Date.now();
-      const pend = pendingCFRef.current.get(trelloCard.id) || {};
-      const isPending = (field) => pend[field] && pend[field] > now;
-
-      // 3) build next badges (ensure .type is present for colors)
-      const modalBadges = ensureBadgeTypes(Array.isArray(trelloCard.badges) ? trelloCard.badges : []);
-      const freshBadges = ensureBadgeTypes(Array.isArray(fresh.badges) ? fresh.badges : []);
-
-      const pick = (labelRegex, fieldName) => {
-        const src = isPending(fieldName) ? modalBadges : freshBadges;
-        return src.find(b => labelRegex.test(b?.text || "")) || null;
-      };
-
-      const nextBadges = [];
-      const prio = pick(/^Priority\s*:/i, "Priority"); if (prio) nextBadges.push(prio);
-      const act  = pick(/^Active\s*:/i,   "Active");   if (act)  nextBadges.push(act);
-      const stat = pick(/^Status\s*:/i,   "Status");   if (stat) nextBadges.push(stat);
-
-      freshBadges.forEach(b => {
-        const t = b?.text || "";
-        if (!/^Priority\s*:/i.test(t) && !/^Active\s*:/i.test(t) && !/^Status\s*:/i.test(t)) {
-          nextBadges.push(b);
-        }
-      });
-
-      // ensure the final array has types (e.g., Active/Priority) for consistent coloring
-      const nextBadgesEnsured = ensureBadgeTypes(nextBadges);
-
-      const needsUpdate =
-        JSON.stringify(nextBadgesEnsured) !== JSON.stringify(modalBadges) ||
-        JSON.stringify(trelloCard.labels || []) !== JSON.stringify(fresh.labels || []) ||
-        (trelloCard.boardList || "") !== (fresh.list || "") ||
-        (trelloCard.listId ?? null)   !== (fresh.listId ?? null) ||
-        (trelloCard.description || "") !== (fresh.description || "");  
-
-      if (needsUpdate) {
-        setTrelloCard(prev => ({
-          ...prev,
-          badges: nextBadgesEnsured,
-          labels: Array.isArray(fresh.labels) ? [...fresh.labels] : [],
-          boardList: fresh.list ?? prev.boardList,
-          listId: fresh.listId ?? prev.listId,
-          description: fresh.description ?? prev.description, // 👈 NEW: sync description
+    function handlePatch(e) {
+      const { cardId, updater } = e.detail;
+      setTrelloBuckets(prevBuckets => {
+        return prevBuckets.map(b => ({
+          ...b,
+          cards: b.cards.map(c => {
+            if (c.id !== cardId) return c;
+            
+            // Apply the update locally
+            const updatedCard = updater(c);
+            
+            // Re-calculate badges for the Right Panel view immediately
+            const newBadges = [];
+            
+            // Priority
+            if (updatedCard.customFields?.Priority) {
+               newBadges.push({ text: `Priority: ${updatedCard.customFields.Priority}`, isBottom: true });
+            }
+            // Status
+            if (updatedCard.customFields?.Status) {
+               newBadges.push({ text: `Status: ${updatedCard.customFields.Status}`, isBottom: true });
+            }
+            // Active
+            if (updatedCard.customFields?.Active) {
+               newBadges.push({ text: `Active: ${updatedCard.customFields.Active}`, isBottom: true });
+            }
+            
+            // Preserve labels
+            (updatedCard.labels || []).forEach(l => newBadges.push({ text: l, isBottom: false }));
+            
+            updatedCard.badges = ensureBadgeTypes(newBadges);
+            return updatedCard;
+          })
         }));
-      }
-    } catch (err) {
-      console.error("onBucketsUpdated failed:", err);
+      });
     }
-  }
 
-  window.addEventListener("bucketsUpdated", onBucketsUpdated);
-  return () => window.removeEventListener("bucketsUpdated", onBucketsUpdated);
-}, [trelloCard?.id, setTrelloCard]);
+    window.addEventListener("patchCardInBuckets", handlePatch);
+    return () => window.removeEventListener("patchCardInBuckets", handlePatch);
+  }, []);
+
+  // 3. MIDDLE PANE: SYNC WITH TRELLO (Fixes "Not Updating")
+  useEffect(() => {
+    if (!trelloCard?.id) return;
+
+    // A. Find fresh copy of the open card
+    let fresh = null;
+    for (const b of trelloBuckets) {
+      const hit = (b.cards || []).find(x => x.id === trelloCard.id);
+      if (hit) { fresh = hit; break; }
+    }
+    if (!fresh) return;
+
+    // B. Check which fields are "Pending" (edited recently by user)
+    const now = Date.now();
+    const pend = pendingCFRef.current.get(trelloCard.id) || {};
+    const isPending = (field) => pend[field] && pend[field] > now;
+
+    // C. Detect Changes
+    const oldCF = JSON.stringify(trelloCard.customFields || {});
+    const newCF = JSON.stringify(fresh.customFields || {});
+    const oldLabels = JSON.stringify(trelloCard.labels || []);
+    const newLabels = JSON.stringify(fresh.labels || []);
+    const oldDesc = trelloCard.description || "";
+    const newDesc = fresh.description || "";
+
+    // D. Update if changed (BUT respect pending fields)
+    if (oldCF !== newCF || oldLabels !== newLabels || oldDesc !== newDesc) {
+       console.log("Syncing Middle Pane with Trello changes...");
+       setTrelloCard(prev => {
+          const mergedCF = { ...fresh.customFields };
+
+          // 🛡️ PROTECT LOCAL EDITS: If user just edited these, ignore Server value for a few seconds
+          if (isPending("Priority"))   mergedCF.Priority   = prev.customFields.Priority;
+          if (isPending("Status"))     mergedCF.Status     = prev.customFields.Status;
+          if (isPending("Active"))     mergedCF.Active     = prev.customFields.Active;
+          if (isPending("Duration"))   mergedCF.Duration   = prev.customFields.Duration;   // 👈 ADDED
+          if (isPending("TimerStart")) mergedCF.TimerStart = prev.customFields.TimerStart; // 👈 ADDED
+
+          return {
+             ...prev,
+             labels: fresh.labels,       // Always take fresh labels
+             description: descEditing ? prev.description : newDesc, 
+             customFields: mergedCF,     // Smart Merge
+             badges: ensureBadgeTypes([
+                ...(mergedCF.Priority ? [{text: `Priority: ${mergedCF.Priority}`, isBottom: true}] : []),
+                ...(mergedCF.Status   ? [{text: `Status: ${mergedCF.Status}`, isBottom: true}] : []),
+                ...(mergedCF.Active   ? [{text: `Active: ${mergedCF.Active}`, isBottom: true}] : []),
+                ...(fresh.labels || []).map(l => ({text: l, isBottom: false}))
+             ])
+          };
+       });
+    }
+  }, [trelloBuckets]);
 
   const detectContact = (text, fallback) => {
     const hit = AC_CONTACTS.find((n) => text.includes(n));
@@ -1857,13 +2382,23 @@ useEffect(() => {
   };
 
   const onNotificationClick = async (n) => {
-  // 🟢 Trello notifications (existing behaviour)
-  if (n.alt === "Trello") {
-    setTrelloMenuOpen(false);
-    setCurrentView({ app: "trello", contact: null });
-    setTrelloCard(buildTrelloCardFromNotif(n.text));
-    return;
-  }
+    // 👇 NEW: Google Chat Handler
+    if (n.alt === "Google Chat") {
+      // 1. Switch View
+      setCurrentView({ app: "gchat", contact: null });
+
+      // 2. Select the Space (if found)
+      if (n.spaceId) {
+        const targetSpace = gchatSpaces.find((s) => s.id === n.spaceId);
+        if (targetSpace) {
+          setGchatSelectedSpace(targetSpace);
+        }
+      }
+
+      // 3. Dismiss notification
+      dismissNotification(n.id);
+      return;
+    }
 
   // 📨 Gmail-style notifications from Data Centre (Drive)
   if (n.alt === "Gmail" && n.driveEmail) {
@@ -2098,45 +2633,114 @@ const handleEmailAction = (actionKey) => {
 };
 
   /* send + auto reply (WhatsApp + Google Chat) */
-const handleSend = async () => {
+/* src/App.jsx - Improved handleSend */
+
+// 👇 NEW: Voice Note Logic
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/mp3" });
+        const audioFile = new File([audioBlob], "voice-note.mp3", { type: "audio/mp3" });
+        
+        // Reuse existing upload logic
+        setPendingUpload({ file: audioFile, kind: "file" });
+        
+        // Stop all tracks to release microphone
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      recorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error("Microphone error:", err);
+      alert("Could not access microphone.");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  // 👇 FIX: Add this function here (Inside App, before handleSend)
+  const handleStartChat = async () => {
+    // 👇 CHANGED: Read from Ref
+    const email = newChatEmailRef.current?.value || "";
+    if (!email.trim()) return;
+    
+    setGchatLoading(true);
+    // don't close modal yet, wait for success or error to prevent UI jump
+    
+    try {
+      const res = await fetch("/.netlify/functions/gchat-find-dm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // 👇 CHANGED: Send local email variable
+        body: JSON.stringify({ email: email.trim() })
+      });
+      
+      const json = await res.json().catch(() => ({}));
+      
+      if (json.ok && json.space) {
+        // 1. Add to local list if not there
+        const exists = gchatSpaces.find(s => s.name === json.space.name);
+        if (!exists) {
+          setGchatSpaces(prev => [json.space, ...prev]);
+          // 👇 CHANGED: Use local email variable
+          setGchatDmNames(prev => ({ ...prev, [json.space.name]: email }));
+        }
+        
+        // 2. Select it
+        setGchatSelectedSpace(json.space);
+        // 👇 CHANGED: Clear Ref instead of State
+        if (newChatEmailRef.current) newChatEmailRef.current.value = "";
+        setShowNewChatModal(false); // Close ONLY on success
+        
+        // 3. Persist for notifications
+        lastActiveSpaceRef.current = json.space;
+        localStorage.setItem("LAST_ACTIVE_SPACE_ID", json.space.name);
+      } else {
+        alert("User not found. Ensure the email is correct (e.g. name@actuaryconsulting.co.za).");
+      }
+    } catch (err) {
+      console.error("Start chat failed:", err);
+      alert("Failed to start chat.");
+    } finally {
+      setGchatLoading(false);
+    }
+  };
+
+  /* src/App.jsx - Improved handleSend */
+  const handleSend = async () => {
   const text = inputValue.trim();
-  // Allow empty text if we are uploading a file
   if (!text && !pendingUpload) return;
 
-  // WhatsApp (unchanged)
+  // WhatsApp (Unchanged)
   if (currentView.app === "whatsapp" && currentView.contact) {
+    /* ... keep your existing WhatsApp logic here ... */
     const contact = currentView.contact;
-
     setWaChats((prev) => {
       const list = prev[contact] ? [...prev[contact]] : [];
       list.push({ from: "me", text, time: formatUKTime(new Date()) });
       return { ...prev, [contact]: list };
     });
-
-    const delay = 1000 + Math.floor(Math.random() * 2000);
-    const reply =
-      WA_AUTO_REPLIES[Math.floor(Math.random() * WA_AUTO_REPLIES.length)];
-
-    setTimeout(() => {
-      setWaChats((prev) => {
-        const list = prev[contact] ? [...prev[contact]] : [];
-        list.push({ from: "them", text: reply, time: formatUKTime(new Date()) });
-        return { ...prev, [contact]: list };
-      });
-    }, delay);
-
     setInputValue("");
-    const ta = document.querySelector(".chat-textarea");
-    if (ta) {
-      ta.style.height = "auto";
-      ta.style.overflowY = "hidden";
-      const chatBar = ta.closest(".chat-bar");
-      if (chatBar) chatBar.classList.remove("expanded");
-    }
+    // ... auto reply logic ...
     return;
   }
 
-  // Google Chat
+  // Google Chat Logic
   if (currentView.app === "gchat" && gchatSelectedSpace) {
     try {
       let json = {};
@@ -2146,25 +2750,42 @@ const handleSend = async () => {
         const reader = new FileReader();
         reader.readAsDataURL(pendingUpload.file);
         
-        await new Promise((resolve) => {
+        await new Promise((resolve, reject) => {
           reader.onload = async () => {
-            const base64Content = reader.result.split(",")[1];
-            
-            const res = await fetch("/.netlify/functions/gchat-upload", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                space: gchatSelectedSpace.id,
-                text: text, // optional caption
-                filename: pendingUpload.file.name,
-                mimeType: pendingUpload.file.type,
-                fileBase64: base64Content
-              }),
-            });
-            json = await res.json().catch(() => ({}));
-            resolve();
+            try {
+              const base64Content = reader.result.split(",")[1];
+              
+              const res = await fetch("/.netlify/functions/gchat-upload", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  space: gchatSelectedSpace.id,
+                  text: text, 
+                  filename: pendingUpload.file.name,
+                  mimeType: pendingUpload.file.type,
+                  fileBase64: base64Content
+                }),
+              });
+              
+              json = await res.json().catch(() => ({}));
+              
+              if (!res.ok || !json.ok) {
+                console.error("Upload failed:", json);
+                alert(`Upload failed: ${json.error || "Unknown error"}`);
+                reject(); // Stop execution
+                return;
+              }
+              
+              resolve(); // Success!
+            } catch (e) {
+              console.error("Reader/Fetch error:", e);
+              reject();
+            }
           };
         });
+
+        // ✅ ONLY Clear preview if upload succeeded
+        setPendingUpload(null);
 
       } else {
         // --- TEXT ONLY FLOW ---
@@ -2179,29 +2800,28 @@ const handleSend = async () => {
         json = await res.json().catch(() => ({}));
       }
 
+      // Success handling
       if (json.ok && json.message) {
         const me = json.message?.sender?.name;
         if (me && !gchatMe) {
           setGchatMe(me);
           localStorage.setItem("GCHAT_ME", me);
         }
-
         setGchatMessages((prev) => dedupeMergeMessages(prev, [json.message]));
+        setInputValue(""); // Clear text box only on success
       }
-
-      setPendingUpload(null);
 
     } catch (err) {
       console.error("gchat-send/upload failed:", err);
+      alert("Message failed to send. Check console.");
     }
-
-    setInputValue("");
+    
+    // Reset height of text box
     const ta = document.querySelector(".chat-textarea");
     if (ta) {
       ta.style.height = "auto";
       ta.style.overflowY = "hidden";
-      const chatBar = ta.closest(".chat-bar");
-      if (chatBar) chatBar.classList.remove("expanded");
+      ta.closest(".chat-bar")?.classList.remove("expanded");
     }
     return;
   }
@@ -2241,9 +2861,45 @@ const handleSend = async () => {
       );
     }
 
-if (currentView.app === "gchat") {
-  return (
-    <div className="gchat-shell" style={{ display: "flex", height: "100%" }}>
+  if (currentView.app === "gchat") {
+    // 👇 Name Sniffer (Keep this)
+    const otherPersonName = gchatMessages.find(
+      (m) => m?.sender?.name && m.sender.name !== gchatMe
+    )?.sender?.displayName;
+    // 👇 NEW: PREVIEW INTERCEPTOR
+    // If a file is selected, return the Preview UI *instead* of the Chat UI
+    if (gchatFilePreview) {
+      const isImg = ["img", "png", "jpg", "jpeg", "gif", "webp"].includes(gchatFilePreview.type);
+      
+      // ✅ CORRECT: The URL is already fully constructed in the onClick handler
+      const src = gchatFilePreview.url;
+
+      return (
+        <div className="gchat-preview-container">
+          <div className="gchat-preview-bar">
+            <div className="gchat-preview-title">{gchatFilePreview.name}</div>
+            <div className="gchat-preview-actions">
+              <a href={src} download={gchatFilePreview.name} className="gchat-preview-btn">Download</a>
+              <button className="gchat-preview-close" onClick={() => setGchatFilePreview(null)}>
+                ✕ Close
+              </button>
+            </div>
+          </div>
+          <div className="gchat-preview-body">
+            {isImg ? (
+              <img src={src} alt="Preview" className="gchat-preview-img" />
+            ) : (
+              <iframe src={src} title="Preview" className="gchat-preview-frame" />
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // 👇 Standard Chat UI (If no preview is active)
+    return (
+      <div className="gchat-shell" style={{ display: "flex", height: "100%" }}>
+      {/* ... sidebar and thread code ... */}
       {/* LEFT 1/4 — spaces + DMs */}
       <div
         className="gchat-sidebar"
@@ -2252,9 +2908,84 @@ if (currentView.app === "gchat") {
           borderRight: "1px solid #ddd",
           overflowY: "auto",
           padding: "8px",
+          position: "relative"
         }}
+        onClick={() => {}}
       >
-        {/* Google Chat header removed */}
+        {/* "Start direct message" Button (Grey Pill, No Plus) */}
+        <button 
+          style={{ 
+            width: "92%", 
+            margin: "0 auto 8px auto", 
+            padding: "6px 12px",
+            borderRadius: "999px", 
+            background: "#e0e0e0", 
+            color: "#202124",
+            border: "none",
+            display: "block", 
+            textAlign: "center",
+            fontSize: "0.85rem", fontWeight: "500", cursor: "pointer"
+          }}
+          onClick={(e) => { e.stopPropagation(); setShowNewChatModal(true); }}
+        >
+          Start direct message
+        </button>
+
+        {/* Modal Overlay */}
+        {showNewChatModal && (
+          <>
+            {/* 👇 FIX: Invisible backdrop for instant close on click-away */}
+            <div 
+              style={{ position: "fixed", top:0, left:0, width:"100vw", height:"100vh", zIndex: 99 }}
+              onClick={(e) => { e.stopPropagation(); setShowNewChatModal(false); }}
+            />
+            
+            <div 
+              style={{
+                position: "absolute", top: "50px", left: "10px", right: "10px",
+                background: "white", padding: "16px", borderRadius: "8px",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.2)", zIndex: 100, border: "1px solid #ddd"
+              }}
+              /* 👇 FIX: Stop propagation */
+              onClick={(e) => e.stopPropagation()} 
+            >
+              <div style={{fontWeight:500, marginBottom:12, fontSize:"1rem", color:"#202124"}}>
+                Start direct message
+              </div>
+              
+              <div style={{fontSize:".8rem", color:"#5f6368", marginBottom:"4px"}}>
+                Add 1 or more people
+              </div>
+              
+              {/* 👇 FIX: Uncontrolled Input for Instant Typing */}
+              <input 
+                ref={newChatEmailRef}
+                autoFocus
+                style={{ width: "100%", padding: "8px 10px", borderRadius: "4px", border: "1px solid #dadce0", marginBottom: "16px", fontSize: ".9rem" }}
+                placeholder="Enter email address..."
+                defaultValue="" 
+                onKeyDown={e => e.key === "Enter" && handleStartChat()}
+              />
+              
+              <div style={{display:"flex", justifyContent:"flex-end", gap:10}}>
+                 <button 
+                  className="btn ghost" 
+                  style={{ borderRadius:4, padding: "6px 12px", color: "#1a73e8", fontWeight: 500, cursor: "pointer" }} 
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowNewChatModal(false); }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  className="btn blue" 
+                  style={{ borderRadius:4, padding: "6px 16px", background: "#1a73e8", fontWeight: 500, cursor: "pointer" }} 
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleStartChat(); }}
+                >
+                  Start chat
+                </button>
+              </div>
+            </div>
+          </>
+        )}
 
         {gchatLoading && <div className="gchat-muted">Loading…</div>}
         {gchatError && <div className="gchat-error">{gchatError}</div>}
@@ -2262,9 +2993,13 @@ if (currentView.app === "gchat") {
         {!gchatLoading &&
         !gchatError &&
         gchatSpaces.map((s) => {
+          // 👇 LOGIC: Check our learned list first. If it's "Direct Message", try the Google name.
+          const learnedName = gchatDmNames[s.id];
+          const isGeneric = !learnedName || learnedName === "Direct Message";
+          
           const title =
             s.type === "DIRECT_MESSAGE"
-              ? gchatDmNames[s.id] || s.displayName || "Direct Message"
+              ? (isGeneric ? (s.displayName || "Direct Message") : learnedName)
               : s.displayName || "Unnamed";
 
           return (
@@ -2284,14 +3019,13 @@ if (currentView.app === "gchat") {
               onClick={() => setGchatSelectedSpace(s)}
             >
               {/* avatar removed intentionally */}
-
               <div className="gchat-item-text">
                 <div className="gchat-item-title">{title}</div>
               </div>
             </button>
           );
         })}
-        </div>
+      </div>
 
       {/* RIGHT 3/4 — message thread */}
       <div
@@ -2314,6 +3048,7 @@ if (currentView.app === "gchat") {
               ? gchatSelectedSpace.type === "DIRECT_MESSAGE"
                 ? gchatDmNames[gchatSelectedSpace.id] ||
                   gchatSelectedSpace.displayName ||
+                  otherPersonName || // 👈 Uses the real name found in messages!
                   "Direct Message"
                 : gchatSelectedSpace.displayName || "Unnamed"
               : "Select a space"}
@@ -2338,7 +3073,8 @@ if (currentView.app === "gchat") {
             padding: "12px"
           }}
         >
-          {!gchatSelectedSpace && "Choose a space on the left."}
+          {/* 👇 UPDATED: Text removed */}
+          {!gchatSelectedSpace && null}
 
           {gchatSelectedSpace && (
             <>
@@ -2347,16 +3083,54 @@ if (currentView.app === "gchat") {
 
               {!gchatMsgLoading && !gchatMsgError && (
                 <div className="gchat-msg-list">
+                  {/* src/App.jsx - REPLACING the map inside gchat-msg-list */}
                   {gchatMessages.map((m, idx) => {
                     const msg = normalizeGChatMessage(m);
                     const senderName = msg?.sender?.displayName || "Unknown";
-                    const msgId =
-                      msg?.name ||
-                      msg?.id ||
-                      `${msg?.createTime || msg?.updateTime || "no-ts"}-${idx}`;
-
+                    const msgId = msg?.name || msg?.id || `${msg?.createTime || "no-ts"}-${idx}`;
                     const avatar = avatarFor(senderName);
                     const isMine = !!gchatMe && msg?.sender?.name === gchatMe;
+
+                    // 👇 DETECT ATTACHMENT
+                    const attachment = msg.attachment?.[0] || msg.annotations?.[0]?.userMention?.user ? null : msg.attachment?.[0]; // (simplified check)
+                    // Actually, the GChat API structure for attachments is usually msg.attachment[0].
+                    // Let's check for "attachment" property which we get from our backend or the API.
+                    const hasAttachment = msg.attachment && msg.attachment.length > 0;
+                    const fileData = hasAttachment ? msg.attachment[0] : null;
+                    
+                    // Clean filename for display
+                    const fileName = fileData?.contentName || fileData?.name || "Attachment";
+  
+                    // 👇 Smarter File Type Detection
+                    let fileType = "FILE";
+                    let iconClass = "default"; // For CSS styling
+
+                    const ext = fileName.split(".").pop().toLowerCase();
+                    const isVideo = ["mp4", "webm", "ogg", "mov"].includes(ext);
+                    const isAudio = ["mp3", "wav", "m4a", "aac"].includes(ext);
+
+                    if (ext === "pdf") {
+                      fileType = "PDF";
+                      iconClass = "pdf";
+                    } else if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) {
+                      fileType = "IMG";
+                      iconClass = "img";
+                    } else if (["xls", "xlsx", "csv"].includes(ext)) {
+                      fileType = "XLS";
+                      iconClass = "xls";
+                    } else if (["doc", "docx"].includes(ext)) {
+                      fileType = "DOC";
+                      iconClass = "doc";
+                    } else if (["zip", "rar"].includes(ext)) {
+                      fileType = "ZIP";
+                      iconClass = "zip";
+                    } else if (isVideo) {
+                      fileType = "VID";
+                      iconClass = "img"; // Use purple/img style for video icon fallback
+                    } else if (isAudio) {
+                      fileType = "AUD";
+                      iconClass = "img"; // Use purple/img style for audio icon fallback
+                    }
 
                     return (
                       <div
@@ -2375,12 +3149,13 @@ if (currentView.app === "gchat") {
                         )}
 
                         <div
-                          className="gchat-msg-content"
+                          className="gchat-msg-content group"
                           style={{
                             display: "flex",
                             flexDirection: "column",
                             alignItems: isMine ? "flex-end" : "flex-start",
                             position: "relative",
+                            maxWidth: "75%", // Limit width so file cards don't span full screen
                           }}
                         >
                           <div className="gchat-meta">
@@ -2390,85 +3165,135 @@ if (currentView.app === "gchat") {
                             </span>
                           </div>
 
-                          <div
-                            className="gchat-bubble"
-                            onMouseEnter={() => setHoveredMsgId(msgId)}
-                            onMouseLeave={() => setHoveredMsgId(null)}
-                            style={{ position: "relative" }}
-                          >
-                            {msg?.text || msg?.formattedText || ""}
-                          </div>
+                          {/* 👇 1. RENDER FILE CARD OR INLINE PLAYER (If exists) */}
+                          {hasAttachment && (
+                            <div style={{ marginBottom: msg?.text ? "8px" : "0" }}>
+                              {isVideo ? (
+                                /* A) INLINE VIDEO PLAYER */
+                                <div className="gchat-media-wrap">
+                                  <video
+                                    controls
+                                    src={
+                                      fileData?.attachmentDataRef?.resourceName
+                                        ? `/.netlify/functions/gchat-download?uri=api:${fileData.attachmentDataRef.resourceName}`
+                                        : fileData?.downloadUri
+                                    }
+                                    style={{
+                                      maxWidth: "240px",
+                                      borderRadius: "8px",
+                                      display: "block",
+                                      background: "#000",
+                                    }}
+                                  />
+                                </div>
+                              ) : isAudio ? (
+                                /* B) INLINE AUDIO PLAYER */
+                                <div
+                                  className="gchat-media-wrap"
+                                  style={{ width: "240px" }}
+                                >
+                                  <audio
+                                    controls
+                                    src={
+                                      fileData?.attachmentDataRef?.resourceName
+                                        ? `/.netlify/functions/gchat-download?uri=api:${fileData.attachmentDataRef.resourceName}`
+                                        : fileData?.downloadUri
+                                    }
+                                    style={{ width: "100%" }}
+                                  />
+                                </div>
+                              ) : (
+                                /* C) STANDARD FILE CARD (PDF/Docs/Images) */
+                                <div
+                                  className="gchat-file-card"
+                                  style={{ cursor: "pointer" }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
 
-                          {!isMine && hoveredMsgId === msgId && (
-                            <div
-                              className="gchat-react-bar"
-                              style={{
-                                position: "absolute",
-                                top: "18px",
-                                right: "-6px",
-                                display: "flex",
-                                gap: "6px",
-                                background: "#fff",
-                                padding: "6px 10px",
-                                borderRadius: "999px",
-                                boxShadow: "0 4px 14px rgba(0,0,0,0.18)",
-                                zIndex: 50,
-                              }}
-                            >
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  toggleReaction(msgId, "like");
-                                }}
-                                style={{
-                                  background: "none",
-                                  border: "none",
-                                  cursor: "pointer",
-                                  fontSize: "18px",
-                                }}
-                              >
-                                👍
-                              </button>
+                                    // ✅ FIX: Only use the Proxy if we have the specific Resource ID
+                                    const resName =
+                                      fileData?.attachmentDataRef?.resourceName;
+                                    const directUrl = fileData?.downloadUri;
 
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  toggleReaction(msgId, "heart");
-                                }}
-                                style={{
-                                  background: "none",
-                                  border: "none",
-                                  cursor: "pointer",
-                                  fontSize: "18px",
-                                }}
-                              >
-                                ❤️
-                              </button>
+                                    // ✅ FIX: Use full Netlify Functions path
+                                    const finalUrl = resName
+                                      ? `/.netlify/functions/gchat-download?uri=api:${resName}`
+                                      : directUrl;
+
+                                    // 2. Check the file type
+                                    const extension = fileName
+                                      .split(".")
+                                      .pop()
+                                      .toLowerCase();
+                                    const isViewable = [
+                                      "pdf",
+                                      "png",
+                                      "jpg",
+                                      "jpeg",
+                                      "gif",
+                                      "webp",
+                                    ].includes(extension);
+
+                                    if (isViewable) {
+                                      // SCENARIO A: Viewable -> Open the Preview Modal
+                                      setGchatFilePreview({
+                                        name: fileName,
+                                        url: finalUrl,
+                                        type: iconClass,
+                                      });
+                                    } else {
+                                      // SCENARIO B: Not Viewable (Word/Excel) -> Download Immediately
+                                      const link = document.createElement("a");
+                                      link.href = finalUrl;
+                                      link.setAttribute("download", fileName);
+                                      document.body.appendChild(link);
+                                      link.click();
+                                      document.body.removeChild(link);
+                                    }
+                                  }}
+                                >
+                                  {/* 👇 Dynamic class added here */}
+                                  <div className={`gchat-file-icon ${iconClass}`}>
+                                    {fileType}
+                                  </div>
+                                  <div className="gchat-file-info">
+                                    <div className="gchat-file-name">{fileName}</div>
+                                    {/* ... */}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )}
 
+                          {/* 👇 2. RENDER TEXT BUBBLE (If exists) - placed below the file */}
+                          {(msg?.text || msg?.formattedText) && (
+                            <div className="gchat-bubble" style={{ position: "relative" }}>
+                              {/* 👇 Use the helper function here */}
+                              {formatChatText(msg?.text || msg?.formattedText)}
+                            </div>
+                          )}
+
+                          {/* ... (Reaction UI Code remains the same) ... */}
+                          {!isMine && (
+                            <div className="gchat-react-bar">
+                              {/* ... buttons ... */}
+                              <button className="gchat-reaction-pill" onMouseDown={(e) => {e.stopPropagation(); e.preventDefault(); toggleReaction(msgId, "like");}}>👍</button>
+                              <button className="gchat-reaction-pill" onMouseDown={(e) => {e.stopPropagation(); e.preventDefault(); toggleReaction(msgId, "heart");}}>❤️</button>
+                              <button className="gchat-reaction-pill" onMouseDown={(e) => {e.stopPropagation(); e.preventDefault(); toggleReaction(msgId, "laugh");}}>😆</button>
+                            </div>
+                          )}
+
+                          {/* ... (Rendered Reactions Code remains the same) ... */}
                           {Array.isArray(reactions[msgId]) && reactions[msgId].length > 0 && (
-                            <div className="gchat-reaction-row">
+                            <div className="gchat-reaction-row" style={{ marginTop: 4, display: "flex", gap: 4 }}>
                               {reactions[msgId].map((r) => (
-                                <button
-                                  key={r}
-                                  className={`gchat-reaction-pill ${r}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleReaction(msgId, r);
-                                  }}
-                                  style={{
-                                    border: "none",
-                                    background: "none",
-                                    cursor: "pointer",
-                                    padding: 0,
-                                  }}
-                                >
-                                  {r === "like" ? "👍" : "❤️"}
+                                <button key={r} onClick={(e) => {e.stopPropagation(); toggleReaction(msgId, r);}} className="gchat-reaction-chip-btn">
+                                  {r === "like" ? "👍 1" : r === "heart" ? "❤️ 1" : "😆 1"}
                                 </button>
                               ))}
                             </div>
                           )}
+
                         </div>
                       </div>
                     );
@@ -2738,503 +3563,638 @@ if (currentView.app === "gchat") {
       );
     }
 
-    /* Trello modal center popup */
-    if (currentView.app === "trello" && trelloCard) {
-      const c = trelloCard;
-      // IMPORTANT: prefer real customFields; only fallback to badges if missing/empty
-      const fields = (c.customFields && Object.keys(c.customFields).length)
-        ? c.customFields
-        : parseCustomFieldsFromBadges(c.badges || []);
+    /* Trello modal (Real App Style) */
+  if (currentView.app === "trello" && trelloCard) {
+    const c = trelloCard;
+    const fields = (c.customFields && Object.keys(c.customFields).length)
+      ? c.customFields
+      : parseCustomFieldsFromBadges(c.badges || []);
 
-      return (
-        <div className="trello-modal">
-          <div className="trello-modal-topbar">
-            <div className="trello-top-left">
-              <button className="tl-list-dropdown">{c.boardList || "Yolandie to Send"} ▾</button>
+    return (
+      <div className="trello-modal">
+        {/* 1. TOP BAR (Icon + Title + Close) */}
+        <div className="trello-modal-topbar">
+          <div className="trello-header-main">
+            <div className="trello-icon-header">
+               <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                  <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="2"/>
+                  <line x1="7" y1="9" x2="17" y2="9" stroke="currentColor" strokeWidth="2"/>
+               </svg>
             </div>
-
-            <div className="trello-top-right">
-              <div className="kebab-wrap">
-                <button
-                  className="kebab-btn"
-                  aria-label="More"
-                  onClick={(e) => { e.stopPropagation(); setTrelloMenuOpen(v => !v); }}
-                >⋯</button>
-
-                {trelloMenuOpen && (
-                  <div className="kebab-menu" onMouseLeave={() => setTrelloMenuOpen(false)}>
-                    <button className="k-item">Join</button>
-                    <button className="k-item">Move</button>
-                    <button className="k-item">Copy</button>
-                    <button className="k-item">Mirror</button>
-                    <button className="k-item">Make template</button>
-                    <button className="k-item">Watch</button>
-                    <div className="k-sep" />
-                    <button className="k-item">Share</button>
-                    <button className="k-item">Archive</button>
-                  </div>
-                )}
+            <div style={{ flex: 1 }}>
+              <input 
+                className="trello-title-input" 
+                value={c.title} 
+                onChange={(e) => setTrelloCard(prev => ({...prev, title: e.target.value}))}
+              />
+              <div className="trello-list-subtitle">
+                in list <a href="#">{c.boardList || "Yolandie to Send"}</a>
               </div>
-
-              <button
-              className="trello-close"
-              onClick={() => {
-                setTrelloMenuOpen(false);
-                setDescEditing(false);   // 👈 NEW
-                setDescDraft("");        // 👈 NEW
-                setTrelloCard(null);
-              }}
-            >✕</button>
             </div>
           </div>
+          <button 
+            className="trello-close"
+            onClick={() => { setTrelloMenuOpen(false); setTrelloCard(null); }}
+          >✕</button>
+        </div>
 
-          <div className="trello-modal-body">
-            <div className="trello-left">
-              <div className="trello-title">
-                <div className="t-title-text"><strong>{c.title}{c.dueDisplay ? ` ${c.dueDisplay}` : ""}</strong></div>
+        {/* 2. BODY (Columns) */}
+        <div className="trello-modal-body">
+          
+          {/* LEFT COLUMN (75%) */}
+          <div className="trello-main-col">
+            
+            {/* Action Row (Buttons under title) */}
+            <div className="trello-action-row">
+               <button className="t-btn-gray">
+                  <span>+</span> Add
+               </button>
+               <button className="t-btn-gray">
+                  <span>🕒</span> Dates
+               </button>
+               <button className="t-btn-gray">
+                  <span>☑</span> Checklist
+               </button>
+               <button className="t-btn-gray">
+                  <span>👤</span> Members
+               </button>
+               <button className="t-btn-gray">
+                  <span>📎</span> Attachment
+               </button>
+            </div>
+
+            {/* Members & Labels Section (Fixed Layout & Sizing) */}
+            <div style={{ display: 'flex', gap: 24, marginBottom: 24, paddingLeft: 40, flexWrap: 'wrap' }}>
+               
+               {/* 1. Members Group */}
+               <div>
+                  <h3 className="trello-group-label">Members</h3>
+                  <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                     {(c.members || []).map((m, i) => {
+                        const img = avatarFor(m);
+                        return (
+                           <div key={i} className="member-avatar" title={m}>
+                              {img ? <img src={img} alt={m} /> : m.slice(0,1)}
+                           </div>
+                        );
+                     })}
+                     <button className="round-btn-gray" title="Add member">
+                        <span>+</span>
+                     </button>
+                  </div>
+               </div>
+
+               {/* 2. Labels Group */}
+               <div style={{ position: 'relative' }}>
+                  <h3 className="trello-group-label">Labels</h3>
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                     {/* Render actual active labels - NOW CLICKABLE */}
+                     {(c.labels || []).map((l, i) => {
+                        const style = getLabelStyle(l);
+                        return (
+                           <div 
+                             key={i} 
+                             className="label-pill-large" 
+                             style={style}
+                             onClick={(e) => { e.stopPropagation(); setShowLabelPicker(true); }}
+                           >
+                              {l}
+                           </div>
+                        );
+                     })}
+                     
+                     {/* Plus Button */}
+                     <button 
+                        className="rect-btn-gray" 
+                        title="Add label"
+                        onClick={(e) => { e.stopPropagation(); setShowLabelPicker(!showLabelPicker); }}
+                     >
+                        <span>+</span>
+                     </button>
+
+                     {/* 🔽 POPUP LABEL PICKER (Checkboxes) 🔽 */}
+                     {showLabelPicker && (
+                       <div className="label-picker-popover" onClick={(e) => e.stopPropagation()}>
+                         <div className="label-picker-header">
+                           <span>Labels</span>
+                           <button 
+                             className="label-picker-close" 
+                             onClick={(e) => { e.stopPropagation(); setShowLabelPicker(false); }}
+                           >✕</button>
+                         </div>
+                         <div className="label-picker-list">
+                           {ALL_LABEL_OPTIONS.map((opt) => {
+                             const isActive = (c.labels || []).includes(opt.name);
+                             return (
+                               <div key={opt.name} className="label-picker-row">
+                                 <div 
+                                   className="label-picker-pill" 
+                                   style={{ backgroundColor: opt.bg, color: opt.color, display: 'flex', alignItems: 'center', gap: '8px' }}
+                                   onClick={async (e) => {
+                                      e.stopPropagation(); // Prevent closing
+                                      
+                                      // 1. Optimistic Update
+                                      const newLabels = isActive 
+                                        ? c.labels.filter(l => l !== opt.name)
+                                        : [...(c.labels || []), opt.name];
+                                      
+                                      setTrelloCard(prev => ({ ...prev, labels: newLabels }));
+
+                                      try {
+                                        // 2. Call Backend
+                                        await fetch("/.netlify/functions/trello-toggle-label", {
+                                          method: "POST",
+                                          body: JSON.stringify({ 
+                                            cardId: c.id, 
+                                            labelName: opt.name, 
+                                            shouldAdd: !isActive 
+                                          })
+                                        });
+                                        
+                                        // 3. Patch bucket
+                                        window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
+                                          detail: { cardId: c.id, updater: old => ({ ...old, labels: newLabels }) }
+                                        }));
+                                      } catch(err) {
+                                        console.error("Label toggle failed", err);
+                                      }
+                                   }}
+                                 >
+                                   {/* CHECKBOX ON LEFT */}
+                                   <input 
+                                     type="checkbox" 
+                                     checked={isActive} 
+                                     readOnly 
+                                     style={{ cursor: 'pointer', width: 16, height: 16 }} 
+                                   />
+                                   <span style={{flex: 1}}>{opt.name}</span>
+                                 </div>
+                                 <button className="label-edit-icon">✎</button>
+                               </div>
+                             );
+                           })}
+                         </div>
+                       </div>
+                     )}
+                  </div>
+               </div>
+            </div>
+
+            {/* Description */}
+            <div className="trello-section">
+              <div className="trello-section-icon">≡</div>
+              <div className="trello-section-header">
+                 <h3 className="trello-h3">Description</h3>
+                 {!descEditing && (
+                   <button 
+                     className="t-btn-gray"
+                     onClick={() => { setDescDraft(c.description || ""); setDescEditing(true); }}
+                   >Edit</button>
+                 )}
               </div>
-
-              <div className="trello-modal-toolbar">
-                <button className="tool-btn">+ Add</button>
-                <button className="tool-btn">Dates</button>
-                <button className="tool-btn">Checklist</button>
-                <button className="tool-btn">Attachment</button>
-                <button className="tool-btn">Location</button>
-              </div>
-
-              <div className="tl-row">
-                <div className="tl-label">Members</div>
-                <div className="tl-chips">
-                  {(c.members || []).map((m, i) => {
-                    const img = avatarFor(m);
-                    return img
-                      ? <img key={i} className="tl-chip-img" src={img} alt={m} title={m} />
-                      : <div key={i} className="tl-chip" title={m}>{(m||"").slice(0,1)}</div>;
-                  })}
-                  <button className="tl-chip add">+</button>
-                </div>
-              </div>
-
-              <div className="tl-row">
-                <div className="tl-label">Labels</div>
-                <div className="dd">
-                  <select
-                    value={(c.labels && c.labels[0]) || ""}
-                    onChange={(e) => {
-                      const val = e.target.value || "";
-                      setTrelloCard(prev => ({ ...prev, labels: val ? [val] : [] }));
-                    }}
-                  >
-                    <option value="" disabled>Select…</option>
-                    {LABEL_OPTIONS.map(opt => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="tl-row">
-                <div className="tl-label">Labels</div>
-                <div className="tl-chips">
-                  {(c.labels || []).map((l, i) => <div className="tl-tag raf" key={i}>{l}</div>)}
-                  <button className="tl-chip add">+</button>
-                </div>
-              </div>
-
-              <div className="tl-row">
-  <div className="tl-label">Description</div>
-
-  {!descEditing ? (
-    <div className="tl-card-like">
-      <div className="tl-desc">{c.description || <span style={{color:"#777"}}>No description.</span>}</div>
-      <button
-        className="btn ghost"
-        onClick={() => { setDescDraft(c.description || ""); setDescEditing(true); }}
-      >
-        Edit
-      </button>
-    </div>
-  ) : (
-    <div className="tl-card-like" style={{ flexDirection:"column", alignItems:"stretch", gap:8 }}>
-      <textarea
-        value={descDraft}
-        onChange={(e) => setDescDraft(e.target.value)}
-        rows={5}
-        style={{
-          width:"100%", resize:"vertical",
-          border:"1px solid #ddd", borderRadius:10, padding:10, fontFamily:"inherit", fontSize:".92rem"
-        }}
-        placeholder="Write a description…"
-      />
-      <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
-        <button className="btn ghost" onClick={() => { setDescEditing(false); setDescDraft(""); }}>
-          Cancel
-        </button>
-        <button
-          className="btn blue"
-          onClick={async () => {
-            const newDesc = descDraft;
-            const prevDesc = c.description || "";
-
-            // optimistic UI
-            setTrelloCard(prev => ({ ...prev, description: newDesc }));
-            setDescEditing(false);
-
-            try {
-              await setCardDescription(c.id, newDesc);
-              // also patch the right pane instantly (optional but nice)
-              window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
-                detail: {
-                  cardId: c.id,
-                  updater: (old) => ({ ...old, description: newDesc })
-                },
-              }));
-            } catch (err) {
-              // rollback on error
-              setTrelloCard(prev => ({ ...prev, description: prevDesc }));
-              window.dispatchEvent(new CustomEvent("notify", {
-                detail: { text: `Description update failed: ${String(err.message || err)}`, cardId: c.id }
-              }));
-            }
-          }}
-        >
-          Save
-        </button>
-      </div>
-    </div>
-  )}
-</div>
-
-              <div className="tl-row">
-                <div className="tl-label">Priority</div>
-                <div className="dd">
-                  {(() => {
-                    const p = (fields.priority || "").toUpperCase();
-                    const priorityClass =
-                      p === "HIGH URGENT"                    ? "prio-green"  :
-                      p === "URGENT + IMPORTANT"             ? "prio-red"    :
-                      (p === "URGENT" || p === "NEW CLIENT") ? "prio-purple" : "prio-default";
-
-                    return (
-                      <select
-                        className={`prio-select ${priorityClass}`}
-                        value={fields.priority || ""}
-                        onChange={async (e) => {
-                          const val = e.target.value;
-                          const prevVal = fields.priority || "";
-
-                          const canon = canonicalPriority(val);
-                          const prioType = priorityTypeFromText(canon);
-
-                          // optimistic UI – modal (include color class)
-                          setTrelloCard(prev => ({
-                            ...prev,
-                            badges: [
-                              ...(prev.badges || []).filter(b => !/^Priority\s*:/i.test(b.text || "")),
-                              ...(canon ? [{ text: `Priority: ${canon}`, type: prioType }] : []),
-                            ],
-                          }));
-
-                          // optimistic UI – right columns (use CANON, not val)
-                          window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
-                            detail: {
-                              cardId: c.id,
-                              updater: (old) => {
-                                const others = (old.badges || []).filter(b => !/^Priority\s*:/i.test(b.text || ""));
-                                const prio   = canon ? [{ text: `Priority: ${canon}`, type: prioType }] : [];
-                                return { ...old, badges: [...prio, ...others] };
-                              },
-                            },
-                          }));
-
-                          // mark pending a bit longer than poll interval
-                          window.dispatchEvent(new CustomEvent("pendingCF", {
-                            detail: { cardId: c.id, field: "Priority", ttlMs: 1500 }
-                          }));
+              {!descEditing ? (
+                 <div 
+                   className="desc-box-fake"
+                   onClick={() => { setDescDraft(c.description || ""); setDescEditing(true); }}
+                   style={{ minHeight: '60px', whiteSpace: 'pre-wrap' }}
+                 >
+                   {c.description || <span style={{color:'#5e6c84'}}>Add a more detailed description...</span>}
+                 </div>
+              ) : (
+                 <div style={{ display:'flex', flexDirection:'column', gap: 8 }}>
+                   <textarea 
+                     className="trello-title-input"
+                     style={{ minHeight: 108, border: '2px solid #0079bf', background:'#fff', fontSize:14, fontWeight:400, padding: '8px 12px', resize:'vertical' }}
+                     value={descDraft}
+                     onChange={e => setDescDraft(e.target.value)}
+                     autoFocus
+                     placeholder="Add a more detailed description..."
+                   />
+                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <button 
+                        className="btn-blue"
+                        onClick={async () => {
+                          const newDesc = descDraft;
+                          const prevDesc = c.description;
+                          
+                          // 1. Optimistic Update (Instant on screen)
+                          setTrelloCard(prev => ({ ...prev, description: newDesc }));
+                          setDescEditing(false);
 
                           try {
-                            await setCardCustomField(c.id, "Priority", canon || null);
-                          } catch (err) {
-                            console.error("Priority update failed", err);
-
-                            // rollback – modal
-                            setTrelloCard(prev => ({
-                              ...prev,
-                              badges: [
-                                ...(prev.badges || []).filter(b => !/^Priority\s*:/i.test(b.text || "")),
-                                ...(prevVal ? [{ text: `Priority: ${prevVal}` }] : []),
-                              ],
-                            }));
-
-                            // rollback – right columns (via event)
+                            // 2. Send to Trello (Backend)
+                            await setCardDescription(c.id, newDesc);
+                            
+                            // 3. Update the hidden list view so it sticks if you close/reopen
                             window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
-                              detail: {
-                                cardId: c.id,
-                                updater: (old) => ({
-                                  ...old,
-                                  badges: [
-                                    ...(old.badges || []).filter(b => !/^Priority\s*:/i.test(b.text || "")),
-                                    ...(prevVal ? [{ text: `Priority: ${prevVal}` }] : []),
-                                  ],
-                                }),
-                              },
+                              detail: { cardId: c.id, updater: old => ({ ...old, description: newDesc }) }
                             }));
-
-                            window.dispatchEvent(new CustomEvent("notify", {
-                              detail: { text: `Priority update failed: ${String(err.message || err)}`, cardId: c.id }
-                            }));
+                          } catch (err) {
+                            console.error(err);
+                            // Revert on failure
+                            setTrelloCard(prev => ({ ...prev, description: prevDesc }));
+                            alert("Failed to save description");
                           }
                         }}
                       >
-                        <option value="" disabled>Select…</option>
-                        <option>HIGH URGENT</option>
-                        <option>URGENT + IMPORTANT</option>
-                        <option>URGENT</option>
-                        <option>NEW CLIENT</option>
-                      </select>
-                    );
-                  })()}
-                </div>
-              </div>
-
-              <div className="tl-row">
-  <div className="tl-label">Active</div>
-  <div className="dd">
-    {(() => {
-      const a = fields.active || "";
-      const activeClass =
-        a ? activeTypeFromText(a) : "active-default"; // color the select head
-
-      return (
-        <select
-          className={`active-select ${activeClass}`}
-          value={a}
-          onChange={async (e) => {
-            const val = e.target.value;
-            const prevVal = fields.active || "";
-            const valType = activeTypeFromText(val);
-
-            // optimistic UI – modal (include type so badge is colored immediately)
-            setTrelloCard(prev => ({
-              ...prev,
-              badges: ensureBadgeTypes([
-                ...(prev.badges || []).filter(b => !/^Active\s*:/i.test(b.text || "")),
-                ...(val ? [{ text: `Active: ${val}`, type: valType }] : []),
-              ]),
-            }));
-
-            // optimistic UI – right columns (also include type)
-            window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
-              detail: {
-                cardId: c.id,
-                updater: (old) => {
-                  const others = (old.badges || []).filter(b => !/^Active\s*:/i.test(b.text || ""));
-                  const act = val ? [{ text: `Active: ${val}`, type: valType }] : [];
-                  return { ...old, badges: ensureBadgeTypes([...act, ...others]) };
-                },
-              },
-            }));
-
-            // tell both panes a write is pending
-            window.dispatchEvent(new CustomEvent("pendingCF", {
-              detail: { cardId: c.id, field: "Active", ttlMs: 1500 }
-            }));
-
-            try {
-              await setCardCustomField(c.id, "Active", val || null);
-            } catch (err) {
-              console.error("Active update failed", err);
-
-              // rollback – modal
-              setTrelloCard(prev => ({
-                ...prev,
-                badges: ensureBadgeTypes([
-                  ...(prev.badges || []).filter(b => !/^Active\s*:/i.test(b.text || "")),
-                  ...(prevVal ? [{ text: `Active: ${prevVal}`, type: activeTypeFromText(prevVal) }] : []),
-                ]),
-              }));
-
-              // rollback – right columns
-              window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
-                detail: {
-                  cardId: c.id,
-                  updater: (old) => ({
-                    ...old,
-                    badges: ensureBadgeTypes([
-                      ...(old.badges || []).filter(b => !/^Active\s*:/i.test(b.text || "")),
-                      ...(prevVal ? [{ text: `Active: ${prevVal}`, type: activeTypeFromText(prevVal) }] : []),
-                    ]),
-                  }),
-                },
-              }));
-
-              window.dispatchEvent(new CustomEvent("notify", {
-                detail: { text: `Active update failed: ${String(err.message || err)}`, cardId: c.id }
-              }));
-            }
-          }}
-        >
-          <option value="" disabled>Select…</option>
-          {ACTIVE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-        </select>
-      );
-    })()}
-  </div>
-</div>
-
-              <div className="tl-row">
-  <div className="tl-label">Status</div>
-  <div className="dd">
-    {(() => {
-      const s = fields.status || "";
-      const statusClass = statusTypeFromText(s);
-
-      return (
-        <select
-          className={`status-select ${statusClass}`}
-          value={s}
-          onChange={async (e) => {
-            const val = e.target.value;
-            const prevVal = fields.status || "";
-            const valType = statusTypeFromText(val);
-
-            // optimistic UI – modal
-            setTrelloCard(prev => ({
-              ...prev,
-              badges: ensureBadgeTypes([
-                ...(prev.badges || []).filter(b => !/^Status\s*:/i.test(b.text || "")),
-                ...(val ? [{ text: `Status: ${val}`, type: valType }] : []),
-              ]),
-            }));
-
-            // optimistic UI – right columns
-            window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
-              detail: {
-                cardId: c.id,
-                updater: (old) => {
-                  const others = (old.badges || []).filter(b => !/^Status\s*:/i.test(b.text || ""));
-                  const stat = val ? [{ text: `Status: ${val}`, type: valType }] : [];
-                  return { ...old, badges: ensureBadgeTypes([...stat, ...others]) };
-                },
-              },
-            }));
-
-            // mark pending
-            window.dispatchEvent(new CustomEvent("pendingCF", {
-              detail: { cardId: c.id, field: "Status", ttlMs: 1500 }
-            }));
-
-            try {
-              await setCardCustomField(c.id, "Status", val || null);
-            } catch (err) {
-              console.error("Status update failed", err);
-              // rollback modal
-              setTrelloCard(prev => ({
-                ...prev,
-                badges: ensureBadgeTypes([
-                  ...(prev.badges || []).filter(b => !/^Status\s*:/i.test(b.text || "")),
-                  ...(prevVal ? [{ text: `Status: ${prevVal}`, type: statusTypeFromText(prevVal) }] : []),
-                ]),
-              }));
-              // rollback right
-              window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
-                detail: {
-                  cardId: c.id,
-                  updater: (old) => ({
-                    ...old,
-                    badges: ensureBadgeTypes([
-                      ...(old.badges || []).filter(b => !/^Status\s*:/i.test(b.text || "")),
-                      ...(prevVal ? [{ text: `Status: ${prevVal}`, type: statusTypeFromText(prevVal) }] : []),
-                    ]),
-                  }),
-                },
-              }));
-              window.dispatchEvent(new CustomEvent("notify", {
-                detail: { text: `Status update failed: ${String(err.message || err)}`, cardId: c.id }
-              }));
-            }
-          }}
-        >
-          <option value="" disabled>Select…</option>
-          {STATUS_OPTIONS.map(opt => (
-            <option key={opt} value={opt}>{opt}</option>
-          ))}
-        </select>
-      );
-    })()}
-  </div>
-</div>
-
-              <div className="tl-row">
-                <div className="tl-label">Move to…</div>
-                <div className="dd">
-                  <select
-                    value={c.boardList || ""}
-                    onChange={(e) => {
-                      const nextList = e.target.value;
-                      // Update local modal state for instant UI feedback
-                      setTrelloCard(prev => ({ ...prev, boardList: nextList, listId: null }));
-                      // Fire a global event we can wire to real Trello move later
-                      window.dispatchEvent(new CustomEvent("trelloMoveRequested", {
-                        detail: { cardId: c.id, toListName: nextList }
-                      }));
-                    }}
-                  >
-                    <option value="" disabled>Select…</option>
-                    {PERSONA_TRELLO_LISTS.map((listName) => (
-                      <option key={listName} value={listName}>
-                        {listName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="tl-row">
-                <div className="tl-label">Activity timer</div>
-                <div className="tl-actions-inline">
-                  <button className="btn blue">Start timer</button>
-                  <span className="timer-pill">0m</span>
-                  <button className="btn ghost">Estimate: 0m</button>
-                </div>
-              </div>
-
-              <div className="tl-row">
-                <div className="tl-label">Time</div>
-                <div className="tl-actions-inline">
-                  <button className="btn ghost">Start Timer</button>
-                  <span className="timer-pill">{c.timers?.time || "0m"}</span>
-                </div>
-              </div>
+                        Save
+                      </button>
+                      <button 
+                        className="t-btn-gray" 
+                        onClick={() => setDescEditing(false)}
+                      >
+                        Cancel
+                      </button>
+                   </div>
+                 </div>
+              )}
             </div>
 
-            <div className="trello-right">
-              <div className="tr-head">
-                <div className="tr-title">Comments and activity</div>
-                <button className="btn ghost sm">Show details</button>
-              </div>
-              <input className="tr-comment" placeholder="Write a comment…" />
-              <div className="tr-feed">
-                {(c.activity || []).map((a, i) => (
-                  <div key={i} className="tr-item">
-                    <div className="tr-avatar">
-                      {avatarFor(a.who) ? <img src={avatarFor(a.who)} alt={a.who}/> : <div className="tr-initial">{a.who.slice(0,1)}</div>}
-                    </div>
-                    <div className="tr-bubble">
-                      <div className="tr-meta">
-                        <span className="tr-name">{a.who}</span>
-                        <span className="tr-time">{a.time}</span>
-                      </div>
-                      <div className="tr-text">{a.text}</div>
-                    </div>
+            {/* Custom Fields (GRID LAYOUT) */}
+            <div className="trello-section">
+               <div className="trello-section-icon">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                     <rect x="3" y="3" width="18" height="18" rx="2" />
+                     <line x1="3" y1="9" x2="21" y2="9" />
+                  </svg>
+               </div>
+               <div className="trello-section-header">
+                  <h3 className="trello-h3">Custom Fields</h3>
+               </div>
+               
+               <div className="cf-grid">
+                  {/* 1. Priority */}
+                  <div className="cf-item">
+                     <span className="cf-label">Priority</span>
+                     <select 
+                        className={`cf-select-box ${getCFColorClass("Priority", fields.priority)}`}
+                        value={fields.priority || ""}
+                        onChange={async (e) => {
+                           const val = e.target.value;
+                           
+                           // 1. Optimistic UI Update
+                           setTrelloCard(prev => {
+                              const cleanBadges = (prev.badges || []).filter(b => !b.text.startsWith("Priority:"));
+                              if (val) cleanBadges.push({ text: `Priority: ${val}`, isBottom: true });
+                              return { 
+                                 ...prev, 
+                                 badges: ensureBadgeTypes(cleanBadges),
+                                 customFields: { ...prev.customFields, priority: val }
+                              };
+                           });
+
+                           // 2. Notify other components
+                           window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "Priority" } }));
+
+                           // 3. Save to Backend (Using YOUR existing function)
+                           try {
+                              await fetch("/.netlify/functions/trello-set-custom-field", {
+                                 method: "POST",
+                                 body: JSON.stringify({ 
+                                    cardId: c.id, 
+                                    fieldName: "Priority", 
+                                    valueText: val // 👈 Match your function's expected key
+                                 })
+                              });
+                              // Force update buckets to keep everything in sync
+                              window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
+                                 detail: { cardId: c.id, updater: old => ({ ...old, customFields: { ...old.customFields, Priority: val } }) }
+                              }));
+                           } catch (err) { console.error("Priority save failed", err); }
+                        }} 
+                     >
+                        <option value="">(None)</option>
+                        {PRIORITY_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                     </select>
                   </div>
-                ))}
-              </div>
+
+                  {/* 2. Status */}
+                  <div className="cf-item">
+                     <span className="cf-label">Status</span>
+                     <select 
+                        className={`cf-select-box ${getCFColorClass("Status", fields.status)}`}
+                        value={fields.status || ""}
+                        onChange={async (e) => {
+                           const val = e.target.value;
+                           
+                           setTrelloCard(prev => {
+                              const cleanBadges = (prev.badges || []).filter(b => !b.text.startsWith("Status:"));
+                              if (val) cleanBadges.push({ text: `Status: ${val}`, isBottom: true });
+                              return { 
+                                 ...prev, 
+                                 badges: ensureBadgeTypes(cleanBadges),
+                                 customFields: { ...prev.customFields, status: val }
+                              };
+                           });
+                           
+                           window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "Status" } }));
+
+                           try {
+                              await fetch("/.netlify/functions/trello-set-custom-field", {
+                                 method: "POST",
+                                 body: JSON.stringify({ 
+                                    cardId: c.id, 
+                                    fieldName: "Status", 
+                                    valueText: val 
+                                 })
+                              });
+                              window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
+                                 detail: { cardId: c.id, updater: old => ({ ...old, customFields: { ...old.customFields, Status: val } }) }
+                              }));
+                           } catch (err) { console.error("Status save failed", err); }
+                        }}
+                     >
+                        <option value="">(None)</option>
+                        {STATUS_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                     </select>
+                  </div>
+
+                  {/* 3. Active */}
+                  <div className="cf-item">
+                     <span className="cf-label">Active</span>
+                     <select 
+                        className={`cf-select-box ${getCFColorClass("Active", fields.active)}`}
+                        value={fields.active || ""}
+                        onChange={async (e) => {
+                           const val = e.target.value;
+
+                           setTrelloCard(prev => {
+                              const cleanBadges = (prev.badges || []).filter(b => !b.text.startsWith("Active:"));
+                              if (val) cleanBadges.push({ text: `Active: ${val}`, isBottom: true });
+                              return { 
+                                 ...prev, 
+                                 badges: ensureBadgeTypes(cleanBadges),
+                                 customFields: { ...prev.customFields, active: val }
+                              };
+                           });
+
+                           window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "Active" } }));
+
+                           try {
+                              await fetch("/.netlify/functions/trello-set-custom-field", {
+                                 method: "POST",
+                                 body: JSON.stringify({ 
+                                    cardId: c.id, 
+                                    fieldName: "Active", 
+                                    valueText: val 
+                                 })
+                              });
+                              window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
+                                 detail: { cardId: c.id, updater: old => ({ ...old, customFields: { ...old.customFields, Active: val } }) }
+                              }));
+                           } catch (err) { console.error("Active save failed", err); }
+                        }}
+                     >
+                        <option value="">(None)</option>
+                        {ACTIVE_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                     </select>
+                  </div>
+               </div>
             </div>
+
+            {/* Activity Timer */}
+            <div className="trello-section">
+               <div className="trello-section-icon">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                     <circle cx="12" cy="12" r="10" />
+                     <polyline points="12 6 12 12 16 14" />
+                  </svg>
+               </div>
+               <div className="trello-section-header">
+                  <h3 className="trello-h3">Activity Timer</h3>
+               </div>
+               
+               <div className="timer-row" style={{ position: 'relative' }}>
+                  {/* START / STOP BUTTON */}
+                  {c.customFields?.TimerStart ? (
+                      <button 
+                        className="btn-red" 
+                        style={{ backgroundColor: '#eb5a46', color: '#fff', border: 'none', borderRadius: 3, padding: '6px 12px', fontWeight: 600, cursor: 'pointer' }}
+                        onClick={async () => {
+                           // --- STOP LOGIC ---
+                           const stopTime = Date.now();
+                           const startTime = parseFloat(c.customFields.TimerStart);
+                           const sessionMins = (stopTime - startTime) / 1000 / 60;
+                           const oldDur = parseFloat(c.customFields.Duration || "0");
+                           const newTotal = (oldDur + sessionMins).toFixed(2);
+                           
+                           // 1. Trigger Protection (10s)
+                           window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "Duration", ttlMs: 10000 } }));
+                           window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "TimerStart", ttlMs: 10000 } }));
+
+                           // 2. Update UI
+                           setTrelloCard(prev => ({
+                              ...prev,
+                              customFields: { ...prev.customFields, TimerStart: null, Duration: newTotal }
+                           }));
+
+                           // 3. Send to Trello
+                           await fetch("/.netlify/functions/trello-timer", {
+                              method: "POST",
+                              body: JSON.stringify({ cardId: c.id, action: "stop" })
+                           });
+                           
+                           // 4. Sync Buckets
+                           window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
+                              detail: { cardId: c.id, updater: old => ({ 
+                                 ...old, customFields: { ...old.customFields, TimerStart: null, Duration: newTotal } 
+                              }) }
+                           }));
+                        }}
+                      >
+                        Stop
+                      </button>
+                  ) : (
+                      <button 
+                        className="btn-blue"
+                        onClick={async () => {
+                           // --- START LOGIC ---
+                           const now = Date.now();
+                           
+                           // 1. Trigger Protection (10s)
+                           window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "TimerStart", ttlMs: 10000 } }));
+
+                           // 2. Update UI
+                           setTrelloCard(prev => ({
+                              ...prev,
+                              customFields: { ...prev.customFields, TimerStart: now }
+                           }));
+
+                           // 3. Send to Trello
+                           await fetch("/.netlify/functions/trello-timer", {
+                              method: "POST",
+                              body: JSON.stringify({ cardId: c.id, action: "start" })
+                           });
+
+                           // 4. Sync Buckets
+                           window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
+                              detail: { cardId: c.id, updater: old => ({ 
+                                 ...old, customFields: { ...old.customFields, TimerStart: now } 
+                              }) }
+                           }));
+                        }}
+                      >
+                        Start timer
+                      </button>
+                  )}
+
+                  {/* ADD TIME BUTTON */}
+                  <button 
+                     className="t-btn-gray" 
+                     title="Add manual time"
+                     onClick={() => setShowAddTime(!showAddTime)}
+                  >
+                     <span>+</span> Add time
+                  </button>
+
+                  {/* POPUP FOR MANUAL TIME */}
+                  {showAddTime && (
+                    <div className="label-picker-popover" style={{ width: 260, top: 45, left: 80, padding: 16, cursor: 'default' }}>
+                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                          <span style={{ fontWeight: 600, color: '#172b4d' }}>Add time tracking</span>
+                          <button onClick={() => setShowAddTime(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 16 }}>✕</button>
+                       </div>
+                       
+                       <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+                          <div style={{ flex: 1 }}>
+                             <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#5e6c84', marginBottom: 4 }}>Hours</label>
+                             <input 
+                                type="number" min="0" 
+                                value={manualHours} 
+                                onChange={e => setManualHours(e.target.value)}
+                                style={{ width: '100%', padding: '6px 8px', borderRadius: 3, border: '2px solid #dfe1e6' }}
+                             />
+                          </div>
+                          <div style={{ flex: 1 }}>
+                             <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#5e6c84', marginBottom: 4 }}>Minutes</label>
+                             <input 
+                                type="number" min="0" 
+                                value={manualMins} 
+                                onChange={e => setManualMins(e.target.value)}
+                                style={{ width: '100%', padding: '6px 8px', borderRadius: 3, border: '2px solid #dfe1e6' }}
+                             />
+                          </div>
+                       </div>
+
+                       <button 
+                          className="btn-blue" 
+                          style={{ width: '100%', justifyContent: 'center' }}
+                          onClick={async () => {
+                             const h = parseFloat(manualHours) || 0;
+                             const m = parseFloat(manualMins) || 0;
+                             const addedMinutes = (h * 60) + m;
+
+                             if (addedMinutes > 0) {
+                                const oldDur = parseFloat(c.customFields.Duration || "0");
+                                const newTotal = (oldDur + addedMinutes).toFixed(2);
+
+                                // 1. Trigger Protection (10s)
+                                window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "Duration", ttlMs: 10000 } }));
+
+                                // 2. Update UI
+                                setTrelloCard(prev => ({
+                                   ...prev,
+                                   customFields: { ...prev.customFields, Duration: newTotal }
+                                }));
+                                setShowAddTime(false);
+                                setManualHours("0");
+                                setManualMins("0");
+
+                                // 3. Backend Save
+                                await fetch("/.netlify/functions/trello-set-custom-field", {
+                                   method: "POST",
+                                   body: JSON.stringify({ 
+                                      cardId: c.id, 
+                                      fieldName: "Duration", 
+                                      valueText: newTotal 
+                                   })
+                                });
+
+                                // 4. Sync Buckets
+                                window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
+                                   detail: { cardId: c.id, updater: old => ({ 
+                                      ...old, customFields: { ...old.customFields, Duration: newTotal } 
+                                   }) }
+                                }));
+                             }
+                          }}
+                       >
+                          Add time
+                       </button>
+                    </div>
+                  )}
+                  
+                  {/* LIVE COUNTER */}
+                  <div className="timer-display">
+                     <LiveTimer 
+                        startTime={c.customFields?.TimerStart} 
+                        duration={c.customFields?.Duration} 
+                     />
+                  </div>
+
+                  <div className="timer-estimate" style={{marginLeft:8, fontSize:12, color:'#5e6c84'}}>
+                     Estimate: 0m
+                  </div>
+               </div>
+               
+               {/* 🗑️ BANNER REMOVED */}
+            </div>
+
+            {/* Time */}
+            <div className="trello-section">
+               <div className="trello-section-icon">⏱</div>
+               <div className="trello-section-header">
+                  <h3 className="trello-h3">Time</h3>
+               </div>
+               <button className="t-btn-gray">Start Timer</button>
+            </div>
+
           </div>
+
+          {/* RIGHT COLUMN (Comments & Activity) */}
+          <div className="trello-sidebar-col">
+             <div className="trello-section-header" style={{justifyContent:'space-between'}}>
+                <h3 className="trello-h3">Comments and activity</h3>
+                <button className="t-btn-gray" style={{fontSize:12, padding:'4px 8px'}}>Show details</button>
+             </div>
+             
+             {/* Input Area */}
+             <div style={{display:'flex', gap:8, marginBottom:16}}>
+                <div className="member-avatar" style={{width:32, height:32}}>
+                   {PERSONA.slice(0,1)}
+                </div>
+                <div style={{flex:1}}>
+                   <input 
+                      className="activity-input" 
+                      placeholder="Write a comment..." 
+                      style={{borderRadius:8}}
+                   />
+                </div>
+             </div>
+
+             {/* Activity Stream */}
+             <div className="tr-feed">
+               {(c.activity || []).map((a, i) => (
+                 <div key={i} className="tr-item">
+                   <div className="tr-avatar">
+                     {avatarFor(a.who) ? <img src={avatarFor(a.who)} alt={a.who}/> : <div className="tr-initial">{a.who.slice(0,1)}</div>}
+                   </div>
+                   <div className="tr-bubble" style={{background:'transparent', border:0, padding:0}}>
+                     <div className="tr-meta">
+                       <span className="tr-name">{a.who}</span>
+                       <span className="tr-time">{a.time}</span>
+                     </div>
+                     <div className="tr-text">{a.text}</div>
+                   </div>
+                 </div>
+               ))}
+             </div>
+          </div>
+
         </div>
-      );
-    }
+      </div>
+    );
+  }
 
     return <div className="chat-output" />;
       }, [
@@ -3266,6 +4226,7 @@ if (currentView.app === "gchat") {
         trelloMenuOpen,
         descEditing,
         descDraft,
+        showLabelPicker, // 👈 ADD THIS
       ]);
 
   return (
@@ -3306,31 +4267,49 @@ if (currentView.app === "gchat") {
           currentView.app === "email" && emailPreview ? "has-email-preview" : ""
         }`}
       >
-        <div className="panel-title" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span>
-            {currentView.app === "whatsapp" && currentView.contact
-              ? `WhatsApp — ${currentView.contact}`
-              : currentView.app === "email"
-              ? `Gmail — ${email.subject}`
-              : currentView.app === "gchat"
-              ? "Google Chat"
-              : "Chat / Gemini Output"}
-          </span>
+        <div className="panel-title" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingRight: "24px", paddingLeft: "12px" }}>
+          
+          {/* LEFT SIDE: Google Chat Button */}
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <button
+              className="connect-google-btn"
+              onClick={() => {
+                setGchatSelectedSpace(null); // 👈 Force clear selection instantly
+                setInputValue("");           // 👈 Clear any lingering text
+                setCurrentView({ app: "gchat", contact: null });
+              }}
+              type="button"
+            >
+              <img src={gchatIcon} alt="GChat" />
+              Google Chat
+            </button>
+          </div>
 
-          <button
-            className="connect-google-btn"
-            onClick={() => setCurrentView({ app: "gchat", contact: null })}
-            type="button"
-          >
-            Google Chat
-          </button>
+          {/* RIGHT SIDE: Connect + Close App Button */}
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <a
+              href="/.netlify/functions/google-auth-start"
+              className="connect-google-btn"
+            >
+              Connect / Reconnect Google
+            </a>
 
-          <a
-            href="/.netlify/functions/google-auth-start"
-            className="connect-google-btn"
-          >
-            Connect / Reconnect Google
-          </a>
+            {/* 👇 NEW: Close App Button (Only shows when in an app) */}
+            {currentView.app !== "none" && (
+              <button
+                onClick={() => setCurrentView({ app: "none", contact: null })}
+                style={{
+                  width: "32px", height: "32px", borderRadius: "50%",
+                  border: "1px solid #dadce0", background: "white",
+                  display: "grid", placeItems: "center", cursor: "pointer",
+                  color: "#5f6368", fontSize: "18px", fontWeight: "300"
+                }}
+                title="Close App"
+              >
+                ×
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="middle-content">{middleContent}</div>
@@ -3338,23 +4317,20 @@ if (currentView.app === "gchat") {
         <input
           ref={fileInputRef}
           type="file"
-          accept="application/pdf"
+          /* 👇 1. Allow Images, PDF, Excel, Word, AUDIO, VIDEO */
+          accept="application/pdf, image/png, image/jpeg, .xlsx, .xls, .docx, .doc, audio/*, video/*"
           style={{ display: "none" }}
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (!f) return;
 
-            // PDF-only for now
-            if (f.type !== "application/pdf") {
-              setEmail((prev) =>
-                prev ? { ...prev, systemNote: "Only PDF uploads are supported for now." } : prev
-              );
-              e.target.value = "";
-              setShowPlusMenu(false);
+            // 👇 2. Strict Netlify Limit (4.5MB safe limit for Base64 encoding)
+            if (f.size > 4.5 * 1024 * 1024) {
+              alert("Netlify Limit: File must be under 4.5MB.");
               return;
             }
 
-            setPendingUpload({ file: f, kind: "pdf" });
+            setPendingUpload({ file: f, kind: "file" });
             setShowPlusMenu(false);
             e.target.value = "";
           }}
@@ -3365,14 +4341,12 @@ if (currentView.app === "gchat") {
             <div className="chat-upload-preview">
               <div className="chat-upload-card" title={pendingUpload.file.name}>
                 <div className="chat-upload-icon">PDF</div>
-
                 <div className="chat-upload-meta">
                   <div className="chat-upload-name">{pendingUpload.file.name}</div>
                   <div className="chat-upload-size">
                     {(pendingUpload.file.size / 1024 / 1024).toFixed(2)} MB
                   </div>
                 </div>
-
                 <button
                   className="chat-upload-remove"
                   type="button"
@@ -3385,22 +4359,25 @@ if (currentView.app === "gchat") {
             </div>
           )}
 
-          <div className="chat-input-row">
+          <div className="chat-input-row" style={{ alignItems: "flex-end" }}>
+            
+            {/* 1. TEXT AREA */}
             <textarea
               ref={chatTextareaRef}
               className="chat-textarea"
               placeholder={
-                currentView.app === "gchat" && !gchatSelectedSpace
-                  ? "Select a space to start chatting"
+                isRecording
+                  ? "Recording audio..."
+                  /* 👇 REMOVED: The check for GChat && !space so it defaults to "Ask anything" below */
                   : currentView.app === "whatsapp" && currentView.contact
                   ? `Message ${currentView.contact}`
                   : currentView.app === "email"
-                  ? "Add a note or instruction about this email"
-                  : "Ask anything"
+                  ? "Add a note..."
+                  : "Ask anything" /* Covers Home, GChat (Empty), and GChat (Active) */
               }
               rows={1}
               value={inputValue}
-              disabled={currentView.app === "gchat" && !gchatSelectedSpace}
+              disabled={isRecording}
               onChange={(e) => setInputValue(e.target.value)}
               onInput={(e) => handleAutoGrow(e.currentTarget)}
               onKeyDown={(e) => {
@@ -3410,58 +4387,114 @@ if (currentView.app === "gchat") {
                   handleSend();
                 }
               }}
+              style={{
+                flex: 1,
+                minHeight: "40px",
+                paddingTop: "10px",
+                marginBottom: "2px"
+              }}
             />
 
-            {currentView.app === "gchat" && gchatSelectedSpace && (
-              <div className="chat-plus-wrap" style={{ position: "relative" }}>
-                <button
-                  type="button"
-                  className="chat-plus-btn"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowPlusMenu((v) => !v);
-                  }}
-                  aria-label="More"
+            {/* 2. RIGHT ACTIONS CONTAINER */}
+            <div style={{ display: "flex", gap: "8px", marginBottom: "4px", paddingLeft: "4px" }}>
+              
+              {/* A) MIC or SEND BUTTON */}
+              {inputValue.trim() || pendingUpload ? (
+                /* SEND BUTTON: Black Circle (Smaller: 28px) */
+                <button 
+                  className="send-btn" 
+                  onClick={handleSend} 
+                  aria-label="Send"
+                  style={{ 
+                    width:"28px", height:"28px", borderRadius:"50%", 
+                    display:"grid", placeItems:"center", 
+                    border:"none", background:"#000", 
+                    cursor:"pointer", color: "white" 
+                  }} 
                 >
-                  +
+                  <svg 
+                    xmlns="http://www.w3.org/2000/svg" 
+                    viewBox="0 0 24 24" 
+                    width="14" height="14" 
+                    fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
+                  >
+                    <line x1="12" y1="19" x2="12" y2="5" />
+                    <polyline points="5 12 12 5 19 12" />
+                  </svg>
                 </button>
+              ) : (
+                /* MIC BUTTON: Only show if in an active chat (GChat Space or WhatsApp Contact) */
+                ((currentView.app === "gchat" && gchatSelectedSpace) || (currentView.app === "whatsapp" && currentView.contact)) && (
+                  <button
+                    className={`mic-btn ${isRecording ? "recording" : ""}`}
+                    onClick={isRecording ? stopRecording : startRecording}
+                    title={isRecording ? "Stop Recording" : "Record Voice Note"}
+                    style={{
+                      border: "none",
+                      background: isRecording ? "#fce8e6" : "transparent",
+                      color: isRecording ? "#ea4335" : "#5f6368",
+                      borderRadius: "50%",
+                      width: "34px",
+                      height: "34px",
+                      cursor: "pointer",
+                      display: "grid",
+                      placeItems: "center",
+                      transition: "all 0.2s ease"
+                    }}
+                  >
+                     {isRecording ? (
+                       <div style={{width:"12px", height:"12px", background:"#ea4335", borderRadius:"2px"}} />
+                     ) : (
+                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                         <path d="M12 6a2 2 0 0 0-2 2v5a2 2 0 0 0 4 0V8a2 2 0 0 0-2-2Z" />
+                         <path d="M18 13v-2a6 6 0 0 1-12 0v2" strokeOpacity="0.8" />
+                         <line x1="12" y1="19" x2="12" y2="21" />
+                         <circle cx="12" cy="12" r="9" strokeOpacity="0.3" />
+                       </svg>
+                     )}
+                  </button>
+                )
+              )}
 
-                {showPlusMenu && (
-                  <div className="chat-plus-menu">
-                    <button
-                      type="button"
-                      className="chat-plus-item"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShowPlusMenu(false);
-                        fileInputRef.current?.click();
-                      }}
-                    >
-                      Upload file
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
+              {/* B) PLUS BUTTON (To the RIGHT of Mic/Send) */}
+              {currentView.app === "gchat" && gchatSelectedSpace && (
+                <div className="chat-plus-wrap" style={{ position: "relative" }}>
+                  <button
+                    type="button"
+                    className="chat-plus-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowPlusMenu((v) => !v);
+                    }}
+                    aria-label="More"
+                    style={{ 
+                      width:"34px", height:"34px", borderRadius:"50%", 
+                      border:"1px solid #ddd", background:"transparent", 
+                      fontSize:"22px", color:"#5f6368", fontWeight: "300",
+                      display:"grid", placeItems:"center", cursor:"pointer" 
+                    }}
+                  >
+                    +
+                  </button>
 
-            {inputValue.trim() && (
-              <button className="send-btn" onClick={handleSend} aria-label="Send">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  width="14"
-                  height="14"
-                  fill="none"
-                  stroke="white"
-                  strokeWidth="2.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <line x1="12" y1="19" x2="12" y2="5" />
-                  <polyline points="5 12 12 5 19 12" />
-                </svg>
-              </button>
-            )}
+                  {showPlusMenu && (
+                    <div className="chat-plus-menu" style={{ right: 0, left: "auto", bottom: "45px" }}>
+                      <button
+                        type="button"
+                        className="chat-plus-item"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowPlusMenu(false);
+                          fileInputRef.current?.click();
+                        }}
+                      >
+                        Upload file
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -3470,4 +4503,31 @@ if (currentView.app === "gchat") {
     </div>
   </PasswordGate>
 );
+}
+
+// --- Place this at the bottom of App.jsx ---
+function LiveTimer({ startTime, duration }) {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    // Tick every second to update the UI
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const baseMinutes = parseFloat(duration || "0");
+  let currentSessionMinutes = 0;
+
+  if (startTime) {
+    const start = parseFloat(startTime);
+    if (start > 0) {
+      // Math.max(0, ...) prevents the "-1m" glitch
+      const diff = Math.max(0, now - start);
+      currentSessionMinutes = diff / 1000 / 60;
+    }
+  }
+
+  const total = Math.floor(baseMinutes + currentSessionMinutes);
+
+  return <span>⏱ {total}m</span>;
 }

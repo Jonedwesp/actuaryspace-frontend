@@ -39,6 +39,7 @@ html, body {
   padding: 0;
   scrollbar-width: thin;
   scrollbar-color: #ccc transparent;
+  border-right: 1px solid #dadce0; /* Thin grey line */
 }
 
 .notification {
@@ -90,15 +91,30 @@ html, body {
 .middle-content {
   min-height: 0;                      /* allow content to shrink */
   overflow: hidden;                   /* child sections manage their own scroll */
+  border-right: 1px solid #dadce0; /* Thin grey line */
 }
 .chat-output { flex: 1; overflow-y: auto; padding-bottom: 1rem; }
 
-/* keep chat-bar visible */
+/* 1. Fix Chat Bar Centering (Definitive) */
 .chat-bar {
-  position: sticky;
-  bottom: 0;
-  background: #fff;
-  z-index: 2;
+  /* Reset width hacks */
+  width: auto !important; 
+  
+  /* Push away from edges equally (Top, Right, Bottom, Left) */
+  margin: 0 24px 24px 24px !important; 
+  
+  /* Ensure it sits nicely above the bottom edge */
+  bottom: 0 !important;
+  
+  /* Reset border radius for a cleaner look if it was squashed */
+  box-sizing: border-box;
+}
+
+/* 2. Nudge the "Connect" button away from the right edge */
+.middle-panel .panel-title {
+  /* Add padding to the container itself to pull everything in */
+  padding-right: 24px !important; 
+  padding-left: 12px !important; 
 }
 
 /* Chat bar */
@@ -161,144 +177,275 @@ html, body {
   transform: scale(1.08);
 }
 
-/* RIGHT */
-.panel-title {
-  font-size: 0.95rem;
-  font-weight: 500;
-  margin-bottom: 0.5rem;
-  color: #111;
-}
-
-/* Right pane overall (scrollable with scrollbar on LEFT) */
+/* --- Right Panel Container --- */
 .right-panel {
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  overflow-y: auto; /* CHANGED: Allow panel itself to scroll vertically */
   overflow-x: hidden;
-  direction: rtl;
-  padding-left: 6px;
-  scrollbar-width: thin;
-  scrollbar-color: #ccc transparent;
+  background-color: #ffffff; /* CHANGED: Pure White Background */
+  padding: 12px;
+  height: 100%;
+  border-left: 1px solid #e6e6e6; /* Optional: Match other panels */
 }
-.right-panel > * { direction: ltr; }
 
-.right-panel::-webkit-scrollbar { width: 6px; }
-.right-panel::-webkit-scrollbar-track { background: transparent; }
-.right-panel::-webkit-scrollbar-thumb { background:#ccc; border-radius:10px; }
+.panel-title {
+  text-align: center;
+  font-size: 16px;
+  font-weight: 700;
+  color: #172b4d;
+  margin-bottom: 16px;
+}
 
-/* Trello-like columns */
+/* --- Trello List Wrapper --- */
 .trello-col-wrap {
   display: flex;
-  flex-direction: column;
-  gap: 1rem;
+  flex-direction: column; /* CHANGED: Vertical stacking (Top to Bottom) */
+  gap: 24px; /* Space between the two lists */
+  width: 100%;
+  height: auto;
 }
 
+/* --- Trello List (The Grey Box) --- */
 .tl-col {
-  background: #fae6c3;
-  border-radius: 16px;
-  padding: .65rem .7rem;
-  box-shadow: inset 0 0 0 1px rgba(0,0,0,.06);
+  width: 100%; /* CHANGED: Full width of the sidebar */
+  min-width: 0;
+  background-color: #f1f2f4; /* Keep lists grey so they look like Trello */
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  height: auto; /* Let list grow with content */
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  padding: 8px;
+  box-shadow: 0 1px 1px rgba(9, 30, 66, 0.25), 0 0 1px rgba(9, 30, 66, 0.31);
 }
 
+/* List Header */
 .tl-head {
+  padding: 8px 8px 8px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #172b4d;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  color: #6a3b00;
-  font-weight: 600;
-  margin-bottom: .5rem;
-}
-.tl-title { font-size: .9rem; font-weight:600; }
-.tl-actions { font-size: .95rem; opacity: .8; }
-
-.tl-cards { display: flex; flex-direction: column; gap: .8rem; }
-
-.tl-add {
-  width: 100%;
-  border: none;
-  background: transparent;
-  color: #8a4b00;
-  font-weight: 600;
-  text-align: left;
-  padding: .4rem .25rem;
-  border-radius: 10px;
   cursor: pointer;
 }
-.tl-add:hover { background: rgba(0,0,0,.05); }
 
-/* Card */
+.tl-actions {
+  color: #6b778c;
+  padding: 6px;
+  border-radius: 8px;
+}
+.tl-actions:hover {
+  background-color: #091E4224;
+  color: #172b4d;
+}
+
+/* Cards Container inside the list */
+.tl-cards {
+  overflow: visible; /* Let cards expand the list height */
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 4px 8px 4px;
+}
+
+/* --- Trello Card (Pixel-Perfect) --- */
 .tl-card {
-  background:#fff;
-  border-radius:14px;
-  padding: 2.6rem .75rem .65rem;
-  box-shadow:0 1px 2px rgba(0,0,0,.08);
-  position:relative;
-  font-size: .90rem;
-  line-height: 1.35;
-  border: 1px solid transparent;
-  transition: background-color .15s ease, box-shadow .15s ease, border-color .15s ease;
-}
-.tl-card:hover {
-  background-color: #fafafa;
-  border: 1px solid #bbb;
-  box-shadow: 0 2px 8px rgba(0,0,0,.08);
+  background-color: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 1px 1px rgba(9, 30, 66, 0.25), 0 0 1px rgba(9, 30, 66, 0.31);
   cursor: pointer;
-}
-
-/* Yellow top bar */
-.tl-card-topbar {
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 36px;
-  background: #f2cd32;
-  border-radius: 14px 14px 0 0;
-}
-
-/* Small green pill */
-.pill {
   position: relative;
-  margin-top: .45rem;
-  margin-left: .4rem;
-  width: 56px;
-  height: 8px;
-  background: #bfe5b2;
-  border-radius: 999px;
+  text-decoration: none;
+  z-index: 0;
+  padding: 8px 12px;
+  min-height: 32px;
+  display: block; 
+  overflow: hidden; /* <--- CRITICAL: Clips the square cover to the rounded card */
 }
 
-.tl-card-title {
-  position: relative;
-  z-index: 1;
-  margin: .25rem 0 0;
-  font-size: .95rem;
-  line-height: 1.25;
+.tl-card-cover {
+  height: 32px; /* Standard Trello "Color Strip" height */
+  /* Use negative margins to pull it to the edges, negating the .tl-card padding */
+  margin: -8px -12px 8px -12px; 
+  background-color: #ebecf0; /* Default fallback */
 }
 
-.tl-meta { display: flex; align-items: center; gap: .35rem; margin-top: .4rem; }
-.tl-ic { opacity: .8; }
-.tl-muted { color: #666; font-weight: 600; font-size:.82rem; }
+.tl-card:hover {
+  border: 1px solid #388BFF;
+  padding: 7px 11px; /* Compensate for border width */
+}
 
-.tl-badges { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .45rem; }
+/* 1. Labels Row (Top) */
+.tl-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 4px;
+  width: 100%;
+}
+
+/* The Label/Badge Pill (With Text) */
 .tl-badge {
-  font-size: .72rem; font-weight: 700; padding: .22rem .48rem; border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  height: auto;
+  width: auto;
+  min-width: unset; /* Remove fixed width */
+  padding: 2px 8px; /* Trello label padding */
+  border-radius: 4px;
+  font-size: 11px;  /* Readable text */
+  font-weight: 700;
+  line-height: 16px;
+  color: #172b4d; /* Default text color */
+  margin: 0; /* Gap handled by parent flex */
 }
-.tl-badge.green  { color:#2c6e1a; background:#dff2d7; }
-.tl-badge.teal   { color:#0d6b57; background:#d8f3ea; }
-.tl-badge.amber  { color:#7a3f00; background:#ffe1b6; }
-/* Priority colors */
-.tl-badge.priority-green  { color:#14532d; background:#dcfce7; border:1px solid #bbf7d0; }  /* HIGH URGENT */
-.tl-badge.priority-red    { color:#7f1d1d; background:#fee2e2; border:1px solid #fecaca; }  /* URGENT + IMPORTANT */
-.tl-badge.priority-purple { color:#4c1d95; background:#ede9fe; border:1px solid #ddd6fe; }  /* URGENT / NEW CLIENT */
-.tl-badge.priority-default{ color:#374151; background:#f3f4f6; border:1px solid #e5e7eb; }
 
-.tl-footer {
-  display:flex; justify-content: space-between; align-items: center;
-  margin-top: .55rem;
+/* Fix text color for darker backgrounds */
+.tl-badge.priority-green,
+.tl-badge.priority-red,
+.tl-badge.priority-purple,
+.tl-badge.active-green,
+.tl-badge.active-orange,
+.tl-badge.status-blue,
+.tl-badge.status-red,
+.tl-badge.status-purple,
+.tl-badge.status-green {
+    color: #ffffff;
 }
-.tl-eta { color:#666; font-weight:600; font-size:.82rem; }
-.tl-people { display:flex; gap:.25rem; }
+
+/* Label Colors */
+/* --- Priority & Active Badge Colors --- */
+
+/* 1. PRIORITY (Top Row) */
+.tl-badge.priority-green { 
+  background-color: #BAF3DB; /* Light Green */
+  color: #164B35; 
+}
+.tl-badge.priority-red { 
+  background-color: #FFD2CC; /* Light Red */
+  color: #5D1F1A; 
+}
+.tl-badge.priority-pink { 
+  background-color: #FDD0EC; /* Light Pink */
+  color: #50253F; 
+}
+.tl-badge.priority-default { 
+  background-color: #DFE1E6; /* Grey */
+  color: #172B4D; 
+}
+
+/* 2. ACTIVE (Bottom Row) */
+.tl-badge.active-green { 
+  background-color: #BAF3DB; /* Light Green */
+  color: #164B35; 
+}
+.tl-badge.active-orange { 
+  background-color: #FFE2BD; /* Light Orange */
+  color: #5F3811; 
+}
+.tl-badge.active-red { 
+  background-color: #FFD2CC; /* Light Red */
+  color: #5D1F1A; 
+}
+.tl-badge.active-default { 
+  background-color: #DFE1E6; /* Grey */
+  color: #172B4D; 
+}
+
+.tl-badge.status-yellow     { background-color: #e2b203; }
+.tl-badge.status-blue       { background-color: #579dff; }
+.tl-badge.status-green      { background-color: #4bce97; }
+.tl-badge.status-purple     { background-color: #9f8fef; }
+.tl-badge.status-red        { background-color: #f87168; }
+
+.tl-badge.active-green  { background-color: #4bce97; } 
+.tl-badge.active-orange { background-color: #faa53d; }
+
+/* 2. Card Title */
+.tl-card-title {
+  display: block;
+  color: #172b4d;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  word-wrap: break-word;
+  margin-bottom: 0;
+}
+
+/* 3. Bottom Row (Badges + Members) */
+.tl-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+  min-height: 0px;
+}
+
+/* Icons Row */
+.tl-icons {
+  display: flex;
+  gap: 8px;
+  color: #626f86;
+  font-size: 12px;
+  align-items: center;
+}
+
+/* Member Avatars */
+.tl-people {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.av-img, .av {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 0;
+  margin-left: -4px;
+  z-index: 1;
+}
+
 .av {
-  display:inline-flex; align-items:center; justify-content:center;
-  width:24px; height:24px; border-radius:50%; background:#eee; font-size:.7rem; font-weight:700;
+  background: #dfe1e6;
+  color: #172b4d;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* "Add a card" Button */
+.tl-add {
+  color: #44546f;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin: 2px 0 0 0;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tl-add:hover {
+  background-color: #091E4214;
+  color: #172b4d;
+}
+
+/* Cleanup old classes */
+.tl-card-topbar, .pill, .tl-meta, .tl-eta {
+  display: none;
 }
 
 /* ---- File thumbnail cards ---- */
@@ -631,220 +778,292 @@ html, body {
 }
 .email-preview-frame { flex:1; border:0; width:100%; }
 
-/* ===== Trello middle popup ===== */
-
-.kebab-wrap { position: relative; margin-right: 6px; }
-.kebab-btn {
-  border: 0; background: transparent; cursor: pointer;
-  font-size: 20px; line-height: 1; color: #5f4200; padding: 4px 6px; border-radius: 8px;
-}
-.kebab-btn:hover { background: rgba(0,0,0,.05); }
-
-.kebab-menu {
-  position: absolute; right: 0; top: 34px; z-index: 10;
-  min-width: 180px; background: #fff; border: 1px solid #e6e6e6; border-radius: 10px;
-  box-shadow: 0 8px 22px rgba(0,0,0,.15); padding: 6px;
-}
-
-.trello-modal-topbar { position: relative; overflow: visible; z-index: 5; }
-.trello-top-right { position: relative; }
-.kebab-menu { z-index: 1000; }
-
-.k-item {
-  width: 100%; text-align: left;
-  border: 0; background: transparent; cursor: pointer;
-  font-size: .9rem; padding: 8px 10px; border-radius: 8px;
-}
-.k-item:hover { background: #f5f5f5; }
-.k-sep { height: 1px; background: #eee; margin: 6px 0; }
-
-.kebab-menu { z-index: 50; }
+/* ===== Trello middle popup (Rebuilt for Real App Look) ===== */
 
 .trello-modal {
-  background: #fff;
-  border-radius: 14px;
-  border: 1px solid #ddd;
-  box-shadow: 0 12px 28px rgba(0,0,0,.15);
-  height: 100%;
+  background: #ffffff;
+  border-radius: 12px;
+  width: 94%; 
+  max-width: 900px;
+  margin: 24px auto; /* Clean margins */
+  
+  /* 👇 FIX: Height adjusts to content (auto), but stops before hitting the chat bar (max-height) */
+  height: auto;
+  max-height: calc(100% - 80px); 
+  
   display: flex;
   flex-direction: column;
-  overflow: visible;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Noto Sans", "Ubuntu", "Droid Sans", "Helvetica Neue", sans-serif;
+  color: #172b4d;
+  border: 1px solid #8993a4;
+  box-shadow: 0 8px 16px -4px rgba(9,30,66,0.25), 0 0 0 1px rgba(9,30,66,0.08);
 }
 
-/* Yellow header bar / list selector */
+/* Header Area */
 .trello-modal-topbar {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  background: #f2cd32;
-  padding: 12px 14px;
+  align-items: flex-start;
+  padding: 20px 24px 8px; /* Increased padding */
+  background: #ffffff; /* Match body white */
+  flex: 0 0 auto;
 }
-.trello-modal-list { font-weight: 600; color: #5f4200; display:flex; align-items:center; gap:8px; }
-.list-dot { width:16px; height:6px; background:#bfe5b2; border-radius:999px; display:inline-block; }
-.trello-close {
-  border: 0; background: transparent; font-size: 18px; cursor: pointer; color: #5f4200;
-}
-.trello-close:hover { opacity: .75; }
 
-/* Body split */
+.trello-header-main {
+  display: flex;
+  gap: 16px;
+  width: 100%;
+}
+
+.trello-icon-header {
+  margin-top: 4px;
+  color: #172b4d;
+  font-size: 24px; /* Slightly larger icon */
+}
+
+.trello-title-input {
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius: 3px;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 24px;
+  padding: 4px 8px;
+  margin: -4px -8px;
+  width: 100%;
+  color: #172b4d;
+}
+.trello-title-input:focus {
+  background: #fff;
+  border-color: #0079bf;
+  outline: none;
+}
+
+.trello-list-subtitle {
+  font-size: 14px;
+  color: #5e6c84;
+  margin-top: 4px;
+  margin-left: 2px;
+}
+.trello-list-subtitle a {
+  text-decoration: underline;
+  cursor: pointer;
+  color: #5e6c84;
+}
+
+/* Close Button */
+.trello-close {
+  color: #42526e;
+  background: transparent;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 8px;
+  line-height: 1;
+  margin-top: -4px;
+  margin-right: -8px;
+}
+.trello-close:hover {
+  color: #172b4d;
+  background-color: rgba(9,30,66,.08);
+  border-radius: 50%;
+}
+
+/* Modal Body - Scrollable Area */
 .trello-modal-body {
   flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: 56% 44%;
+  overflow-y: auto;
+  display: flex;
+  /* 👇 FIX: 80px padding ensures space below "Start Timer" even when zoomed/scrolling */
+  padding: 0 24px 80px 24px; 
+  gap: 32px;
+  min-height: 0; /* Critical for nested flex scrolling */
+}
+/* Left Main Column */
+.trello-main-col {
+  flex: 2.8;
+  min-width: 0;
 }
 
-/* LEFT */
-.trello-left {
-  padding: 16px;
-  overflow: auto;
-  border-right: 1px solid #eee;
+/* Right Sidebar Column */
+.trello-sidebar-col {
+  flex: 1.2;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 180px;
+  padding-top: 8px;
 }
-.trello-title { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 14px; }
-.trello-title .circ { width: 14px; height: 14px; border: 2px solid #bbb; border-radius: 50%; margin-top: 6px; }
-.trello-title .t-main { font-weight: 700; font-size: 1.05rem; }
-.trello-title .t-sub { color: #666; font-weight: 600; }
 
-.tl-row { display: grid; grid-template-columns: 150px 1fr; gap: 12px; align-items: start; margin: 12px 0; }
-.tl-label { color:#333; font-weight: 600; padding-top: 6px; }
-
-.tl-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.tl-chip, .tl-chip-img {
-  width: 28px; height: 28px; border-radius: 50%; background: #eee; display: grid; place-items: center; font-size:.75rem; font-weight:700;
+/* --- Sections --- */
+.trello-section {
+  margin-bottom: 24px;
+  position: relative;
+  padding-left: 40px; /* Space for icon */
 }
-.tl-chip-img { object-fit: cover; }
-.tl-chip.add { background: #f3f3f3; border: 1px dashed #bbb; cursor: pointer; }
-.tl-chip.add:hover { background: #e7e7e7; }
 
-.tl-tag { display:inline-block; font-size:.75rem; font-weight:700; padding: .2rem .45rem; border-radius: 8px; }
-.tl-tag.raf { color:#0d6b57; background:#d8f3ea; }
-
-.tl-card-like { background:#fafafa; border:1px solid #eee; border-radius:10px; padding:10px; display:flex; justify-content:space-between; gap:8px; }
-.tl-desc { white-space: pre-wrap; font-size:.92rem; }
-
-.tl-fields { display:flex; gap:10px; flex-wrap:wrap; }
-.tl-field { min-width: 180px; }
-.f-title { font-size:.8rem; color:#555; margin-bottom:4px; }
-.f-input { border:1px solid #ddd; background:#fff; border-radius:8px; padding:6px 10px; cursor:pointer; }
-.f-input:hover { border-color:#bbb; }
-
-.tl-actions-inline { display:flex; align-items:center; gap:10px; }
-.btn { background:#111; color:#fff; border:0; border-radius:10px; padding:6px 10px; cursor:pointer; }
-.btn:hover { filter: brightness(1.05); }
-.btn.ghost { background:#f6f6f6; color:#111; }
-.btn.ghost:hover { background:#eee; }
-.btn.ghost.sm { padding:4px 8px; }
-
-.timer-pill { background:#f3f3f3; border:1px solid #ddd; border-radius:8px; padding:4px 8px; font-weight:600; }
-
-/* RIGHT */
-.trello-right {
-  padding: 16px;
-  min-height: 0;
-  display:flex;
-  flex-direction:column;
+.trello-section-icon {
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: #42526e;
+  font-size: 20px;
+  width: 32px;
+  text-align: center;
 }
-.tr-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
-.tr-title { font-weight:700; }
-.tr-comment {
-  border:1px solid #ddd; border-radius:10px; padding:10px; outline:none;
-  margin-bottom:12px;
+
+.trello-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
 }
-.tr-comment:focus { border-color:#bbb; }
 
-.tr-feed { flex:1; overflow:auto; display:flex; flex-direction:column; gap:10px; }
-.tr-item { display:flex; gap:10px; }
-.tr-avatar { width:28px; height:28px; border-radius:50%; background:#eee; overflow:hidden; display:grid; place-items:center; font-weight:700; }
-.tr-avatar img { width:100%; height:100%; object-fit:cover; }
-.tr-bubble { background:#fff; border:1px solid #eee; border-radius:10px; padding:8px 10px; flex:1; }
-.tr-meta { display:flex; gap:8px; font-size:.85rem; color:#666; margin-bottom:4px; }
-.tr-name { font-weight:700; color:#111; }
-.tr-text { white-space: pre-wrap; font-size:.95rem; }
-
-.trello-top-left .tl-list-dropdown{
-  border:0; background:transparent; font-weight:700; color:#5f4200; padding:2px 6px; border-radius:8px;
+.trello-h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+  line-height: 20px;
 }
-.trello-top-right { display:flex; gap:8px; }
-.tr-icon{ border:0; background:transparent; cursor:pointer; color:#5f4200; font-size:16px; }
-.tr-icon:hover{ opacity:.75; }
 
-.trello-modal-toolbar{
-  display:flex; gap:6px; padding:8px 14px; border-bottom:1px solid #eee; background:#fffbe6;
+/* --- Action Buttons (Sidebar Style moved to top/inline) --- */
+.trello-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding-left: 40px; /* Match section alignment */
 }
-.tool-btn{
-  border:1px solid #e6e6e6; background:#fff; border-radius:8px; padding:6px 10px; font-size:.8rem; font-weight:600; cursor:pointer;
+
+.t-btn-gray {
+  background-color: rgba(9, 30, 66, 0.04);
+  color: #172b4d;
+  border: none;
+  box-shadow: none;
+  font-weight: 600;
+  border-radius: 3px;
+  padding: 6px 12px;
+  font-size: 14px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background-color 85ms ease;
 }
-.tool-btn:hover{ background:#fafafa; }
-
-.trello-title{ display:flex; flex-direction:column; gap:4px; margin-bottom:8px; }
-.trello-title .t-main{ font-weight:800; font-size:1.05rem; }
-.trello-title .t-sub{ color:#666; font-weight:600; }
-
-.tl-fields{ display:flex; gap:10px; flex-wrap:wrap; }
-.cf{ min-width:170px; }
-.cf-title{ font-size:.8rem; color:#555; margin-bottom:4px; }
-.cf-select{ border:1px solid #ddd; background:#fff; border-radius:8px; padding:6px 10px; }
-.cf-pill{ display:inline-block; padding:.28rem .55rem; border-radius:8px; font-weight:700; font-size:.78rem; border:1px solid #eee; }
-.cf-pill.green{ color:#0d6b57; background:#d8f3ea; }
-.cf-pill.amber{ color:#7a3f00; background:#ffe1b6; }
-
-.btn.blue{ background:#1677ff; }
-.btn.blue:hover{ filter:brightness(0.95); }
-
-.t-title-text{ font-size:1.05rem; font-weight:800; color:#111; }
-.trello-modal-toolbar{ display:flex; gap:6px; padding:8px 14px; border-bottom:1px solid #eee; background:#fff; }
-.tool-btn{ border:1px solid #e6e6e6; background:#fff; border-radius:8px; padding:6px 10px; font-size:.8rem; font-weight:600; cursor:pointer; }
-.tool-btn:hover{ background:#fafafa; }
-
-.dd select{
-  width:100%; border:1px solid #ddd; background:#fff; border-radius:8px;
-  padding:6px 10px; font-size:.85rem;
+.t-btn-gray:hover {
+  background-color: rgba(9, 30, 66, 0.08);
 }
-.dd select[multiple]{ height:112px; }
 
-/* Colored Priority select in the middle pane */
-.prio-select.prio-green  { background:#dcfce7; border-color:#bbf7d0; color:#14532d; font-weight:700; }
-.prio-select.prio-red    { background:#fee2e2; border-color:#fecaca; color:#7f1d1d; font-weight:700; }
-.prio-select.prio-purple { background:#ede9fe; border-color:#ddd6fe; color:#4c1d95; font-weight:700; }
-.prio-select.prio-default{ background:#f3f4f6; border-color:#e5e7eb; color:#374151; font-weight:700; }
+/* --- Custom Fields Grid --- */
+.cf-grid {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
 
-/* badge chips in columns — force these to win over any generic .tl-badge rule */
-.tl-badge.active-green  { background:#1e7a3a !important; color:#fff !important; }
-.tl-badge.active-orange { background:#b85c00 !important; color:#fff !important; }
-.tl-badge.active-default{ background:#5a5a5a !important; color:#fff !important; }
+.cf-item {
+  flex: 1;
+  min-width: 120px;
+}
 
-/* the <select> head in the modal */
-.active-select.active-green  { background:#1e7a3a !important; color:#fff !important; }
-.active-select.active-orange { background:#b85c00 !important; color:#fff !important; }
-.active-select.active-default{ background:#3b3b3b !important; color:#fff !important; }
+.cf-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #5e6c84;
+  margin-bottom: 4px;
+  display: block;
+}
 
-/* keep focus ring */
-.active-select.active-green:focus,
-.active-select.active-orange:focus { outline:2px solid rgba(255,255,255,0.25); }
+/* The colored select box */
+.cf-select-box {
+  width: 100%;
+  border: none;
+  border-radius: 3px;
+  padding: 8px 12px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20width%3D%2210%22%20height%3D%226%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22M1%201l4%204%204-4%22%20stroke%3D%22%2342526E%22%20stroke-width%3D%221.5%22%20fill%3D%22none%22%20fill-rule%3D%22evenodd%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  /* Colors defined below */
+}
 
-/* Status badge colors */
-.tl-badge.status-yellow     { background:#facc15; color:#111; border:1px solid #eab308; }
-.tl-badge.status-darkyellow { background:#ca8a04; color:#fff; border:1px solid #a16207; }
-.tl-badge.status-blue       { background:#dbeafe; color:#1e3a8a; border:1px solid #93c5fd; }
-.tl-badge.status-green      { background:#dcfce7; color:#14532d; border:1px solid #bbf7d0; }
-.tl-badge.status-lime       { background:#ecfccb; color:#365314; border:1px solid #bef264; }
-.tl-badge.status-purple     { background:#ede9fe; color:#4c1d95; border:1px solid #c4b5fd; }
-.tl-badge.status-pink       { background:#fce7f3; color:#9d174d; border:1px solid #f9a8d4; }
-.tl-badge.status-red        { background:#fee2e2; color:#7f1d1d; border:1px solid #fecaca; }
-.tl-badge.status-white      { background:#fff; color:#374151; border:1px solid #e5e7eb; }
-.tl-badge.status-default    { background:#f3f4f6; color:#374151; border:1px solid #e5e7eb; }
+/* --- Description Box --- */
+.desc-box-fake {
+  min-height: 60px;
+  background-color: rgba(9, 30, 66, 0.04);
+  border-radius: 3px;
+  padding: 8px 12px;
+  font-size: 14px;
+  color: #172b4d;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.desc-box-fake:hover {
+  background-color: rgba(9, 30, 66, 0.08);
+}
 
-/* Select head */
-.status-select.status-yellow     { background:#facc15; color:#111; }
-.status-select.status-darkyellow { background:#ca8a04; color:#fff; }
-.status-select.status-blue       { background:#dbeafe; color:#1e3a8a; }
-.status-select.status-green      { background:#dcfce7; color:#14532d; }
-.status-select.status-lime       { background:#ecfccb; color:#365314; }
-.status-select.status-purple     { background:#ede9fe; color:#4c1d95; }
-.status-select.status-pink       { background:#fce7f3; color:#9d174d; }
-.status-select.status-red        { background:#fee2e2; color:#7f1d1d; }
-.status-select.status-white      { background:#fff; color:#374151; }
-.status-select.status-default    { background:#f3f4f6; color:#374151; }
+/* --- Activity Timer Section --- */
+.timer-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.btn-blue {
+  background-color: #0079bf;
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  padding: 6px 12px; /* Standard Trello size */
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-blue:hover { background-color: #026aa7; }
+
+.timer-display {
+  background: rgba(9,30,66,0.04);
+  padding: 6px 10px;
+  border-radius: 3px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.maintenance-banner {
+  background-color: #6e5dc6; /* Purple */
+  color: white;
+  padding: 8px 12px;
+  border-radius: 3px;
+  font-size: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.new-pill {
+  background: rgba(255,255,255,0.2);
+  border-radius: 2px;
+  padding: 1px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  margin-right: 8px;
+}
+
+/* --- Colors for Custom Fields (Select Boxes) --- */
+.cf-green-light  { background-color: #dcfce7; color: #164b35; }
+.cf-red-light    { background-color: #ffe2bd; color: #5d1f1a; } /* Using soft red/orange tone for red text readability */
+.cf-pink-light   { background-color: #fdd0ec; color: #50253f; }
+.cf-orange-light { background-color: #ffe2bd; color: #5f3811; }
+.cf-blue-light   { background-color: #dbeafe; color: #1e3a8a; }
+.cf-purple-light { background-color: #ede9fe; color: #4c1d95; }
+.cf-yellow-light { background-color: #fef9c3; color: #713f12; }
+.cf-grey-light   { background-color: #f4f5f7; color: #172b4d; }
 
 /* Email body – plain text (eml) */
 .email-body-pre {
@@ -1169,19 +1388,40 @@ html, body {
   position: relative;
 }
 
+/* Ensure the image inside doesn't get squashed */
+.connect-google-btn img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
 .connect-google-btn {
-  background: #1a73e8;
-  color: white;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 6px 10px;
-  border-radius: 999px;
+  background: #ffffff;
+  color: #3c4043; /* Dark gray text */
+  border: 1px solid #dadce0; /* Subtle border */
+  border-radius: 6px; /* Slight rounding, not profound */
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
   text-decoration: none;
-  transition: background 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px; /* Space between icon and text */
+  height: 32px; /* Fixed height so both buttons match */
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 1px rgba(0,0,0,0.05);
 }
 
 .connect-google-btn:hover {
-  background: #1558b0;
+  background: #f8f9fa;
+  border-color: #dadce0;
+  color: #202124;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+.connect-google-btn:active {
+  background: #f1f3f4;
 }
 
 /* ===== Google Chat left list pills ===== */
@@ -1312,6 +1552,10 @@ html, body {
   width: fit-content;
   position: relative;
   transition: background 0.15s ease;
+  
+  /* 👇 FIXES THE BLOB: Preserves spaces and newlines */
+  white-space: pre-wrap; 
+  word-wrap: break-word;
 }
 
 .gchat-msg.mine .gchat-bubble {
@@ -1554,3 +1798,625 @@ html, body {
 .chat-bar.has-file {
   border-radius: 10px; /* 👈 ADJUST THIS: 18px is usually perfect for the "tall" state */
 }
+
+/* Hide reaction bar by default */
+.gchat-react-bar {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.1s ease-in-out; /* Super fast fade */
+  
+  /* Positioning to match Screenshot 7 */
+  position: absolute;
+  top: -14px;
+  right: 0;
+  background: white;
+  border: 1px solid #dadce0;
+  border-radius: 24px;
+  padding: 2px 8px;
+  display: flex;
+  gap: 4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+  z-index: 10;
+}
+
+/* Show it instantly when hovering the parent message */
+.gchat-msg-content:hover .gchat-react-bar {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Style the emoji buttons */
+.gchat-reaction-pill {
+  background: none;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  transition: background 0.1s;
+}
+
+.gchat-reaction-pill:hover {
+  background: #f1f3f4;
+}
+
+.gchat-reaction-chip-btn {
+  background: #e8eaed;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: #3c4043;
+  cursor: pointer;
+  transition: all 0.1s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gchat-reaction-chip-btn:hover {
+  background: #dadce0;
+  border-color: #dadce0;
+}
+
+/* Optional: Active state when clicking */
+.gchat-reaction-chip-btn:active {
+  background: #d2e3fc; /* Light blue tint like GChat */
+  color: #174ea6;
+  border-color: #d2e3fc;
+}
+
+/* src/App.css */
+
+.gchat-file-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: white;
+  border: 1px solid #dadce0;
+  border-radius: 8px; /* Slightly rounded, mostly square */
+  width: 240px; /* Fixed width for consistency */
+  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
+  cursor: default;
+  margin-bottom: 4px;
+}
+
+.gchat-file-icon {
+  width: 40px;
+  height: 40px;
+  background: #fce8e6; /* Light red for PDF */
+  color: #ea4335;
+  font-weight: bold;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.gchat-file-info {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.gchat-file-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #3c4043;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gchat-file-link {
+  font-size: 12px;
+  color: #1a73e8;
+  text-decoration: none;
+  margin-top: 2px;
+}
+
+.gchat-file-link:hover {
+  text-decoration: underline;
+}
+
+/* src/App.css */
+
+/* Base Icon Style (Shared) */
+.gchat-file-icon {
+  width: 40px;
+  height: 40px;
+  font-weight: bold;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+/* 🔴 PDF (Default) */
+.gchat-file-icon.pdf,
+.gchat-file-icon.default {
+  background: #fce8e6;
+  color: #ea4335;
+}
+
+/* 🟢 Excel (Green) */
+.gchat-file-icon.xls {
+  background: #e6f4ea;
+  color: #188038;
+}
+
+/* 🔵 Word (Blue) */
+.gchat-file-icon.doc {
+  background: #e8f0fe;
+  color: #1967d2;
+}
+
+/* 🟣 Images (Purple) */
+.gchat-file-icon.img {
+  background: #f3e8fd;
+  color: #9334e6;
+}
+
+/* 🟡 Zip/Other (Yellow) */
+.gchat-file-icon.zip {
+  background: #fef7e0;
+  color: #f9ab00;
+}
+
+/* src/App.css */
+
+.gchat-preview-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #202124; /* Dark background for focus */
+  color: white;
+}
+
+.gchat-preview-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: #202124;
+  border-bottom: 1px solid #3c4043;
+}
+
+.gchat-preview-title {
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.gchat-preview-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.gchat-preview-btn,
+.gchat-preview-close {
+  background: rgba(255,255,255,0.1);
+  border: none;
+  color: white;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+}
+
+.gchat-preview-close:hover, .gchat-preview-btn:hover {
+  background: rgba(255,255,255,0.2);
+}
+
+.gchat-preview-body {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.gchat-preview-frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: white;
+  border-radius: 8px;
+}
+
+.gchat-preview-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+}
+
+.gchat-media-wrap {
+  background: transparent;
+  margin-bottom: 4px;
+}
+.gchat-media-wrap video {
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  background: #000;
+}
+
+.chat-plus-menu {
+  position: absolute;
+  /* 👇 CHANGED: Anchor to bottom-right relative to the Plus button */
+  right: 0;
+  left: auto; 
+  bottom: 45px;
+  
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  padding: 6px;
+  z-index: 1000;
+  min-width: 140px;
+}
+
+/* Center the specific headers for Left and Right panels */
+.left-panel .panel-title,
+.right-panel .panel-title {
+  text-align: center;
+  margin-bottom: 12px; /* A little extra breathing room */
+}
+
+/* --- Trello Label Colors (Top Row) --- */
+/* These match the modern Trello pastel palette */
+
+/* --- Trello Label Shades (Top Row) --- */
+.tl-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 16px;
+    margin-right: 4px;
+    margin-bottom: 4px;
+    white-space: nowrap;
+}
+
+/* === GREEN === */
+/* Light Green (Subtle) */
+.tl-badge.label-green-light { background-color: #BAF3DB; color: #164B35; } 
+/* Normal Green (Bold) */
+.tl-badge.label-green-norm  { background-color: #4BCE97; color: #164B35; } 
+/* Dark Green (Bolder) */
+.tl-badge.label-green-dark  { background-color: #1F845A; color: #FFFFFF; } 
+
+/* === YELLOW === */
+/* Light Yellow (Subtle) */
+.tl-badge.label-yellow-light { background-color: #F8E6A0; color: #533F04; }
+/* Normal Yellow (Bold) */
+.tl-badge.label-yellow-norm  { background-color: #F5CD47; color: #533F04; }
+
+/* === BROWN (Approximated) === */
+/* Normal Brown (Custom Trello-ish Tan) */
+.tl-badge.label-brown-norm   { background-color: #D3C4A5; color: #4A3A23; }
+
+/* === ORANGE === */
+/* Light Orange (Subtle) */
+.tl-badge.label-orange-light { background-color: #FFE2BD; color: #5F3811; }
+/* Normal Orange (Bold) */
+.tl-badge.label-orange-norm  { background-color: #FAA53D; color: #5F3811; }
+/* Dark Orange (Bolder) */
+.tl-badge.label-orange-dark  { background-color: #B65C02; color: #FFFFFF; }
+
+/* === RED === */
+/* Light Red (Subtle) */
+.tl-badge.label-red-light    { background-color: #FFD2CC; color: #5D1F1A; }
+/* Normal Red (Bold) */
+.tl-badge.label-red-norm     { background-color: #F87462; color: #5D1F1A; }
+/* Dark Red (Bolder) */
+.tl-badge.label-red-dark     { background-color: #CA3521; color: #FFFFFF; }
+
+/* === PURPLE === */
+/* Light Purple (Subtle) */
+.tl-badge.label-purple-light { background-color: #DFD8FD; color: #352C63; }
+/* Normal Purple (Bold) */
+.tl-badge.label-purple-norm  { background-color: #9F8FEF; color: #352C63; }
+/* Dark Purple (Bolder) */
+.tl-badge.label-purple-dark  { background-color: #6E5DC6; color: #FFFFFF; }
+
+/* === BLUE === */
+/* Normal Blue (Bold) */
+.tl-badge.label-blue-norm    { background-color: #579DFF; color: #09326C; }
+
+/* Default */
+.tl-badge.label-default { background-color: #091E420F; color: #44546F; }
+
+/* Ensure Priority/Status badges (Bottom Row) still look correct */
+.tl-badge.active-green  { background-color: #1F845A; color: #FFFFFF; }
+.tl-badge.active-orange { background-color: #B65C02; color: #FFFFFF; }
+
+.tl-badge.status-yellow { background-color: #FACC15; color: #172B4D; border: 1px solid #EAB308; }
+.tl-badge.status-blue   { background-color: #DBEAFE; color: #1E3A8A; border: 1px solid #93C5FD; }
+.tl-badge.status-green  { background-color: #DCFCE7; color: #14532D; border: 1px solid #BBF7D0; }
+.tl-badge.status-red    { background-color: #FEE2E2; color: #7F1D1D; border: 1px solid #FECACA; }
+.tl-badge.status-purple { background-color: #EDE9FE; color: #4C1D95; border: 1px solid #DDD6FE; }
+
+/* --- Priority Badge Colors --- */
+.tl-badge.priority-green { 
+  background-color: #BAF3DB; /* Light Green */
+  color: #164B35; 
+}
+.tl-badge.priority-red { 
+  background-color: #FFD2CC; /* Light Red */
+  color: #5D1F1A; 
+}
+.tl-badge.priority-pink { 
+  background-color: #FDD0EC; /* Light Pink */
+  color: #50253F; 
+}
+.tl-badge.priority-purple { 
+  background-color: #DFD8FD; /* Light Purple (for Urgent/New Client if preferred) */
+  color: #352C63; 
+}
+.tl-badge.priority-default { 
+  background-color: #DFE1E6; /* Grey */
+  color: #172B4D; 
+}
+
+/* --- Trello Status Colors (Bottom Row) --- */
+
+/* ORANGE */
+.tl-badge.status-orange-light { background-color: #FFE2BD; color: #5F3811; }
+
+/* BLUE */
+.tl-badge.status-blue-light   { background-color: #CCE0FF; color: #0055CC; }
+
+/* GREEN */
+.tl-badge.status-green-light  { background-color: #BAF3DB; color: #164B35; }
+
+/* PURPLE */
+.tl-badge.status-purple-light { background-color: #DFD8FD; color: #352C63; }
+
+/* PINK */
+.tl-badge.status-pink-light   { background-color: #FDD0EC; color: #50253F; }
+
+/* YELLOW */
+.tl-badge.status-yellow-light { background-color: #F8E6A0; color: #533F04; }
+.tl-badge.status-yellow-norm  { background-color: #F5CD47; color: #533F04; }
+
+/* RED */
+.tl-badge.status-red-light    { background-color: #FFD2CC; color: #5D1F1A; }
+
+/* GREY */
+.tl-badge.status-grey-light   { background-color: #091E420F; color: #44546F; }
+
+/* Default fallback */
+.tl-badge.status-default      { background-color: #DFE1E6; color: #172B4D; }
+
+/* --- Drag & Drop UI Features --- */
+
+/* 1. The Card being dragged (Tilt Effect) */
+/* Note: This applies to the element while you hold it */
+.tl-card.dnd-dragging {
+  transform: rotate(3deg) scale(1.02); /* Slight right tilt + pop */
+  box-shadow: 0 12px 24px rgba(0,0,0,0.2); /* Lift it up */
+  opacity: 0.9;
+  z-index: 9999;
+  cursor: grabbing;
+}
+
+/* Ensure this is in your App.css */
+.tl-card.dnd-placeholder {
+  opacity: 0.3;              
+  background: #E4F7FA;       
+  border: 1px dashed #0079bf; 
+  box-shadow: none;
+  transform: none !important; /* Force the placeholder to stay straight */
+}
+
+/* 2. Smooth Transitions for everything else */
+.tl-card {
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+/* 3. The empty space created by the move (Visual feedback) */
+/* We don't hide the card entirely, we usually style the target slightly differently 
+   or just let the swapping animation handle the 'space'. 
+   For simple React DND, the swap happens live, so 'space' is automatic. */
+
+   /* --- FIXES FOR TRELLO CARD (Add to bottom of App.css) --- */
+
+/* 1. Trello Font Override for the Modal */
+.trello-modal, .trello-modal * {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Noto Sans", "Ubuntu", "Droid Sans", "Helvetica Neue", sans-serif !important;
+}
+
+/* 2. Fix Massive Images -> Make them small circles */
+.member-avatar {
+  width: 32px;
+  height: 32px;
+  min-width: 32px; /* Stop shrinking */
+  border-radius: 50%;
+  background: #dfe1e6;
+  color: #172b4d;
+  font-weight: 700;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  overflow: hidden; /* Clips the image */
+  border: none;
+}
+
+.member-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* 3. Small Headers (e.g. MEMBERS, LABELS) */
+.trello-group-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #5e6c84;
+  margin-bottom: 4px;
+  display: block;
+}
+
+/* 4. Square-ish Label Pills (e.g. RyanGPT) */
+.label-pill-large {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  font-weight: 700;
+  font-size: 14px;
+  color: #fff;
+  cursor: pointer;
+  min-width: 48px;
+  justify-content: center;
+}
+.label-pill-large:hover {
+  filter: brightness(110%);
+}
+
+/* 5. The Grey "+" Buttons */
+.round-btn-gray, .rect-btn-gray {
+  height: 32px;
+  width: 32px;
+  background: #091e420f;
+  border: none;
+  color: #172b4d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 85ms ease;
+  font-size: 20px; /* Plus icon size */
+  line-height: 1;
+}
+.round-btn-gray { border-radius: 50%; } /* For Members */
+.rect-btn-gray  { border-radius: 3px; }  /* For Labels */
+
+.round-btn-gray:hover, .rect-btn-gray:hover {
+  background: #091e4214;
+}
+
+/* --- Label Picker Popover --- */
+.label-picker-popover {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 304px;
+  background: #fff;
+  border-radius: 3px;
+  box-shadow: 0 8px 16px -4px rgba(9,30,66,0.25), 0 0 0 1px rgba(9,30,66,0.08);
+  z-index: 1000;
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+}
+
+.label-picker-header {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid rgba(9,30,66,0.13);
+  color: #5e6c84;
+  font-weight: 600;
+  font-size: 14px;
+  position: relative;
+}
+
+.label-picker-close {
+  position: absolute;
+  right: 0;
+  top: 0;
+  height: 40px;
+  width: 40px;
+  border: none;
+  background: transparent;
+  color: #6b778c;
+  cursor: pointer;
+}
+
+.label-picker-list {
+  padding: 8px 12px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.label-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.label-picker-pill {
+  flex: 1;
+  padding: 6px 8px; /* Slightly tighter padding */
+  border-radius: 3px;
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+  position: relative;
+  transition: padding-left 0.2s;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px; /* Space between checkbox and text */
+}
+
+.label-picker-pill:hover {
+  filter: brightness(0.95); /* Slight darken on hover */
+  margin-left: 4px; /* Trello pop effect */
+}
+
+.label-edit-icon {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 3px;
+  color: #42526e;
+}
+.label-edit-icon:hover {
+  background-color: rgba(9,30,66,0.08);
+}
+
+/* --- Fix Right Panel Badge Colors (Map -light classes to colors) --- */
+
+/* PRIORITY BADGES */
+.tl-badge.priority-green-light { background-color: #dcfce7; color: #164b35; }
+.tl-badge.priority-red-light   { background-color: #ffe2bd; color: #5d1f1a; }
+.tl-badge.priority-pink-light  { background-color: #fdd0ec; color: #50253f; }
+.tl-badge.priority-purple-light{ background-color: #ede9fe; color: #4c1d95; }
+.tl-badge.priority-default     { background-color: #f4f5f7; color: #172b4d; }
+
+/* ACTIVE BADGES */
+.tl-badge.active-green-light   { background-color: #dcfce7; color: #164b35; }
+.tl-badge.active-orange-light  { background-color: #ffe2bd; color: #5f3811; }
+.tl-badge.active-red-light     { background-color: #ffe2bd; color: #5d1f1a; }
+.tl-badge.active-default       { background-color: #f4f5f7; color: #172b4d; }
+
+/* STATUS BADGES */
+.tl-badge.status-orange-light  { background-color: #ffe2bd; color: #5f3811; }
+.tl-badge.status-blue-light    { background-color: #dbeafe; color: #1e3a8a; }
+.tl-badge.status-green-light   { background-color: #dcfce7; color: #164b35; }
+.tl-badge.status-purple-light  { background-color: #ede9fe; color: #4c1d95; }
+.tl-badge.status-pink-light    { background-color: #fdd0ec; color: #50253f; }
+.tl-badge.status-yellow-light  { background-color: #fef9c3; color: #713f12; }
+.tl-badge.status-grey-light    { background-color: #f4f5f7; color: #172b4d; }
+.tl-badge.status-red-light     { background-color: #ffe2bd; color: #5d1f1a; }
+.tl-badge.status-default       { background-color: #f4f5f7; color: #172b4d; }

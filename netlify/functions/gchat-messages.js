@@ -1,36 +1,65 @@
+// netlify/functions/gchat-messages.js
+
+// 🏆 THE MASTER LIST
+const KNOWN_USERS = {
+  "users/116712532865547233135": "Siya ActuarySpace",
+  "users/109833975621386956073": "Jonathan Espanol",
+  "users/116928759608148752435": "Simoné Streicher",
+  "users/101273447946115685891": "Tiffany Harzon-Cuyler",
+  "users/110481684541592719996": "Albert Grobler",
+  "users/103060225088465733197": "Tinashe Chikwamba",
+  "users/105158373279991959375": "Ethan Maburutse",
+  "users/112681921793658298066": "Miné Moolman",
+  "users/114609724339659491302": "Bianca Wiid",
+  "users/100183703799963986718": "Alicia Oberholzer",
+  "users/106094639157491328183": "Leonah Marewangepo",
+  "users/100973980027446317396": "Eugene Cloete",
+  "users/101954867987984084170": "Alicia Kotzé",
+  "users/108929714281084389788": "Songeziwe Chiya",
+  "users/110745530036003772233": "Bonisa Mqonqo",
+  "users/100710383419487896813": "Cameron Curtis",
+  "users/104310623309718505350": "Shamiso Hapaguti",
+  "users/113565695109176296608": "Waldo Jenkins",
+  "users/108628384720735354945": "Melvin Smith",
+  "users/115863503558522206541": "Yolandie",
+  "users/105726015150067918055": "Enock Kazembe",
+  "users/114022848581179253421": "Matthew Darch",
+  "users/104654529926543347255": "Martin Otto"
+};
+
+// Emoji Mapper: Unicode -> Internal ID
+const EMOJI_MAP = {
+  "👍": "like",
+  "❤️": "heart",
+  "😆": "laugh"
+};
+
 export async function handler(event) {
   try {
     const { space } = event.queryStringParameters || {};
-    if (!space) return json(400, { ok: false, error: "Missing ?space=spaces/XXXX" });
+    if (!space) return json(400, { ok: false, error: "Missing ?space" });
 
     const RT_RAW = process.env.AS_GCHAT_RT;
     const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
     const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 
-    if (!RT_RAW) return json(400, { ok: false, error: "Missing AS_GCHAT_RT in env" });
-    if (!CLIENT_ID || !CLIENT_SECRET)
-      return json(400, { ok: false, error: "Missing GOOGLE_CLIENT_ID/SECRET in env" });
+    if (!RT_RAW) return json(400, { ok: false, error: "Missing AS_GCHAT_RT" });
 
-    const RT = decodeURIComponent(RT_RAW);
-
-    // 1) refresh -> access
+    // 1) Get Access Token
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         client_id: CLIENT_ID,
         client_secret: CLIENT_SECRET,
-        refresh_token: RT,
+        refresh_token: RT_RAW,
         grant_type: "refresh_token",
       }),
     });
 
-    const tokenText = await tokenRes.text();
-    let tokenJson = {};
-    try { tokenJson = JSON.parse(tokenText); } catch {}
-
-    if (!tokenRes.ok || !tokenJson.access_token) {
-      return json(502, { ok: false, error: "Auth failed", details: tokenText });
+    const tokenJson = await tokenRes.json();
+    if (!tokenJson.access_token) {
+      return json(502, { ok: false, error: "Token refresh failed", details: tokenJson });
     }
     const accessToken = tokenJson.access_token;
 
@@ -38,70 +67,53 @@ export async function handler(event) {
     const url = new URL(`https://chat.googleapis.com/v1/${space}/messages`);
     url.searchParams.set("pageSize", "50");
     url.searchParams.set("orderBy", "createTime desc");
-    // Removed 'fields' constraint to ensure we get all data
+    
+    // 👇 CHANGED: Explicitly asking for attachmentDataRef
+    url.searchParams.set(
+      "fields", 
+      "messages(name,text,createTime,sender(name,displayName,email,type),emojiReactionSummaries,attachment(name,contentName,contentType,downloadUri,attachmentDataRef)),nextPageToken"
+    );
     
     const res = await fetch(url.toString(), {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
-    const rawText = await res.text();
-    let data = {};
-    try { data = JSON.parse(rawText); } catch {}
-
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      return json(502, { ok: false, error: "List failed", details: rawText });
+      return json(502, { ok: false, error: "List failed", details: data });
     }
     const msgs = Array.isArray(data.messages) ? data.messages : [];
 
-    // 3) Collect IDs
-    const userIds = Array.from(
-      new Set(
-        msgs
-          .map((m) => m?.sender?.name)
-          .filter((u) => typeof u === "string" && u.startsWith("users/"))
-      )
-    );
-
-    // 4) Resolve Names via MEMBERSHIP (Valid Scope!)
-    // We transform "users/123" -> "spaces/AAA/members/users/123"
-    const nameMap = {};
-    await Promise.all(
-      userIds.map(async (u) => {
-        try {
-          // 👇 NEW STRATEGY: Fetch Member, not User
-          const memberName = `${space}/members/${u}`; 
-          const uRes = await fetch(
-            `https://chat.googleapis.com/v1/${memberName}?fields=member(displayName,email)`, 
-            { headers: { Authorization: `Bearer ${accessToken}` } }
-          );
-          
-          if (uRes.ok) {
-            const uJson = await uRes.json();
-            // The membership object has a 'member' field inside
-            const profile = uJson.member || {};
-            
-            let niceName = profile.displayName;
-            if (!niceName && profile.email) niceName = profile.email.split("@")[0];
-            if (niceName) nameMap[u] = niceName;
-          }
-        } catch (err) {
-          // ignore
-        }
-      })
-    );
-
-    // 5) Shape response
+    // 3) Process Messages
     const messages = msgs.map((m) => {
-      const senderId = m?.sender?.name || null;
+      const senderId = m?.sender?.name || null; 
       const apiDisplay = m?.sender?.displayName;
       const apiEmail = m?.sender?.email;
       
       let resolved = "Unknown";
-      
-      if (senderId && nameMap[senderId]) resolved = nameMap[senderId];
-      else if (apiDisplay) resolved = apiDisplay;
-      else if (apiEmail) resolved = apiEmail.split("@")[0];
-      else if (senderId) resolved = `User ...${senderId.slice(-4)}`;
+
+      if (senderId && KNOWN_USERS[senderId]) {
+        resolved = KNOWN_USERS[senderId];
+      } else if (apiDisplay) {
+        resolved = apiDisplay;
+      } else if (apiEmail) {
+        resolved = apiEmail.split("@")[0];
+      } else if (senderId) {
+        resolved = senderId; 
+      }
+
+      // Process Reactions
+      const reactions = [];
+      if (m.emojiReactionSummaries) {
+        m.emojiReactionSummaries.forEach(r => {
+          const unicode = r.emoji?.unicode;
+          if (unicode && EMOJI_MAP[unicode]) {
+            if (r.reactionCount > 0) {
+              reactions.push(EMOJI_MAP[unicode]);
+            }
+          }
+        });
+      }
 
       return {
         id: m.name,
@@ -113,6 +125,9 @@ export async function handler(event) {
           displayName: resolved,
           type: m?.sender?.type,
         },
+        reactions,
+        // 👇 CHANGED: Pass the attachment data to the frontend
+        attachment: m.attachment || [] 
       };
     });
 
