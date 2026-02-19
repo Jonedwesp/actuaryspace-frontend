@@ -1,4 +1,4 @@
-export async function handler(event) {
+exports.handler = async function (event) {
   const qs = event.queryStringParameters || {};
   const as = String(qs.as || "").toLowerCase();
   const setup = String(qs.setup || "");
@@ -19,12 +19,14 @@ export async function handler(event) {
     "openid",
     "email",
     "profile",
-    "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/userinfo.profile",
     "https://www.googleapis.com/auth/chat.messages",
     "https://www.googleapis.com/auth/chat.spaces",
     "https://www.googleapis.com/auth/chat.memberships",
-    // ❌ REMOVED: chat.users.readonly (This was causing the Error 400)
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/gmail.modify",
+    // ADD THIS NEW SCOPE FOR THE STAFF BADGE:
+    "https://www.googleapis.com/auth/directory.readonly"
   ];
 
   const stateObj = { ts: Date.now(), as, setup };
@@ -45,4 +47,4 @@ export async function handler(event) {
     headers: { Location: authUrl.toString() },
     body: "",
   };
-}
+};

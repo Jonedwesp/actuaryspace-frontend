@@ -10,18 +10,22 @@ function base64url(input) {
     .replace(/=+$/g, "");
 }
 
-export async function getAccessToken(scopes = []) {
-  const sa = loadServiceAccount();
+export async function getAccessToken(scopes = [], userToImpersonate = null) {
+  const sa = loadServiceAccount();
 
-  const now = Math.floor(Date.now() / 1000);
-  const header = { alg: "RS256", typ: "JWT" };
-  const claim = {
-    iss: sa.client_email,
-    scope: scopes.join(" "),
-    aud: "https://oauth2.googleapis.com/token",
-    iat: now,
-    exp: now + 3600,
-  };
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: "RS256", typ: "JWT" };
+  const claim = {
+    iss: sa.client_email,
+    scope: scopes.join(" "),
+    aud: "https://oauth2.googleapis.com/token",
+    iat: now,
+    exp: now + 3600,
+  };
+
+  if (userToImpersonate) {
+    claim.sub = userToImpersonate;
+  }
 
   const unsigned = `${base64url(JSON.stringify(header))}.${base64url(
     JSON.stringify(claim)

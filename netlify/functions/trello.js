@@ -164,19 +164,18 @@ exports.handler = async (event) => {
             return { type, text };
           });
 
-          const customFields = {};
+     const customFields = {};
           (Array.isArray(c.customFieldItems) ? c.customFieldItems : []).forEach((item) => {
             const field = cfById[item.idCustomField];
             if (!field) return;
             const name = (field.name || "").trim();
 
-            // Timer fields are number type, not dropdowns
-            if (name === "TimerStart" || name === "Duration") {
+            /// Timer fields are number type, not dropdowns
+            if (name === "TimerStart" || name === "Duration" || name === "WorkTimerStart" || name === "WorkDuration") {
               const val = item.value?.number ?? item.value?.text ?? "";
               if (val !== "" && val !== null && val !== undefined) customFields[name] = String(val);
               return;
             }
-
             if (!["Priority", "Active", "Status"].includes(name)) return;
             const text = item.idValue ? (optionTextById.get(item.idValue) || "") : "";
             if (text) customFields[name] = text;

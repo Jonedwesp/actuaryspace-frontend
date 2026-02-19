@@ -1,4 +1,4 @@
-// netlify/functions/gchat-find-dm.js
+// netlify/functions/gchat-find-gm.js
 import { getAccessToken } from "./_google-creds.js";
 
 export async function handler(event) {
@@ -8,45 +8,54 @@ export async function handler(event) {
     const { email } = JSON.parse(event.body);
     if (!email) return { statusCode: 400, body: JSON.stringify({ error: "Email required" }) };
 
-    console.log(`🔎 Finding DM for: ${email}`);
     const token = await getAccessToken();
 
-    // 1. We must use the spaces:findDirectMessage endpoint
-    // Docs: https://developers.google.com/workspace/chat/api/reference/rest/v1/spaces/findDirectMessage
-    const url = `https://chat.googleapis.com/v1/spaces:findDirectMessage?name=users/${encodeURIComponent(email)}`;
-
-    const res = await fetch(url, {
-      method: "GET", // Surprisingly, this is a GET request with query params? Wait, docs say GET.
-      // ACTUALLY: Check docs. It might be distinct.
-      // Re-reading: It is GET https://chat.googleapis.com/v1/spaces:findDirectMessage?name=users/{user_id}
-      headers: { Authorization: `Bearer ${token}` }
+    // Direct approach using spaces:setup with email alias
+    // This removes the need for the People API lookup step which often requires extra directory permissions
+    console.log(`🔎 Attempting setup for: ${email}`);
+    const setupUrl = `https://chat.googleapis.com/v1/spaces:setup`;
+    const res = await fetch(setupUrl, {
+      method: "POST",
+      headers: { 
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        space: { spaceType: "DIRECT_MESSAGE" },
+        membership: [ { member: { name: `users/${email}` } } ]
+      })
     });
 
-    // If 404/400, user might not exist or be reachable
-    if (!res.ok) {
-      const txt = await res.text();
-      console.error("❌ findDirectMessage failed:", txt);
-      return { 
-        statusCode: 404, 
-        body: JSON.stringify({ ok: false, error: "User not found or DM not allowed." }) 
+    const setupData = await res.json();
+
+    if (res.ok) {
+      console.log("✅ Session Ready via email alias");
+      return {
+        statusCode: 200,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          ok: true, 
+          space: setupData, 
+          userDisplayName: email 
+        })
       };
     }
 
-    const space = await res.json();
-    console.log("✅ Found Space:", space.name);
-
+    // Capture and return the specific Google error message to help diagnose permissions
+    console.error("❌ spaces:setup failed:", setupData);
+    const googleError = setupData.error?.message || "Google Chat could not find this user.";
+    
     return {
-      statusCode: 200,
+      statusCode: 404,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ 
-        ok: true, 
-        space,
-        userDisplayName: email // We don't get the name back from this call easily, so fallback to email
+        ok: false, 
+        error: `Google API Error: ${googleError}` 
       })
     };
 
   } catch (err) {
     console.error("🔥 Crash:", err);
-    return { statusCode: 500, body: JSON.stringify({ error: String(err) }) };
+    return { statusCode: 500, body: JSON.stringify({ ok: false, error: String(err) }) };
   }
 }

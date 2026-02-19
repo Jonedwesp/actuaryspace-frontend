@@ -869,45 +869,64 @@ function getCFColorClass(field, value) {
 
 /* Exact Colors from Screenshot 11 */
 const ALL_LABEL_OPTIONS = [
-  // Green
-  { name: "Breach of Contract", bg: "#baf3db", color: "#164b35" },
-  { name: "Paid", bg: "#baf3db", color: "#164b35" },
-  { name: "Payment arrangement", bg: "#baf3db", color: "#164b35" },
-  { name: "Personal injury", bg: "#baf3db", color: "#164b35" },
-  { name: "Financial Loss and Damages", bg: "#4bce97", color: "#164b35" },
-  { name: "Non-RAF LOE", bg: "#4bce97", color: "#164b35" },
-  { name: "Pension Calculations", bg: "#1f845a", color: "#ffffff" },
-  
-  // Yellow/Gold
-  { name: "Labour", bg: "#f8e6a0", color: "#533f04" },
-  { name: "Maintenance", bg: "#f5cd47", color: "#533f04" },
-  { name: "Investment Portfolio Calc", bg: "#9a782d", color: "#ffffff" },
-  { name: "Training", bg: "#9a782d", color: "#ffffff" },
-  
-  // Orange
-  { name: "Innovation", bg: "#ffe2bd", color: "#5f3811" },
-  { name: "Medical Expenses", bg: "#ffe2bd", color: "#5f3811" },
-  { name: "Past Medical Negligence", bg: "#faa53d", color: "#5f3811" },
-  { name: "Arbitration", bg: "#b65c02", color: "#ffffff" },
-  
-  // Red
-  { name: "Benefits Calculation", bg: "#ffd2cc", color: "#5d1f1a" },
-  { name: "Bond Calculation", bg: "#ffd2cc", color: "#5d1f1a" },
-  { name: "Forensic Audit", bg: "#f87462", color: "#5d1f1a" },
-  { name: "RyanGPT", bg: "#c9372c", color: "#ffffff" },
-  { name: "Waiting payment", bg: "#c9372c", color: "#ffffff" },
-  
-  // Purple
-  { name: "Broken Contract Calc", bg: "#dfd8fd", color: "#352c63" },
-  { name: "Building Model", bg: "#dfd8fd", color: "#352c63" },
-  { name: "Other", bg: "#9f8fef", color: "#352c63" },
-  { name: "Deceased Estate", bg: "#6e5dc6", color: "#ffffff" },
+  // Green
+  { name: "Breach of Contract", bg: "#baf3db", color: "#164b35" },
+  { name: "Paid", bg: "#baf3db", color: "#164b35" },
+  { name: "Payment arrangement", bg: "#baf3db", color: "#164b35" },
+  { name: "Personal injury", bg: "#baf3db", color: "#164b35" },
+  { name: "Financial Loss and Damages", bg: "#4bce97", color: "#164b35" },
+  { name: "RAF LOE", bg: "#4bce97", color: "#164b35" },
+  { name: "Non-RAF LOE", bg: "#4bce97", color: "#164b35" },
+  { name: "Pension Calculations", bg: "#1f845a", color: "#ffffff" },
+  
+  // Yellow/Gold
+  { name: "Labour", bg: "#f8e6a0", color: "#533f04" },
+  { name: "Maintenance", bg: "#f5cd47", color: "#533f04" },
+  { name: "Investment Portfolio Calc", bg: "#9a782d", color: "#ffffff" },
+  { name: "Training", bg: "#9a782d", color: "#ffffff" },
+  
+  // Orange
+  { name: "Innovation", bg: "#ffe2bd", color: "#5f3811" },
+  { name: "Medical Expenses", bg: "#ffe2bd", color: "#5f3811" },
+  { name: "Past Medical Negligence", bg: "#faa53d", color: "#5f3811" },
+  { name: "Arbitration", bg: "#b65c02", color: "#ffffff" },
+  
+  // Red
+  { name: "Benefits Calculation", bg: "#ffd2cc", color: "#5d1f1a" },
+  { name: "Bond Calculation", bg: "#ffd2cc", color: "#5d1f1a" },
+  { name: "Forensic Audit", bg: "#f87462", color: "#5d1f1a" },
+  { name: "RyanGPT", bg: "#c9372c", color: "#ffffff" },
+  { name: "Waiting payment", bg: "#c9372c", color: "#ffffff" },
+  
+  // Purple
+  { name: "Broken Contract Calc", bg: "#dfd8fd", color: "#352c63" },
+  { name: "Building Model", bg: "#dfd8fd", color: "#352c63" },
+  { name: "Other", bg: "#9f8fef", color: "#352c63" },
+  { name: "Deceased Estate", bg: "#6e5dc6", color: "#ffffff" },
 ];
 
 function getLabelStyle(name) {
-  const found = ALL_LABEL_OPTIONS.find(l => l.name.toLowerCase() === (name || "").toLowerCase());
-  if (found) return { backgroundColor: found.bg, color: found.color };
-  return { backgroundColor: "#091e420f", color: "#172b4d" }; // Default grey
+  const colorClass = getLabelColor(name);
+  const colorMap = {
+    "label-green-light": { backgroundColor: "#baf3db", color: "#164b35" },
+    "label-green-norm": { backgroundColor: "#4bce97", color: "#164b35" },
+    "label-green-dark": { backgroundColor: "#1f845a", color: "#ffffff" },
+    "label-yellow-light": { backgroundColor: "#f8e6a0", color: "#533f04" },
+    "label-yellow-norm": { backgroundColor: "#f5cd47", color: "#533f04" },
+    "label-brown-norm": { backgroundColor: "#d3c4a5", color: "#4a3a23" },
+    "label-orange-light": { backgroundColor: "#ffe2bd", color: "#5f3811" },
+    "label-orange-norm": { backgroundColor: "#faa53d", color: "#5f3811" },
+    "label-orange-dark": { backgroundColor: "#b65c02", color: "#ffffff" },
+    "label-red-light": { backgroundColor: "#ffd2cc", color: "#5d1f1a" },
+    "label-red-norm": { backgroundColor: "#f87462", color: "#5d1f1a" },
+    "label-red-dark": { backgroundColor: "#ca3521", color: "#ffffff" },
+    "label-purple-light": { backgroundColor: "#dfd8fd", color: "#352c63" },
+    "label-purple-norm": { backgroundColor: "#9f8fef", color: "#352c63" },
+    "label-purple-dark": { backgroundColor: "#6e5dc6", color: "#ffffff" },
+    "label-blue-norm": { backgroundColor: "#579dff", color: "#09326c" },
+    "label-default": { backgroundColor: "#091e420f", color: "#172b4d" }
+  };
+  return colorMap[colorClass] || colorMap["label-default"];
 }
 
 // Keep these for backward compatibility
@@ -935,54 +954,54 @@ function activeTypeFromText(txt) {
 
 // Helper to assign specific colors and shades to standard labels
 function getLabelColor(text) {
-  const t = (text || "").toLowerCase().trim();
+  const t = (text || "").toLowerCase().trim();
 
-  // --- GREEN ---
-  // Light Green
-  if (["breach of contract", "paid", "payment arrangement", "personal injury"].some(k => t.includes(k))) return "label-green-light";
-  // Normal Green
-  if (["financial loss", "non-raf loe", "raf loe", "raf los"].some(k => t.includes(k))) return "label-green-norm";
-  // Dark Green
-  if (["pension calculations"].some(k => t.includes(k))) return "label-green-dark";
+  // --- GREEN ---
+  // Light Green
+  if (["breach of contract", "paid", "payment arrangement", "personal injury"].some(k => t.includes(k))) return "label-green-light";
+  // Normal Green
+  if (["financial loss", "non-raf loe", "raf loe", "raf los"].some(k => t.includes(k))) return "label-green-norm";
+  // Dark Green
+  if (["pension calculations"].some(k => t.includes(k))) return "label-green-dark";
 
-  // --- YELLOW ---
-  // Light Yellow
-  if (["labour"].some(k => t.includes(k))) return "label-yellow-light";
-  // Normal Yellow
-  if (["maintenance"].some(k => t.includes(k))) return "label-yellow-norm";
+  // --- YELLOW ---
+  // Light Yellow
+  if (["labour"].some(k => t.includes(k))) return "label-yellow-light";
+  // Normal Yellow
+  if (["maintenance"].some(k => t.includes(k))) return "label-yellow-norm";
 
-  // --- BROWN (Mapped to Trello's Orange/Neutral shades) ---
-  // Normal Brown
-  if (["investment portfolio", "training"].some(k => t.includes(k))) return "label-brown-norm";
+  // --- BROWN (Mapped to Trello's Orange/Neutral shades) ---
+  // Normal Brown
+  if (["investment portfolio", "training"].some(k => t.includes(k))) return "label-brown-norm";
 
-  // --- ORANGE ---
-  // Light Orange
-  if (["innovation", "medical expenses"].some(k => t.includes(k))) return "label-orange-light";
-  // Normal Orange
-  if (["past medical negligence"].some(k => t.includes(k))) return "label-orange-norm";
-  // Dark Orange
-  if (["arbitration"].some(k => t.includes(k))) return "label-orange-dark";
+  // --- ORANGE ---
+  // Light Orange
+  if (["innovation", "medical expenses"].some(k => t.includes(k))) return "label-orange-light";
+  // Normal Orange
+  if (["past medical negligence"].some(k => t.includes(k))) return "label-orange-norm";
+  // Dark Orange
+  if (["arbitration"].some(k => t.includes(k))) return "label-orange-dark";
 
-  // --- RED ---
-  // Light Red
-  if (["benefits calculation", "bond calculation"].some(k => t.includes(k))) return "label-red-light";
-  // Normal Red
-  if (["forensic audit"].some(k => t.includes(k))) return "label-red-norm";
-  // Dark Red
-  if (["ryangpt", "waiting payment"].some(k => t.includes(k))) return "label-red-dark";
+  // --- RED ---
+  // Light Red
+  if (["benefits calculation", "bond calculation"].some(k => t.includes(k))) return "label-red-light";
+  // Normal Red
+  if (["forensic audit"].some(k => t.includes(k))) return "label-red-norm";
+  // Dark Red
+  if (["ryangpt", "ryan gpt", "waiting payment"].some(k => t.includes(k))) return "label-red-dark";
 
-  // --- PURPLE ---
-  // Light Purple
-  if (["broken contract", "building model"].some(k => t.includes(k))) return "label-purple-light";
-  // Normal Purple
-  if (["other"].some(k => t === "other" || t.includes("other -"))) return "label-purple-norm";
-  // Dark Purple
-  if (["deceased estate"].some(k => t.includes(k))) return "label-purple-dark";
+  // --- PURPLE ---
+  // Light Purple
+  if (["broken contract", "building model"].some(k => t.includes(k))) return "label-purple-light";
+  // Normal Purple
+  if (["other"].some(k => t === "other" || t.includes("other -"))) return "label-purple-norm";
+  // Dark Purple
+  if (["deceased estate"].some(k => t.includes(k))) return "label-purple-dark";
 
-  // --- BLUE (Extra ones from your previous list if needed) ---
-  if (["non-raf los", "share valuation", "farm", "joint actuarial", "professional negligence", "wrongful", "divorce", "accrual", "commercial", "ip los", "general damages", "interest"].some(k => t.includes(k))) return "label-blue-norm";
+  // --- BLUE (Extra ones from your previous list if needed) ---
+  if (["non-raf los", "share valuation", "farm", "joint actuarial", "professional negligence", "wrongful", "divorce", "accrual", "commercial", "ip los", "general damages", "interest"].some(k => t.includes(k))) return "label-blue-norm";
 
-  return "label-default";
+  return "label-default";
 }
 
 function ensureBadgeTypes(badges = []) {
@@ -1590,17 +1609,20 @@ function formatChatText(text) {
 
 /* ---------- app ---------- */
 export default function App() {
-  const [inputValue, setInputValue] = useState("");
-  const [notifications, setNotifications] = useState([]);
-  // 👇 NEW state for the label picker
-  const [showLabelPicker, setShowLabelPicker] = useState(false);
+  const [inputValue, setInputValue] = useState("");
+  const [notifications, setNotifications] = useState([]);
+  // 👇 NEW state for the label picker
+  const [showLabelPicker, setShowLabelPicker] = useState(false);
 
-  const nextIdRef = useRef(0);
-  const rotateIdxRef = useRef(0);
-  const emailRotateRef = useRef(0);
-  const chatTextareaRef = useRef(null);
-  const fileInputRef = useRef(null);
-  const [showPlusMenu, setShowPlusMenu] = useState(false);
+  const nextIdRef = useRef(0);
+  const rotateIdxRef = useRef(0);
+  const emailRotateRef = useRef(0);
+  const chatTextareaRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const seenGmailIdsRef = useRef(null); // 👇 NEW: Track seen Gmail IDs to avoid spamming notifications
+  const [showPlusMenu, setShowPlusMenu] = useState(false);
+
+  /* Google Chat */
 
   /* Google Chat */
   const gchatBodyRef = useRef(null);
@@ -1727,9 +1749,16 @@ useEffect(() => {
   const waBodyRef = useRef(null);
 
   /* Email */
-  const [emailIdx, setEmailIdx] = useState(0);
-  const [email, setEmail] = useState(EMAIL_THREADS[0]);
-  const [emailPreview, setEmailPreview] = useState(null);
+ /* Email */
+  const [emailIdx, setEmailIdx] = useState(0);
+  const [email, setEmail] = useState(EMAIL_THREADS[0]);
+  const [emailPreview, setEmailPreview] = useState(null);
+
+  /* Gmail Inbox State */
+  const [gmailEmails, setGmailEmails] = useState([]);
+  const [gmailLoading, setGmailLoading] = useState(false);
+  const [gmailError, setGmailError] = useState("");
+
 
   // NEW: email draft helper state
   const [showDraftPicker, setShowDraftPicker] = useState(false);
@@ -2136,10 +2165,64 @@ useEffect(() => {
   }, [currentView.app, gchatMessages, gchatMe]);
 
   // 🔔 Poll Data Centre (Google Drive) for new instruction emails
-  useEffect(() => {
-    const seen = seenDriveEmailIdsRef.current;
+ // 📧 GMAIL BACKGROUND POLLER (Real Inbox)
+  useEffect(() => {
+    const pollGmailBackground = async () => {
+      try {
+        const res = await fetch("/.netlify/functions/gmail-inbox");
+        const json = await res.json().catch(() => ({}));
+        
+        if (!json.ok || !Array.isArray(json.emails)) return;
 
-    async function pollDriveEmails() {
+        // 1. FIRST RUN: Just memorize the current inbox so we don't spam notifications at once
+        if (seenGmailIdsRef.current === null) {
+          seenGmailIdsRef.current = new Set(json.emails.map(e => e.id));
+          return;
+        }
+
+        // 2. SUBSEQUENT RUNS: Check for new emails
+        json.emails.forEach(email => {
+          if (!seenGmailIdsRef.current.has(email.id)) {
+            // Add to seen list so it doesn't trigger twice
+            seenGmailIdsRef.current.add(email.id);
+
+            // Clean up sender name
+            const cleanFrom = email.from ? email.from.split("<")[0].replace(/"/g, '').trim() : "Someone";
+            const cleanSubject = email.subject || "(No Subject)";
+
+            // Dispatch Notification
+            window.dispatchEvent(new CustomEvent("notify", {
+              detail: {
+                text: `${cleanFrom}: ${cleanSubject}`,
+                alt: "Gmail",
+                icon: gmailIcon,
+                gmailData: email // Pass the real email data
+              }
+            }));
+
+            // Insert it seamlessly if they are actively looking at the Gmail tab
+            setGmailEmails(prev => {
+              const exists = prev.find(p => p.id === email.id);
+              if (exists) return prev;
+              return [email, ...prev];
+            });
+          }
+        });
+      } catch (err) {
+        console.error("Background Gmail poll failed", err);
+      }
+    };
+
+    pollGmailBackground();
+    const id = setInterval(pollGmailBackground, 15000); 
+    return () => clearInterval(id);
+  }, []);
+
+  // 🔔 Poll Data Centre (Google Drive) for new instruction emails
+  useEffect(() => {
+    const seen = seenDriveEmailIdsRef.current;
+
+    async function pollDriveEmails() {
       try {
         const res = await fetch("/.netlify/functions/drive-get-emails");
         const json = await res.json();
@@ -2189,10 +2272,41 @@ useEffect(() => {
     pollDriveEmails();
 
     // Then every 20s
-    const timer = setInterval(pollDriveEmails, 20000);
-    return () => clearInterval(timer);
-  }, [setNotifications]);
+    const timer = setInterval(pollDriveEmails, 20000);
+    return () => clearInterval(timer);
+  }, [setNotifications]);
 
+  // 📧 GMAIL INBOX LOADER
+  useEffect(() => {
+    if (currentView.app !== "gmail") return;
+
+    let cancelled = false;
+    async function loadInbox() {
+      setGmailLoading(true);
+      setGmailError("");
+      try {
+        const res = await fetch("/.netlify/functions/gmail-inbox");
+        const json = await res.json().catch(() => ({}));
+
+        if (!res.ok || !json.ok) {
+          throw new Error(json.error || `HTTP ${res.status}`);
+        }
+
+        if (!cancelled) {
+          setGmailEmails(json.emails || []);
+        }
+      } catch (err) {
+        if (!cancelled) setGmailError(String(err.message || err));
+      } finally {
+        if (!cancelled) setGmailLoading(false);
+      }
+    }
+
+    loadInbox();
+    return () => { cancelled = true; };
+  }, [currentView.app]);
+
+ 
     // When we are not looking at an email, the right-panel client files should be empty
   useEffect(() => {
     if (currentView.app !== "email") {
@@ -2228,10 +2342,9 @@ useEffect(() => {
     };
   }, []);
 
-  useEffect(() => {
+useEffect(() => {
   const handler = (e) => {
     setTrelloMenuOpen(false);
-    // 👇 NEW: reset editor state on open
     setDescEditing(false);
     setDescDraft("");
 
@@ -2245,7 +2358,8 @@ useEffect(() => {
       members: e.detail.people || [],
       labels: Array.isArray(e.detail.labels) ? e.detail.labels : [],
       badges: ensureBadgeTypes(Array.isArray(e.detail.badges) ? e.detail.badges : []),
-      description: (e.detail.description ?? deriveDescriptionFromTitle(e.detail.title)), // 👈 prefer Trello
+      description: (e.detail.description ?? deriveDescriptionFromTitle(e.detail.title)),
+      customFields: e.detail.customFields || {}, /* 👈 CRITICAL: Loads the saved time when tab opens */
       timers: { time: e.detail.eta || "0m" },
       activity: []
     });
@@ -2354,11 +2468,13 @@ useEffect(() => {
           const mergedCF = { ...fresh.customFields };
 
           // 🛡️ PROTECT LOCAL EDITS: If user just edited these, ignore Server value for a few seconds
-          if (isPending("Priority"))   mergedCF.Priority   = prev.customFields.Priority;
-          if (isPending("Status"))     mergedCF.Status     = prev.customFields.Status;
-          if (isPending("Active"))     mergedCF.Active     = prev.customFields.Active;
-          if (isPending("Duration"))   mergedCF.Duration   = prev.customFields.Duration;   // 👈 ADDED
-          if (isPending("TimerStart")) mergedCF.TimerStart = prev.customFields.TimerStart; // 👈 ADDED
+          if (isPending("Priority"))   mergedCF.Priority   = prev.customFields.Priority;
+          if (isPending("Status"))     mergedCF.Status     = prev.customFields.Status;
+          if (isPending("Active"))     mergedCF.Active     = prev.customFields.Active;
+          if (isPending("Duration"))   mergedCF.Duration   = prev.customFields.Duration;
+          if (isPending("TimerStart")) mergedCF.TimerStart = prev.customFields.TimerStart;
+          if (isPending("WorkDuration"))   mergedCF.WorkDuration   = prev.customFields.WorkDuration;
+          if (isPending("WorkTimerStart")) mergedCF.WorkTimerStart = prev.customFields.WorkTimerStart;  
 
           return {
              ...prev,
@@ -2381,24 +2497,31 @@ useEffect(() => {
     return hit || fallback;
   };
 
-  const onNotificationClick = async (n) => {
-    // 👇 NEW: Google Chat Handler
-    if (n.alt === "Google Chat") {
-      // 1. Switch View
-      setCurrentView({ app: "gchat", contact: null });
+ const onNotificationClick = async (n) => {
+    // 👇 NEW: Google Chat Handler
+    if (n.alt === "Google Chat") {
+      // 1. Switch View
+      setCurrentView({ app: "gchat", contact: null });
 
-      // 2. Select the Space (if found)
-      if (n.spaceId) {
-        const targetSpace = gchatSpaces.find((s) => s.id === n.spaceId);
-        if (targetSpace) {
-          setGchatSelectedSpace(targetSpace);
-        }
-      }
+      // 2. Select the Space (if found)
+      if (n.spaceId) {
+        const targetSpace = gchatSpaces.find((s) => s.id === n.spaceId);
+        if (targetSpace) {
+          setGchatSelectedSpace(targetSpace);
+        }
+      }
 
-      // 3. Dismiss notification
-      dismissNotification(n.id);
-      return;
-    }
+      // 3. Dismiss notification
+      dismissNotification(n);
+      return;
+    }
+
+    // 📧 Real Gmail Inbox Handler
+    if (n.alt === "Gmail" && n.gmailData) {
+      setCurrentView({ app: "gmail", contact: null });
+      dismissNotification(n);
+      return;
+    }
 
   // 📨 Gmail-style notifications from Data Centre (Drive)
   if (n.alt === "Gmail" && n.driveEmail) {
@@ -2479,10 +2602,23 @@ useEffect(() => {
 };
 
   /* dismiss notif */
-  const dismissNotification = (id) => {
+  const dismissNotification = (n) => {
+    // If it's a real Gmail notification, mark it as read in the background
+    if (n.alt === "Gmail" && n.gmailData?.id) {
+      fetch("/.netlify/functions/gmail-mark-read", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId: n.gmailData.id })
+      }).catch(err => console.error("Mark read failed", err));
 
-    setNotifications((prev) => prev.filter((x) => x.id !== id));
-  };
+      // Optimistically update the inbox UI to remove the bold text
+      setGmailEmails(prev => prev.map(e => e.id === n.gmailData.id ? { ...e, isUnread: false } : e));
+    }
+
+    // Remove from UI (handles both objects and raw IDs just in case)
+    const idToRemove = typeof n === "string" ? n : n.id;
+    setNotifications((prev) => prev.filter((x) => x.id !== idToRemove));
+  };
 
   /* composer sizing */
   const handleAutoGrow = (ta) => {
@@ -2673,49 +2809,48 @@ const handleEmailAction = (actionKey) => {
     }
   };
 
-  // 👇 FIX: Add this function here (Inside App, before handleSend)
-  const handleStartChat = async () => {
-    // 👇 CHANGED: Read from Ref
-    const email = newChatEmailRef.current?.value || "";
-    if (!email.trim()) return;
+const handleStartChat = async () => {
+    const targetEmail = newChatEmailRef.current?.value || "";
+    if (!targetEmail.trim()) return;
     
     setGchatLoading(true);
-    // don't close modal yet, wait for success or error to prevent UI jump
     
     try {
-      const res = await fetch("/.netlify/functions/gchat-find-dm", {
+      const res = await fetch("/.netlify/functions/gchat-find-gm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // 👇 CHANGED: Send local email variable
-        body: JSON.stringify({ email: email.trim() })
+        body: JSON.stringify({ email: targetEmail.trim() })
       });
       
       const json = await res.json().catch(() => ({}));
       
       if (json.ok && json.space) {
-        // 1. Add to local list if not there
-        const exists = gchatSpaces.find(s => s.name === json.space.name);
-        if (!exists) {
-          setGchatSpaces(prev => [json.space, ...prev]);
-          // 👇 CHANGED: Use local email variable
-          setGchatDmNames(prev => ({ ...prev, [json.space.name]: email }));
-        }
+        // Correct internal naming (Google uses 'name', App expects 'id')
+        const newSpace = { ...json.space, id: json.space.name };
+
+        // Ensure sidebar has the name immediately
+        setGchatDmNames(prev => ({ ...prev, [newSpace.id]: targetEmail.trim() }));
+
+        setGchatSpaces(prev => {
+          const exists = prev.find(s => s.id === newSpace.id);
+          return exists ? prev : [newSpace, ...prev];
+        });
+
+        // Switch view and select the session
+        setCurrentView({ app: "gchat", contact: null });
+        setGchatSelectedSpace(newSpace);
         
-        // 2. Select it
-        setGchatSelectedSpace(json.space);
-        // 👇 CHANGED: Clear Ref instead of State
         if (newChatEmailRef.current) newChatEmailRef.current.value = "";
-        setShowNewChatModal(false); // Close ONLY on success
+        setShowNewChatModal(false); 
         
-        // 3. Persist for notifications
-        lastActiveSpaceRef.current = json.space;
-        localStorage.setItem("LAST_ACTIVE_SPACE_ID", json.space.name);
+        lastActiveSpaceRef.current = newSpace;
+        localStorage.setItem("LAST_ACTIVE_SPACE_ID", newSpace.id);
       } else {
-        alert("User not found. Ensure the email is correct (e.g. name@actuaryconsulting.co.za).");
+        alert(json.error || "User not found. Ensure the email is correct.");
       }
     } catch (err) {
-      console.error("Start chat failed:", err);
-      alert("Failed to start chat.");
+      console.error("Initiate chat failed:", err);
+      alert("System Error: Could not connect to the chat initiator.");
     } finally {
       setGchatLoading(false);
     }
@@ -2912,76 +3047,74 @@ const handleEmailAction = (actionKey) => {
         }}
         onClick={() => {}}
       >
-        {/* "Start direct message" Button (Grey Pill, No Plus) */}
-        <button 
-          style={{ 
-            width: "92%", 
-            margin: "0 auto 8px auto", 
-            padding: "6px 12px",
-            borderRadius: "999px", 
-            background: "#e0e0e0", 
-            color: "#202124",
-            border: "none",
-            display: "block", 
-            textAlign: "center",
-            fontSize: "0.85rem", fontWeight: "500", cursor: "pointer"
-          }}
-          onClick={(e) => { e.stopPropagation(); setShowNewChatModal(true); }}
-        >
-          Start direct message
-        </button>
+{/* "Start direct message" Button (Grey Pill, No Plus) */}
+        <button 
+          style={{ 
+            width: "92%", 
+            margin: "0 auto 8px auto", 
+            padding: "6px 12px",
+            borderRadius: "999px", 
+            background: "#e0e0e0", 
+            color: "#202124",
+            border: "none",
+            display: "block", 
+            textAlign: "center",
+            fontSize: "0.85rem", fontWeight: "500", cursor: "pointer"
+          }}
+          onMouseDown={(e) => { e.stopPropagation(); setShowNewChatModal(true); }}
+        >
+          Start direct message
+        </button>
 
-        {/* Modal Overlay */}
-        {showNewChatModal && (
-          <>
-            {/* 👇 FIX: Invisible backdrop for instant close on click-away */}
-            <div 
-              style={{ position: "fixed", top:0, left:0, width:"100vw", height:"100vh", zIndex: 99 }}
-              onClick={(e) => { e.stopPropagation(); setShowNewChatModal(false); }}
-            />
-            
-            <div 
-              style={{
-                position: "absolute", top: "50px", left: "10px", right: "10px",
-                background: "white", padding: "16px", borderRadius: "8px",
-                boxShadow: "0 4px 20px rgba(0,0,0,0.2)", zIndex: 100, border: "1px solid #ddd"
-              }}
-              /* 👇 FIX: Stop propagation */
-              onClick={(e) => e.stopPropagation()} 
-            >
-              <div style={{fontWeight:500, marginBottom:12, fontSize:"1rem", color:"#202124"}}>
-                Start direct message
-              </div>
-              
-              <div style={{fontSize:".8rem", color:"#5f6368", marginBottom:"4px"}}>
-                Add 1 or more people
-              </div>
-              
-              {/* 👇 FIX: Uncontrolled Input for Instant Typing */}
-              <input 
-                ref={newChatEmailRef}
-                autoFocus
-                style={{ width: "100%", padding: "8px 10px", borderRadius: "4px", border: "1px solid #dadce0", marginBottom: "16px", fontSize: ".9rem" }}
-                placeholder="Enter email address..."
-                defaultValue="" 
-                onKeyDown={e => e.key === "Enter" && handleStartChat()}
-              />
-              
-              <div style={{display:"flex", justifyContent:"flex-end", gap:10}}>
-                 <button 
-                  className="btn ghost" 
-                  style={{ borderRadius:4, padding: "6px 12px", color: "#1a73e8", fontWeight: 500, cursor: "pointer" }} 
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowNewChatModal(false); }}
-                >
-                  Cancel
-                </button>
-                <button 
-                  className="btn blue" 
-                  style={{ borderRadius:4, padding: "6px 16px", background: "#1a73e8", fontWeight: 500, cursor: "pointer" }} 
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleStartChat(); }}
-                >
-                  Start chat
-                </button>
+        {/* Modal Overlay */}
+        {showNewChatModal && (
+          <>
+            {/* Backdrop for instant close */}
+            <div 
+              style={{ position: "fixed", top:0, left:0, width:"100vw", height:"100vh", zIndex: 99 }}
+              onMouseDown={(e) => { e.stopPropagation(); setShowNewChatModal(false); }}
+            />
+            
+            <div 
+              style={{
+                position: "absolute", top: "50px", left: "10px", right: "10px",
+                background: "white", padding: "16px", borderRadius: "8px",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.2)", zIndex: 100, border: "1px solid #ddd"
+              }}
+              onClick={(e) => e.stopPropagation()} 
+            >
+              <div style={{fontWeight:500, marginBottom:12, fontSize:"1rem", color:"#202124"}}>
+                Start direct message
+              </div>
+              
+              <div style={{fontSize:".8rem", color:"#5f6368", marginBottom:"4px"}}>
+                Add 1 or more people
+              </div>
+              
+              <input 
+                ref={newChatEmailRef}
+                autoFocus
+                style={{ width: "100%", padding: "8px 10px", borderRadius: "4px", border: "1px solid #dadce0", marginBottom: "16px", fontSize: ".9rem" }}
+                placeholder="Enter email address..."
+                defaultValue="" 
+                onKeyDown={e => e.key === "Enter" && handleStartChat()}
+              />
+              
+              <div style={{display:"flex", justifyContent:"flex-end", gap:10}}>
+                 <button 
+                  className="btn ghost" 
+                  style={{ borderRadius:4, padding: "6px 12px", color: "#1a73e8", fontWeight: 500, cursor: "pointer" }} 
+                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setShowNewChatModal(false); }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  className="btn blue" 
+                  style={{ borderRadius:4, padding: "6px 16px", background: "#1a73e8", fontWeight: 500, cursor: "pointer" }} 
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleStartChat(); }}
+                >
+                  Start chat
+                </button>
               </div>
             </div>
           </>
@@ -3309,22 +3442,123 @@ const handleEmailAction = (actionKey) => {
   );
 }
 
-      if (currentView.app === "email") {
-      const att = (email && email.attachments) || [];
-      const actions = (email && email.actions) || [];
+      if (currentView.app === "gmail") {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#fff", borderRadius: "12px", border: "1px solid #e6e6e6", overflow: "hidden" }}>
+        {/* Header */}
+        <div style={{ padding: "12px 16px", borderBottom: "1px solid #eee", background: "#f8f9fa", fontWeight: 600, fontSize: "15px", color: "#202124", display: "flex", alignItems: "center", gap: "8px" }}>
+          <img src={gmailIcon} alt="Gmail" style={{ width: 20, height: 20 }} />
+          Inbox - {PERSONA.toUpperCase() === "SIYA" ? "siya@actuaryspace.co.za" : "yolandie@actuaryspace.co.za"}
+        </div>
+
+        {/* Body */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "0" }}>
+          {gmailLoading && <div style={{ padding: "16px", color: "#5f6368" }}>Loading inbox...</div>}
+          {gmailError && <div style={{ padding: "16px", color: "#ea4335" }}>Error: {gmailError}</div>}
+          
+          {!gmailLoading && !gmailError && gmailEmails.length === 0 && (
+            <div style={{ padding: "16px", color: "#5f6368", textAlign: "center", marginTop: "20px" }}>No emails found.</div>
+          )}
+
+          {!gmailLoading && !gmailError && gmailEmails.map((msg, i) => (
+            <div 
+              key={msg.id || i}
+              style={{ 
+                display: "flex", 
+                padding: "10px 16px", 
+                borderBottom: "1px solid #f1f3f4",
+                cursor: "pointer",
+                background: msg.isUnread ? "#ffffff" : "#f2f6fc",
+                fontWeight: msg.isUnread ? 700 : 400,
+                alignItems: "center",
+                gap: "12px",
+                fontSize: "14px"
+              }}
+       onMouseEnter={(e) => e.currentTarget.style.boxShadow = "inset 1px 0 0 #dadce0, inset -1px 0 0 #dadce0, 0 1px 2px 0 rgba(60,64,67,.3), 0 1px 3px 1px rgba(60,64,67,.15)"}
+              onMouseLeave={(e) => e.currentTarget.style.boxShadow = "none"}
+              onClick={() => {
+                // 1. Mark as read in the UI instantly
+                setGmailEmails(prev => prev.map(e => e.id === msg.id ? { ...e, isUnread: false } : e));
+                
+                // 2. Parse sender details
+                const fromParts = msg.from ? msg.from.split("<") : ["Unknown", ""];
+                const fromName = fromParts[0].replace(/"/g, '').trim();
+                const fromEmail = fromParts[1] ? "<" + fromParts[1] : "";
+
+                // 3. Set the active email data
+                setEmail({
+                  id: msg.id,
+                  subject: msg.subject,
+                  fromName: fromName,
+                  fromEmail: fromEmail,
+                  time: new Date(msg.date).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
+                  body: msg.snippet + "\n\n(Note: This is a mock preview. Full email bodies will load when Siya's live token is connected.)",
+                  // Add a fake attachment to one of the mocks so you can test the PDF preview!
+                  attachments: msg.subject.includes("Payslips") ? [
+                    { name: "Payslips.pdf", url: "/pdfs/Payslips.pdf", type: "pdf" }
+                  ] : [],
+                  actions: [
+                    { key: "submit_trello", label: "Submit to Trello" },
+                    { key: "update_tracker", label: "Update AC Tracker" },
+                  ]
+                });
+
+                // 4. Clear any existing right-pane files, then switch view
+                setEmailPreview(null);
+                setCurrentView({ app: "email", contact: null });
+              }}
+            >
+              <div style={{ width: "200px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: "#202124" }}>
+                {msg.from ? msg.from.split("<")[0].replace(/"/g, '').trim() : "(Unknown)"}
+              </div>
+              <div style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                <span style={{ color: "#202124", marginRight: "6px" }}>{msg.subject}</span>
+                <span style={{ color: "#5f6368", fontWeight: 400 }}>- {msg.snippet}</span>
+              </div>
+              <div style={{ width: "80px", textAlign: "right", fontSize: "12px", color: msg.isUnread ? "#1a73e8" : "#5f6368" }}>
+                {msg.date ? new Date(msg.date).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : ""}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+      if (currentView.app === "email") {
+      const att = (email && email.attachments) || [];
+      const actions = (email && email.actions) || [];
+    
 
       const emailPane = (
-        <div className="email-pane">
-          <div className="email-head">
-            <div className="email-from">
-              <div className="email-from-name">{email.fromName}</div>
-              <div className="email-from-email">{email.fromEmail}</div>
-            </div>
-            <div className="email-meta">
-              <div className="email-subject">{email.subject}</div>
-              <div className="email-time">{email.time}</div>
-            </div>
-          </div>
+        <div className="email-pane">
+          <div className="email-head" style={{ alignItems: 'center', gap: '12px' }}>
+            {/* 🔙 NEW: Back Button to return to Inbox */}
+            <button 
+              onClick={() => setCurrentView({ app: "gmail", contact: null })}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: '20px',
+                color: '#5f6368',
+                display: 'flex',
+                alignItems: 'center',
+                padding: '4px'
+              }}
+              title="Back to Inbox"
+            >
+              ←
+            </button>
+            <div className="email-from" style={{ flex: 1 }}>
+              <div className="email-from-name">{email.fromName}</div>
+              <div className="email-from-email">{email.fromEmail}</div>
+            </div>
+            <div className="email-meta">
+              <div className="email-subject">{email.subject}</div>
+              <div className="email-time">{email.time}</div>
+            </div>
+          </div>
 
           <div className="email-body">
             {email.bodyHtml ? (
@@ -3952,6 +4186,104 @@ const handleEmailAction = (actionKey) => {
                </div>
             </div>
 
+{/* WORKFLOW TIMER (NEW) */}
+            <div className="trello-section">
+               <div className="trello-section-icon">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                     <circle cx="12" cy="12" r="10" />
+                     <path d="M12 6v6l4 2" />
+                  </svg>
+               </div>
+               <div className="trello-section-header">
+                  <h3 className="trello-h3">WorkFlow</h3>
+               </div>
+               
+               <div className="timer-row" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  {c.customFields?.WorkTimerStart ? (
+                      <button 
+                        className="btn-red" 
+                        style={{ backgroundColor: '#eb5a46', color: '#fff', border: 'none', borderRadius: 3, padding: '6px 12px', fontWeight: 600, cursor: 'pointer', width: '105px', textAlign: 'center' }}
+                        onClick={async () => {
+                           const stopTime = Date.now();
+                           const startTime = parseFloat(c.customFields.WorkTimerStart);
+                           const sessionMins = (stopTime - startTime) / 1000 / 60;
+                           const oldDur = parseFloat(c.customFields.WorkDuration || "0");
+                           const newTotal = (oldDur + sessionMins).toFixed(2);
+                           
+                           // Lock local state
+                           window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "WorkDuration", ttlMs: 10000 } }));
+                           window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "WorkTimerStart", ttlMs: 10000 } }));
+
+                           // Update modal UI instantly
+                           setTrelloCard(prev => ({
+                              ...prev,
+                              customFields: { ...prev.customFields, WorkTimerStart: null, WorkDuration: newTotal }
+                           }));
+
+                           // Sync background list
+                           window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
+                              detail: { cardId: c.id, updater: old => ({ 
+                                 ...old, customFields: { ...old.customFields, WorkTimerStart: null, WorkDuration: newTotal } 
+                              }) }
+                           }));
+
+                           // Push to Trello using your guaranteed working API
+                           try {
+                              await fetch("/.netlify/functions/trello-set-custom-field", {
+                                 method: "POST",
+                                 body: JSON.stringify({ cardId: c.id, fieldName: "WorkDuration", valueText: String(newTotal) })
+                              });
+                              await fetch("/.netlify/functions/trello-set-custom-field", {
+                                 method: "POST",
+                                 body: JSON.stringify({ cardId: c.id, fieldName: "WorkTimerStart", valueText: "" })
+                              });
+                           } catch(err) { console.error("WorkFlow Timer Stop Failed", err); }
+                        }}
+                      >
+                        Stop
+                      </button>
+                  ) : (
+                      <button 
+                        className="btn-yellow"
+                        style={{ backgroundColor: '#f2d600', color: '#172b4d', border: 'none', borderRadius: 3, padding: '6px 12px', fontWeight: 600, cursor: 'pointer', width: '105px', textAlign: 'center' }}
+                        onClick={async () => {
+                           const now = Date.now();
+                           
+                           window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "WorkTimerStart", ttlMs: 10000 } }));
+
+                           setTrelloCard(prev => ({
+                              ...prev,
+                              customFields: { ...prev.customFields, WorkTimerStart: now }
+                           }));
+
+                           window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
+                              detail: { cardId: c.id, updater: old => ({ 
+                                 ...old, customFields: { ...old.customFields, WorkTimerStart: now } 
+                              }) }
+                           }));
+
+                           // Push to Trello using your guaranteed working API
+                           try {
+                              await fetch("/.netlify/functions/trello-set-custom-field", {
+                                 method: "POST",
+                                 body: JSON.stringify({ cardId: c.id, fieldName: "WorkTimerStart", valueText: String(now) })
+                              });
+                           } catch(err) { console.error("WorkFlow Timer Start Failed", err); }
+                        }}
+                      >
+                        Start timer
+                      </button>
+                  )}
+
+                  <div className="timer-display">
+                     <LiveTimer 
+                        startTime={c.customFields?.WorkTimerStart} 
+                        duration={c.customFields?.WorkDuration} 
+                     />
+                  </div>
+               </div>
+            </div>
+
             {/* Activity Timer */}
             <div className="trello-section">
                <div className="trello-section-icon">
@@ -4215,19 +4547,24 @@ const handleEmailAction = (actionKey) => {
         gchatMe,
 
         // Email
-        email,
-        emailPreview,
-        showDraftPicker,
-        selectedDraftTemplate,
-        draftTo,
+        email,
+        emailPreview,
+        showDraftPicker,
+        selectedDraftTemplate,
+        draftTo,
 
-        // Trello
-        trelloCard,
-        trelloMenuOpen,
-        descEditing,
-        descDraft,
-        showLabelPicker, // 👈 ADD THIS
-      ]);
+        // Gmail Inbox
+        gmailEmails,
+        gmailLoading,
+        gmailError,
+
+        // Trello
+        trelloCard,
+        trelloMenuOpen,
+        descEditing,
+        descDraft,
+        showLabelPicker, 
+      ]);
 
   return (
   <PasswordGate>
@@ -4247,43 +4584,55 @@ const handleEmailAction = (actionKey) => {
               <span>[{n.time}] {n.alt}: {n.text}</span>
               {n.alt === "Gmail" && <span className="notif-chip">Email</span>}
               <button
-                className="notif-close"
-                title="Dismiss"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  dismissNotification(n.id);
-                }}
-              >
-                ×
-              </button>
+                className="notif-close"
+                title="Dismiss"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  dismissNotification(n);
+                }}
+              >
+                ×
+              </button>
             </div>
           ))}
         </div>
       </div>
 
-      {/* MIDDLE */}
-      <div
-        className={`middle-panel ${
-          currentView.app === "email" && emailPreview ? "has-email-preview" : ""
-        }`}
-      >
-        <div className="panel-title" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingRight: "24px", paddingLeft: "12px" }}>
-          
-          {/* LEFT SIDE: Google Chat Button */}
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <button
-              className="connect-google-btn"
-              onClick={() => {
-                setGchatSelectedSpace(null); // 👈 Force clear selection instantly
-                setInputValue("");           // 👈 Clear any lingering text
-                setCurrentView({ app: "gchat", contact: null });
-              }}
-              type="button"
-            >
-              <img src={gchatIcon} alt="GChat" />
-              Google Chat
-            </button>
-          </div>
+     {/* MIDDLE */}
+      <div
+        className={`middle-panel ${
+          currentView.app === "email" && emailPreview ? "has-email-preview" : ""
+        }`}
+      >
+        <div className="panel-title" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingRight: "24px", paddingLeft: "12px" }}>
+          
+          {/* LEFT SIDE: Google Chat & Gmail Buttons */}
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <button
+              className="connect-google-btn"
+              onClick={() => {
+                setGchatSelectedSpace(null); // 👈 Force clear selection instantly
+                setInputValue("");           // 👈 Clear any lingering text
+                setCurrentView({ app: "gchat", contact: null });
+              }}
+              type="button"
+            >
+              <img src={gchatIcon} alt="GChat" />
+              Google Chat
+            </button>
+
+            <button
+              className="connect-google-btn"
+              onClick={() => {
+                setInputValue("");
+                setCurrentView({ app: "gmail", contact: null });
+              }}
+              type="button"
+            >
+              <img src={gmailIcon} alt="Gmail" />
+              Gmail
+            </button>
+          </div>
 
           {/* RIGHT SIDE: Connect + Close App Button */}
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
