@@ -18,7 +18,7 @@ export async function handler(event) {
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   
   // UPDATE: Hard-coding the 'o' version here as well
-  const redirectUri = "http://localhost:8888/.netlify/functions/google-oauth-callback";
+  const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT;
 
   const tokenUrl = "https://oauth2.googleapis.com/token";
   const body = new URLSearchParams({
