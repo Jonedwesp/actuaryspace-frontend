@@ -4199,7 +4199,7 @@ const handleStartChat = async () => {
                </div>
                
                <div className="timer-row" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  {c.customFields?.WorkTimerStart ? (
+                  {parseFloat(c.customFields?.WorkTimerStart) > 1000000000000 ? (
                       <button 
                         className="btn-red" 
                         style={{ backgroundColor: '#eb5a46', color: '#fff', border: 'none', borderRadius: 3, padding: '6px 12px', fontWeight: 600, cursor: 'pointer', width: '105px', textAlign: 'center' }}
@@ -4864,13 +4864,16 @@ function LiveTimer({ startTime, duration }) {
     return () => clearInterval(interval);
   }, []);
 
-  const baseMinutes = parseFloat(duration || "0");
+  // 🛡️ SHIELD 1: If Duration is somehow corrupted to millions, visually reset it
+  let baseMinutes = parseFloat(duration || "0");
+  if (baseMinutes > 1000000) baseMinutes = 0;
+
   let currentSessionMinutes = 0;
 
   if (startTime) {
     const start = parseFloat(startTime);
-    if (start > 0) {
-      // Math.max(0, ...) prevents the "-1m" glitch
+    // 🛡️ SHIELD 2: Only tick if the start time is a massive, valid Unix Timestamp
+    if (start > 1000000000000) {
       const diff = Math.max(0, now - start);
       currentSessionMinutes = diff / 1000 / 60;
     }

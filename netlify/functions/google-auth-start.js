@@ -1,3 +1,5 @@
+// netlify/functions/google-auth-start.js
+
 exports.handler = async function (event) {
   const qs = event.queryStringParameters || {};
   const as = String(qs.as || "").toLowerCase();
@@ -5,13 +7,13 @@ exports.handler = async function (event) {
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
   
-  // KEEP LOCALHOST for now to avoid "redirect_uri_mismatch"
-  const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT;
+  // UPDATE: Hard-coding the 'o' version to guarantee it matches your file name
+  const redirectUri = "http://localhost:8888/.netlify/functions/google-oauth-callback";
 
-  if (!clientId || !redirectUri) {
+  if (!clientId) {
     return {
       statusCode: 500,
-      body: "Missing GOOGLE_CLIENT_ID or GOOGLE_OAUTH_REDIRECT",
+      body: "Missing GOOGLE_CLIENT_ID",
     };
   }
 
@@ -25,7 +27,7 @@ exports.handler = async function (event) {
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.send",
     "https://www.googleapis.com/auth/gmail.modify",
-    // ADD THIS NEW SCOPE FOR THE STAFF BADGE:
+    // THE STAFF BADGE: Required to fix "User not found"
     "https://www.googleapis.com/auth/directory.readonly"
   ];
 
@@ -38,6 +40,7 @@ exports.handler = async function (event) {
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("scope", SCOPES.join(" "));
   authUrl.searchParams.set("access_type", "offline");
+  // UPDATE: Keeps 'consent' to ensure the organization checkbox appears
   authUrl.searchParams.set("prompt", "consent");
   authUrl.searchParams.set("include_granted_scopes", "true");
   authUrl.searchParams.set("state", state);

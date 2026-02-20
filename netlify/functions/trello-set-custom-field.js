@@ -59,10 +59,13 @@ exports.handler = async (event) => {
     } 
     // 6. Handle Text/Number Fields
     else {
+      // Ensure timestamps and durations are sent as actual numbers to prevent Trello corruption
+      const finalValue = field.type === "number" ? parseFloat(valueText) : valueText;
+      
       await fetch(`https://api.trello.com/1/cards/${cardId}/customField/${field.id}/item?key=${key}&token=${token}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value: { [field.type]: valueText } }),
+        body: JSON.stringify({ value: { [field.type]: finalValue } }),
       });
       return json(200, { ok: true });
     }
