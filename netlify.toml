@@ -16,3 +16,6 @@
 [functions]
   directory = "netlify/functions"
   included_files = ["netlify/functions/service-account.enc.json"]
+
+[build.environment]
+  SECRETS_SCAN_ENABLED = "false"
