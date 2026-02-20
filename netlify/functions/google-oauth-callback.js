@@ -34,19 +34,23 @@ export async function handler(event) {
   const tokenJson = await resp.json().catch(() => ({}));
   if (!resp.ok) return { statusCode: 500, body: `Token Error: ${JSON.stringify(tokenJson)}` };
 
+  const accessToken = tokenJson.access_token || "";
   const refreshToken = tokenJson.refresh_token || ""; 
 
-  // --- TEMPORARY HACK TO CATCH THE TOKEN ON SCREEN ---
+  const headers = [
+    cookie("AS_GCHAT_AT", accessToken, { maxAge: Number(tokenJson.expires_in || 3600) }),
+    cookie("AS_GCHAT_OK", "1", { maxAge: 10368000, httpOnly: false }),
+    cookie("AS_GCHAT_RT", refreshToken, { maxAge: 31536000 })
+  ];
+
   return {
-    statusCode: 200,
-    headers: { "Content-Type": "text/html" },
-    body: `
-      <div style="font-family: sans-serif; padding: 50px; max-width: 800px; margin: 0 auto;">
-        <h1 style="color: green;">SUCCESS!</h1>
-        <h2>Siya: Please copy the ENTIRE text inside the box below and WhatsApp/Slack it to Jonathan right now.</h2>
-        <textarea style="width: 100%; height: 150px; font-family: monospace; font-size: 18px; padding: 10px; border: 3px solid #ccc;">${refreshToken || 'NO_REFRESH_TOKEN_FOUND'}</textarea>
-        <p>Once you send this to Jonathan, you can close this tab.</p>
-      </div>
-    `,
+    statusCode: 302,
+    multiValueHeaders: { "Set-Cookie": headers },
+    headers: { 
+      // Redirects the user back to the home page after logging in
+      "Location": "https://siya.actuaryspace.co.za/", 
+      "Cache-Control": "no-cache" 
+    },
+    body: "",
   };
 }
