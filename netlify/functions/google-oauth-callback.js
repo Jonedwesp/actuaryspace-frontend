@@ -18,7 +18,7 @@ export async function handler(event) {
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   
   // UPDATE: Hard-coding the 'o' version here as well
-  const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT;
+const redirectUri = "http://localhost:8888/.netlify/functions/google-oauth-callback";
 
   const tokenUrl = "https://oauth2.googleapis.com/token";
   const body = new URLSearchParams({
@@ -44,22 +44,14 @@ export async function handler(event) {
     cookie("AS_GCHAT_OK", "1", { maxAge: 10368000, httpOnly: false })
   ];
 
-  // UPDATE: Replacing the redirect with a Success popup that refreshes your site
+  // Redirect back to the homepage so the user can verify cookies/RT key
   return {
-    statusCode: 200,
+    statusCode: 302,
     multiValueHeaders: { "Set-Cookie": headers },
-    headers: { "Content-Type": "text/html" },
-    body: `
-      <html>
-        <body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
-          <h2 style="color: #0F9D58;">✓ Connection Successful!</h2>
-          <p>The "Staff Badge" is now active. ActuarySpace is linked.</p>
-          <script>
-            if (window.opener) { window.opener.location.reload(); }
-            setTimeout(() => window.close(), 1500);
-          </script>
-        </body>
-      </html>
-    `,
+    headers: { 
+      "Location": "https://siya.actuaryspace.co.za/",
+      "Cache-Control": "no-cache" 
+    },
+    body: "",
   };
 }

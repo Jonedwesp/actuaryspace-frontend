@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>WorkFlow Timer</title>
+  <script src="https://p.trellocdn.com/power-up.min.js"></script>
+  <style>
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+      padding: 16px; 
+      margin: 0; 
+      color: #172b4d; 
+      display: flex; 
+      flex-direction: column; 
+      gap: 12px; 
+    }
+    .btn { 
+      border: none; 
+      border-radius: 4px; 
+      padding: 10px 12px; 
+      font-weight: 600; 
+      cursor: pointer; 
+      font-size: 14px; 
+      width: 100%; 
+      transition: opacity 0.2s; 
+    }
+    .btn:hover { opacity: 0.9; }
+    .btn-yellow { background-color: #f2d600; color: #172b4d; }
+    .btn-red { background-color: #eb5a46; color: #fff; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .display { text-align: center; font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+    .loading { font-size: 14px; color: #5e6c84; text-align: center; margin-top: 20px; }
+  </style>
+</head>
+<body>
+
+  <div id="loader" class="loading">Connecting to ActuarySpace...</div>
+
+  <div id="ui" style="display: none;">
+    <div class="display" id="time-display">⏱ 0m</div>
+    <button id="start-btn" class="btn btn-yellow" style="display: none;">Start WorkFlow</button>
+    <button id="stop-btn" class="btn btn-red" style="display: none;">Stop WorkFlow</button>
+  </div>
+
+  <script>
+    // 1. Initialize Trello Context
+    const t = window.TrelloPowerUp.iframe();
+    let cardId = null;
+    let workDuration = 0;
+    let workTimerStart = null;
+    let liveInterval = null;
+
+    const loader = document.getElementById('loader');
+    const ui = document.getElementById('ui');
+    const display = document.getElementById('time-display');
+    const startBtn = document.getElementById('start-btn');
+    const stopBtn = document.getElementById('stop-btn');
+
+    // 2. Fetch Initial Data
+    async function init() {
+      const card = await t.card('id');
+      cardId = card.id;
+
+      try {
+        // Piggyback off our robust Netlify backend to read the current card fields
+        const res = await fetch('/.netlify/functions/trello');
+        const data = await res.json();
+
+        let foundCard = null;
+        if (data.buckets) {
+          for (const b of data.buckets) {
+            const c = b.cards.find(x => x.id === cardId);
+            if (c) { foundCard = c; break; }
+          }
+        }
+
+        if (foundCard && foundCard.customFields) {
+          // Parse with sanity shields!
+          let storedDur = parseFloat(foundCard.customFields.WorkDuration || "0");
+          if (storedDur > 1000000) storedDur = 0; 
+          workDuration = storedDur;
+
+          let storedStart = parseFloat(foundCard.customFields.WorkTimerStart || "0");
+          if (storedStart > 1000000000000) { 
+            workTimerStart = storedStart;
+          }
+        }
+        render();
+      } catch (err) {
+        loader.innerText = "Error loading data. Try refreshing.";
+        console.error("Fetch error:", err);
+      }
+    }
+
+    // 3. Update the Screen
+    function render() {
+      loader.style.display = 'none';
+      ui.style.display = 'block';
+
+      if (liveInterval) clearInterval(liveInterval);
+
+      if (workTimerStart) {
+        startBtn.style.display = 'none';
+        stopBtn.style.display = 'block';
+        updateLiveClock();
+        liveInterval = setInterval(updateLiveClock, 1000);
+      } else {
+        startBtn.style.display = 'block';
+        stopBtn.style.display = 'none';
+        display.innerText = `⏱ ${Math.floor(workDuration)}m logged`;
+      }
+      
+      // Auto-resize the Trello popup to fit our buttons perfectly
+      t.sizeTo('body');
+    }
+
+    // 4. Live Clock Math
+    function updateLiveClock() {
+      if (!workTimerStart) return;
+      const diffMs = Math.max(0, Date.now() - workTimerStart);
+      const liveMins = diffMs / 1000 / 60;
+      const total = Math.floor(workDuration + liveMins);
+      display.innerText = `⏱ ${total}m (Recording)`;
+    }
+
+    // 5. Backend Write Helper
+    async function setField(fieldName, valueText) {
+      return fetch('/.netlify/functions/trello-set-custom-field', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cardId, fieldName, valueText: String(valueText) })
+      });
+    }
+
+    // 6. Button Clicks
+    startBtn.onclick = async () => {
+      setLoadingState(true);
+      const now = Date.now();
+      try {
+        await setField('WorkTimerStart', now);
+        workTimerStart = now;
+        render();
+      } catch (e) {
+        alert('Failed to start. Please try again.');
+      }
+      setLoadingState(false);
+    };
+
+    stopBtn.onclick = async () => {
+      setLoadingState(true);
+      const stopTime = Date.now();
+      const sessionMins = (stopTime - workTimerStart) / 1000 / 60;
+      const newTotal = (workDuration + sessionMins).toFixed(2);
+
+      try {
+        // Save duration and wipe start time
+        await setField('WorkDuration', newTotal);
+        await setField('WorkTimerStart', "");
+        
+        workDuration = parseFloat(newTotal);
+        workTimerStart = null;
+        render();
+      } catch (e) {
+        alert('Failed to stop. Please try again.');
+      }
+      setLoadingState(false);
+    };
+
+    function setLoadingState(isLoading) {
+      startBtn.disabled = isLoading;
+      stopBtn.disabled = isLoading;
+      startBtn.innerText = isLoading ? "Saving..." : "Start WorkFlow";
+      stopBtn.innerText = isLoading ? "Saving..." : "Stop WorkFlow";
+    }
+
+    // Start!
+    init();
+  </script>
+</body>
+</html>

@@ -7,8 +7,8 @@ exports.handler = async function (event) {
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
   
-  // UPDATE: Hard-coding the 'o' version to guarantee it matches your file name
-  const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT;
+  // We force this to localhost:8888 so it never breaks during testing
+const redirectUri = "http://localhost:8888/.netlify/functions/google-oauth-callback";
 
   if (!clientId) {
     return {
