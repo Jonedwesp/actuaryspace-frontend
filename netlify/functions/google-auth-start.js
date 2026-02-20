@@ -26,6 +26,8 @@ const redirectUri = "https://siya.actuaryspace.co.za/.netlify/functions/google-o
     "openid",
     "email",
     "profile",
+    "https://www.googleapis.com/auth/chat.spaces.readonly", // ADD THIS
+    "https://www.googleapis.com/auth/chat.memberships.readonly", // ADD THIS
     "https://www.googleapis.com/auth/chat.messages",
     "https://www.googleapis.com/auth/chat.spaces",
     "https://www.googleapis.com/auth/chat.memberships",

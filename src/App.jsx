@@ -1687,21 +1687,6 @@ export default function App() {
   const [reactions, setReactions] = useState({});
   const [gchatFilePreview, setGchatFilePreview] = useState(null); // { url, name, type }
 
-function calculateTotalMinutes(c) {
-    if (!c || !c.customFields) return 0;
-    
-    const storedDuration = parseFloat(c.customFields.Duration || "0");
-    const startTime = parseFloat(c.customFields.TimerStart || "0");
-
-    let liveMinutes = 0;
-    if (startTime > 0) {
-       // Fix -1m bug: Prevent negative values if system clocks drift slightly
-       const diff = timerNow - startTime;
-       liveMinutes = Math.max(0, diff / 1000 / 60);
-    }
-
-    return Math.floor(storedDuration + liveMinutes);
-  }
 
 function toggleReaction(messageId, type) {
     // 1. Optimistic UI Update (Instant visual feedback)
