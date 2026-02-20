@@ -5,17 +5,22 @@ exports.handler = async function (event) {
   const as = String(qs.as || "").toLowerCase();
   const setup = String(qs.setup || "");
 
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  
-  // We force this to localhost:8888 so it never breaks during testing
-const redirectUri = "http://localhost:8888/.netlify/functions/google-oauth-callback";
+  // CHANGE THIS: Delete the process.env line and paste your ID here
+  const clientId = "255077263612-j39k16rqh685nn7sd4oh1qkn5f7eb1ls.apps.googleusercontent.com";
 
-  if (!clientId) {
+
+  
+  // Pointing to the live site so Siya can connect successfully
+const redirectUri = "https://siya.actuaryspace.co.za/.netlify/functions/google-oauth-callback";
+
+  if (!clientId || clientId === "PASTE_YOUR_ACTUAL_CLIENT_ID_HERE") {
     return {
       statusCode: 500,
-      body: "Missing GOOGLE_CLIENT_ID",
+      body: "Error: You forgot to paste the actual Client ID into the code!",
     };
   }
+
+  // ... (keep the SCOPES and the rest of the file exactly as you had it)
 
   const SCOPES = [
     "openid",

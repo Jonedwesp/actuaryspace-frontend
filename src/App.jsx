@@ -1359,6 +1359,10 @@ const RightPanel = React.memo(function RightPanel() {
         setTrelloBuckets(prev => {
             if (JSON.stringify(prev) === JSON.stringify(mapped)) return prev;
             hasSnapshotRef.current = true;
+            
+            // Broadcast the fresh data to the main App for the Middle Pane to use!
+            window.dispatchEvent(new CustomEvent("trelloPolled", { detail: mapped }));
+            
             return mapped;
         });
 
@@ -2391,6 +2395,15 @@ useEffect(() => {
     }
     window.addEventListener("pendingCF", onPendingCF);
     return () => window.removeEventListener("pendingCF", onPendingCF);
+  }, []);
+  
+// CATCH POLLED DATA FROM RIGHT PANEL
+  useEffect(() => {
+    function handlePoll(e) {
+      setTrelloBuckets(e.detail);
+    }
+    window.addEventListener("trelloPolled", handlePoll);
+    return () => window.removeEventListener("trelloPolled", handlePoll);
   }, []);
 
   // 2. RIGHT PANE: INSTANT UPDATE LISTENER (Fixes 10s delay)

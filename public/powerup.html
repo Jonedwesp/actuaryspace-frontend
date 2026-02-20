@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>ActuarySpace Timer Connector</title>
+    <script src="https://p.trellocdn.com/power-up.min.js"></script>
+  </head>
+  <body>
+    <script>
+      // Initialize the Power-Up
+      window.TrelloPowerUp.initialize({
+        // Tell Trello to add a button to the back of the card
+        'card-buttons': function(t, options) {
+          return [{
+            icon: 'https://siya.actuaryspace.co.za/favicon.ico', 
+            text: 'WorkFlow Timer',
+            callback: function(t) {
+              // When the user clicks the button, open our timer-ui.html popup!
+              return t.popup({
+                title: "WorkFlow Timer",
+                url: './timer-ui.html', 
+                height: 180 // Height of the popup window
+              });
+            }
+          }];
+        }
+      });
+    </script>
+  </body>
+</html>

@@ -14,11 +14,11 @@ export async function handler(event) {
   const code = qs.code;
   if (!code) return { statusCode: 400, body: "Missing ?code" };
 
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  
-  // UPDATE: Hard-coding the 'o' version here as well
-const redirectUri = "http://localhost:8888/.netlify/functions/google-oauth-callback";
+  // --- HARDCODED FIXES ---
+  const clientId = "255077263612-j39k16rqh685nn7sd4oh1qkn5f7eb1ls.apps.googleusercontent.com";
+  const clientSecret = "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";
+  const redirectUri = "http://localhost:8888/.netlify/functions/google-oauth-callback";
+  // -----------------------
 
   const tokenUrl = "https://oauth2.googleapis.com/token";
   const body = new URLSearchParams({
@@ -44,14 +44,17 @@ const redirectUri = "http://localhost:8888/.netlify/functions/google-oauth-callb
     cookie("AS_GCHAT_OK", "1", { maxAge: 10368000, httpOnly: false })
   ];
 
-  // Redirect back to the homepage so the user can verify cookies/RT key
-  return {
+  // UPDATE: Keep it on LOCALHOST so the cookies actually save to your browser!
+ return {
     statusCode: 302,
     multiValueHeaders: { "Set-Cookie": headers },
     headers: { 
-      "Location": "https://siya.actuaryspace.co.za/",
+      "Location": "https://siya.actuaryspace.co.za/", 
       "Cache-Control": "no-cache" 
     },
     body: "",
   };
+   
+    
+  
 }
