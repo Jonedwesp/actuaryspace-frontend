@@ -59,11 +59,10 @@ exports.handler = async function (event, context) {
       console.log("Current Token Scopes:", tokenData.scope);
     }
 
-    const listRes = await request(
-      `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=in:inbox&maxResults=15`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-
+   const listRes = await request(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=in:inbox&maxResults=15`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
     const listData = await listRes.json();
     
     // Improved error reporting for 403 Scopes issue
@@ -79,25 +78,51 @@ exports.handler = async function (event, context) {
     if (messages.length === 0) return { statusCode: 200, body: JSON.stringify({ ok: true, emails: [] }) };
 
     const emails = await Promise.all(
-      messages.map(async (msg) => {
-        const msgRes = await request(
-          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        const msgData = await msgRes.json();
-        const headers = msgData.payload?.headers || [];
-        const getH = (n) => headers.find((h) => h.name.toLowerCase() === n.toLowerCase())?.value || "";
-
-        return {
-          id: msg.id,
-          snippet: msgData.snippet || "",
-          subject: getH("Subject") || "(No Subject)",
-          from: getH("From") || "(Unknown)",
-          date: getH("Date") || "",
-          isUnread: msgData.labelIds?.includes("UNREAD") || false,
-        };
-      })
+  messages.map(async (msg) => {
+    // 1. Changed format to 'full' to get the actual message content
+    const msgRes = await request(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=full`,
+      { headers: { Authorization: `Bearer ${token}` } }
     );
+    const msgData = await msgRes.json();
+    const headers = msgData.payload?.headers || [];
+    const getH = (n) => headers.find((h) => h.name.toLowerCase() === n.toLowerCase())?.value || "";
+
+    // 2. Helper to find the body in the nested parts structure
+    const getBody = (payload) => {
+      let result = "";
+      if (payload.parts) {
+        // Try to find plain text part first for best formatting
+        const textPart = payload.parts.find(p => p.mimeType === "text/plain");
+        if (textPart && textPart.body?.data) {
+          result = textPart.body.data;
+        } else {
+          // Fallback to recursive search if deep nested
+          payload.parts.forEach(part => {
+            if (!result) result = getBody(part);
+          });
+        }
+      } else if (payload.body?.data) {
+        result = payload.body.data;
+      }
+      return result;
+    };
+
+    const rawBody = getBody(msgData.payload);
+    // 3. Decode Base64 (Gmail uses URL-safe Base64)
+    const decodedBody = Buffer.from(rawBody.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+
+    return {
+      id: msg.id,
+      snippet: msgData.snippet || "",
+      body: decodedBody || msgData.snippet || "", // Send the real decoded body
+      subject: getH("Subject") || "(No Subject)",
+      from: getH("From") || "(Unknown)",
+      date: getH("Date") || "",
+      isUnread: msgData.labelIds?.includes("UNREAD") || false,
+    };
+  })
+);
 
     return {
       statusCode: 200,

@@ -2154,116 +2154,79 @@ useEffect(() => {
   }, [currentView.app, gchatMessages, gchatMe]);
 
   // 🔔 Poll Data Centre (Google Drive) for new instruction emails
- // 📧 GMAIL BACKGROUND POLLER (Real Inbox)
-  useEffect(() => {
-    const pollGmailBackground = async () => {
-      try {
-        const res = await fetch("/.netlify/functions/gmail-inbox");
-        const json = await res.json().catch(() => ({}));
-        
-        if (!json.ok || !Array.isArray(json.emails)) return;
-
-        // 1. FIRST RUN: Just memorize the current inbox so we don't spam notifications at once
-        if (seenGmailIdsRef.current === null) {
-          seenGmailIdsRef.current = new Set(json.emails.map(e => e.id));
-          return;
-        }
-
-        // 2. SUBSEQUENT RUNS: Check for new emails
-        json.emails.forEach(email => {
-          if (!seenGmailIdsRef.current.has(email.id)) {
-            // Add to seen list so it doesn't trigger twice
-            seenGmailIdsRef.current.add(email.id);
-
-            // Clean up sender name
-            const cleanFrom = email.from ? email.from.split("<")[0].replace(/"/g, '').trim() : "Someone";
-            const cleanSubject = email.subject || "(No Subject)";
-
-            // Dispatch Notification
-            window.dispatchEvent(new CustomEvent("notify", {
-              detail: {
-                text: `${cleanFrom}: ${cleanSubject}`,
-                alt: "Gmail",
-                icon: gmailIcon,
-                gmailData: email // Pass the real email data
-              }
-            }));
-
-            // Insert it seamlessly if they are actively looking at the Gmail tab
-            setGmailEmails(prev => {
-              const exists = prev.find(p => p.id === email.id);
-              if (exists) return prev;
-              return [email, ...prev];
-            });
-          }
-        });
-      } catch (err) {
-        console.error("Background Gmail poll failed", err);
-      }
-    };
-
-    pollGmailBackground();
-    const id = setInterval(pollGmailBackground, 15000); 
-    return () => clearInterval(id);
-  }, []);
-
-  // 🔔 Poll Data Centre (Google Drive) for new instruction emails
-  useEffect(() => {
-    const seen = seenDriveEmailIdsRef.current;
-
-    async function pollDriveEmails() {
+// 📧 GMAIL BACKGROUND POLLER (Real Inbox)
+  useEffect(() => {
+    const pollGmailBackground = async () => {
       try {
-        const res = await fetch("/.netlify/functions/drive-get-emails");
-        const json = await res.json();
-        if (!json || json.ok === false) {
-          console.error("drive-get-emails error:", json);
+        const res = await fetch("/.netlify/functions/gmail-inbox");
+        const json = await res.json().catch(() => ({}));
+        
+        if (!json.ok || !Array.isArray(json.emails)) return;
+
+        // 1. FIRST RUN: Memorize inbox AND trigger notifications for UNREAD emails
+        if (seenGmailIdsRef.current === null) {
+          seenGmailIdsRef.current = new Set(json.emails.map(e => e.id));
+          
+          json.emails.forEach(email => {
+            if (email.isUnread) {
+              const cleanFrom = email.from ? email.from.split("<")[0].replace(/"/g, '').trim() : "Someone";
+              const cleanSubject = email.subject || "(No Subject)";
+              window.dispatchEvent(new CustomEvent("notify", {
+                detail: {
+                  text: `${cleanFrom}: ${cleanSubject}`,
+                  alt: "Gmail",
+                  icon: gmailIcon,
+                  gmailData: email
+                }
+              }));
+            }
+          });
           return;
         }
 
-        const files = json.files || [];
-        files.forEach((f) => {
-          if (!f.id || !f.name) return;
+        // 2. SUBSEQUENT RUNS: Check for new emails
+        json.emails.forEach(email => {
+          if (!seenGmailIdsRef.current.has(email.id)) {
+            // Add to seen list so it doesn't trigger twice
+            seenGmailIdsRef.current.add(email.id);
 
-          // Only notify once
-          if (seen.has(f.id)) return;
-          seen.add(f.id);
+            // Clean up sender name
+            const cleanFrom = email.from ? email.from.split("<")[0].replace(/"/g, '').trim() : "Someone";
+            const cleanSubject = email.subject || "(No Subject)";
 
-          const now = new Date();
-          const subject =
-            (f.subject && f.subject.trim()) ||
-            f.name.replace(/\.eml$/i, "") ||
-            "Client Instruction (Data Centre)";
+            // Dispatch Notification
+            window.dispatchEvent(new CustomEvent("notify", {
+              detail: {
+                text: `${cleanFrom}: ${cleanSubject}`,
+                alt: "Gmail",
+                icon: gmailIcon,
+                gmailData: email // Pass the real email data
+              }
+            }));
 
-          const driveEmail = {
-            id: f.id,
-            name: f.name,
-            subject,
-          };
-
-          setNotifications((prev) => [
-            {
-              id: `eml-${f.id}`,
-              alt: "Gmail",
-              icon: gmailIcon,
-              text: `Gmail: ${subject}`,
-              time: formatUKTimeWithSeconds(now),
-              driveEmail,
-            },
-            ...prev,
-          ]);
+            // Insert it seamlessly if they are actively looking at the Gmail tab
+            setGmailEmails(prev => {
+              const exists = prev.find(p => p.id === email.id);
+              if (exists) return prev;
+              return [email, ...prev];
+            });
+          }
         });
       } catch (err) {
-        console.error("pollDriveEmails failed:", err);
+        console.error("Background Gmail poll failed", err);
       }
-    }
+    };
 
-    // Run immediately
-    pollDriveEmails();
+    pollGmailBackground();
+    const id = setInterval(pollGmailBackground, 15000); 
+    return () => clearInterval(id);
+  }, []);
 
-    // Then every 20s
-    const timer = setInterval(pollDriveEmails, 20000);
-    return () => clearInterval(timer);
-  }, [setNotifications]);
+ // 🔔 Poll Data Centre (Google Drive) for new instruction emails
+  useEffect(() => {
+    // DISABLED: We are now using the real Gmail API polling below.
+    // This stops the raw .eml Drive file IDs from spamming the notifications panel.
+  }, [setNotifications]);
 
   // 📧 GMAIL INBOX LOADER
   useEffect(() => {
@@ -2278,13 +2241,20 @@ useEffect(() => {
         const json = await res.json().catch(() => ({}));
 
         if (!res.ok || !json.ok) {
-          throw new Error(json.error || `HTTP ${res.status}`);
-        }
+          throw new Error(json.error || `HTTP ${res.status}`);
+        }
 
-        if (!cancelled) {
-          setGmailEmails(json.emails || []);
-        }
-      } catch (err) {
+        if (!cancelled) {
+          // Merge server data but lock in our local 'read' state to prevent flickering back to bold
+          setGmailEmails(prev => {
+            const localReadIds = new Set(prev.filter(e => e.isUnread === false).map(e => e.id));
+            return (json.emails || []).map(serverEmail => {
+              if (localReadIds.has(serverEmail.id)) return { ...serverEmail, isUnread: false };
+              return serverEmail;
+            });
+          });
+        }
+      } catch (err) {
         if (!cancelled) setGmailError(String(err.message || err));
       } finally {
         if (!cancelled) setGmailLoading(false);
@@ -3474,14 +3444,25 @@ const handleStartChat = async () => {
               }}
        onMouseEnter={(e) => e.currentTarget.style.boxShadow = "inset 1px 0 0 #dadce0, inset -1px 0 0 #dadce0, 0 1px 2px 0 rgba(60,64,67,.3), 0 1px 3px 1px rgba(60,64,67,.15)"}
               onMouseLeave={(e) => e.currentTarget.style.boxShadow = "none"}
-              onClick={() => {
-                // 1. Mark as read in the UI instantly
-                setGmailEmails(prev => prev.map(e => e.id === msg.id ? { ...e, isUnread: false } : e));
-                
-                // 2. Parse sender details
-                const fromParts = msg.from ? msg.from.split("<") : ["Unknown", ""];
-                const fromName = fromParts[0].replace(/"/g, '').trim();
-                const fromEmail = fromParts[1] ? "<" + fromParts[1] : "";
+         onClick={() => {
+                // 1. Mark as read in the UI instantly
+                setGmailEmails(prev => prev.map(e => e.id === msg.id ? { ...e, isUnread: false } : e));
+                
+                // Call backend to mark as read permanently
+                if (msg.isUnread) {
+                  fetch("/.netlify/functions/gmail-mark-read", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ messageId: msg.id })
+                  }).catch(err => console.error("Mark read failed", err));
+                }
+                
+                // 2. Parse sender details
+                const fromParts = msg.from ? msg.from.split("<") : ["Unknown", ""];
+                const fromName = fromParts[0].replace(/"/g, '').trim();
+                const fromEmail = fromParts[1] ? "<" + fromParts[1] : "";
+
+                // 3. Set the active email data
 
                 // 3. Set the active email data
                 setEmail({
@@ -3559,18 +3540,30 @@ const handleStartChat = async () => {
           </div>
 
           <div className="email-body">
-            {email.bodyHtml ? (
-              <div
-                className="email-body-html"
-                dangerouslySetInnerHTML={{ __html: email.bodyHtml }}
-              />
-            ) : (
-              <pre className="email-body-pre">{email.body || ""}</pre>
-            )}
-            {email.systemNote ? (
-              <div className="email-note">{email.systemNote}</div>
-            ) : null}
-          </div>
+  {email.bodyHtml ? (
+    <div
+      className="email-body-html"
+      dangerouslySetInnerHTML={{ __html: email.bodyHtml }}
+    />
+  ) : (
+    <div 
+      className="email-body-text" 
+      style={{ 
+        whiteSpace: "pre-wrap", 
+        lineHeight: "1.5", 
+        fontFamily: "Verdana, Geneva, sans-serif",
+        fontSize: "14px",
+        color: "#202124",
+        padding: "12px 0"
+      }}
+    >
+      {email.body || ""}
+    </div>
+  )}
+  {email.systemNote ? (
+    <div className="email-note">{email.systemNote}</div>
+  ) : null}
+</div>
 
           {/* ACTIONS: Trello / Tracker + Create Draft */}
           <div className="email-actions">

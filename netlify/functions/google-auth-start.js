@@ -13,6 +13,9 @@ export async function handler(event) {
     "profile",
     "https://www.googleapis.com/auth/chat.spaces.readonly",
     "https://www.googleapis.com/auth/chat.memberships.readonly",
+    "https://www.googleapis.com/auth/chat.messages.readonly",
+    "https://www.googleapis.com/auth/chat.messages.create",
+    "https://www.googleapis.com/auth/chat.import",
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/directory.readonly"
   ];
