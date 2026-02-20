@@ -1,5 +1,3 @@
-// netlify/functions/google-oauth-callback.js
-
 function cookie(name, value, opts = {}) {
   const { path = "/", httpOnly = true, secure = true, sameSite = "Lax", maxAge } = opts;
   let out = `${name}=${encodeURIComponent(value)}; Path=${path}; SameSite=${sameSite}`;
@@ -14,11 +12,9 @@ export async function handler(event) {
   const code = qs.code;
   if (!code) return { statusCode: 400, body: "Missing ?code" };
 
-  // --- HARDCODED FIXES FROM YOUR .ENV ---
-  const clientId = "255077263612-j39k16rqh685nn7sd4oh1qkn5f7eb1ls.apps.googleusercontent.com"; // 
-  const clientSecret = "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"; // 
+  const clientId = "255077263612-j39k16rqh685nn7sd4oh1qkn5f7eb1ls.apps.googleusercontent.com"; 
+  const clientSecret = "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"; 
   const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT;
-  // -----------------------
 
   const tokenUrl = "https://oauth2.googleapis.com/token";
   const body = new URLSearchParams({
@@ -38,22 +34,19 @@ export async function handler(event) {
   const tokenJson = await resp.json().catch(() => ({}));
   if (!resp.ok) return { statusCode: 500, body: `Token Error: ${JSON.stringify(tokenJson)}` };
 
-  const accessToken = tokenJson.access_token || "";
-  const refreshToken = tokenJson.refresh_token || ""; // <-- FIX: Variable is now defined
+  const refreshToken = tokenJson.refresh_token || ""; 
 
-  const headers = [
-    cookie("AS_GCHAT_AT", accessToken, { maxAge: Number(tokenJson.expires_in || 3600) }),
-    cookie("AS_GCHAT_OK", "1", { maxAge: 10368000, httpOnly: false }),
-    cookie("AS_GCHAT_RT", refreshToken, { maxAge: 31536000 })
-  ];
-
+  // --- TEMPORARY HACK TO CATCH THE TOKEN ON SCREEN ---
   return {
-    statusCode: 302,
-    multiValueHeaders: { "Set-Cookie": headers },
-    headers: { 
-      "Location": "https://siya.actuaryspace.co.za/", // Keeps you on localhost
-      "Cache-Control": "no-cache" 
-    },
-    body: "",
+    statusCode: 200,
+    headers: { "Content-Type": "text/html" },
+    body: `
+      <div style="font-family: sans-serif; padding: 50px; max-width: 800px; margin: 0 auto;">
+        <h1 style="color: green;">SUCCESS!</h1>
+        <h2>Siya: Please copy the ENTIRE text inside the box below and WhatsApp/Slack it to Jonathan right now.</h2>
+        <textarea style="width: 100%; height: 150px; font-family: monospace; font-size: 18px; padding: 10px; border: 3px solid #ccc;">${refreshToken || 'NO_REFRESH_TOKEN_FOUND'}</textarea>
+        <p>Once you send this to Jonathan, you can close this tab.</p>
+      </div>
+    `,
   };
 }
