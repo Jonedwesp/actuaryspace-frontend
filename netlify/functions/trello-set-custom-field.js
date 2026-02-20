@@ -1,4 +1,3 @@
-// netlify/functions/trello-set-custom-field.js
 const json = (code, body) => ({
   statusCode: code,
   headers: { "Content-Type": "application/json" },
@@ -12,7 +11,13 @@ exports.handler = async (event) => {
   const token = process.env.TRELLO_TOKEN;
 
   try {
-    const { cardId, fieldName, valueText } = JSON.parse(event.body || "{}");
+    const body = JSON.parse(event.body || "{}");
+    const cardId = body.cardId;
+    const fieldName = body.fieldName;
+    
+    // Force valueText to be a string to prevent any unexpected number conversions
+    const valueText = body.valueText !== undefined && body.valueText !== null ? String(body.valueText) : "";
+
     if (!cardId || !fieldName) return json(400, { error: "cardId and fieldName required" });
 
     // 1. Get Card & Board ID
@@ -28,9 +33,13 @@ exports.handler = async (event) => {
     const field = fields.find(f => f.name.trim().toLowerCase() === fieldName.trim().toLowerCase());
     if (!field) return json(404, { error: `Field '${fieldName}' not found on board.` });
 
-    // 4. Handle "Clear" (No value)
-    if (!valueText) {
-      await fetch(`https://api.trello.com/1/cards/${cardId}/customField/${field.id}/item?key=${key}&token=${token}`, { method: "DELETE" });
+    // 4. Handle "Clear" (No value) - Uses standard PUT to wipe memory cleanly
+    if (valueText === "") {
+      await fetch(`https://api.trello.com/1/cards/${cardId}/customField/${field.id}/item?key=${key}&token=${token}`, { 
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: "" })
+      });
       return json(200, { ok: true, cleared: true });
     }
 
@@ -45,7 +54,6 @@ exports.handler = async (event) => {
       });
 
       if (!option) {
-         // Log valid options for debugging
          const validOptions = field.options.map(o => o.value.text).join(", ");
          return json(400, { error: `Option '${valueText}' not found. Valid options: ${validOptions}` });
       }
@@ -57,15 +65,14 @@ exports.handler = async (event) => {
       });
       return json(200, { ok: true, matched: option.value.text });
     } 
-    // 6. Handle Text/Number Fields
+    
+    // 6. Handle Text/Number Fields (THE FIX)
     else {
-      // Ensure timestamps and durations are sent as actual numbers to prevent Trello corruption
-      const finalValue = field.type === "number" ? parseFloat(valueText) : valueText;
-      
+      // CRITICAL FIX: Trello requires numbers to be sent as strings to prevent scientific notation conversion!
       await fetch(`https://api.trello.com/1/cards/${cardId}/customField/${field.id}/item?key=${key}&token=${token}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value: { [field.type]: finalValue } }),
+        body: JSON.stringify({ value: { [field.type]: valueText } }),
       });
       return json(200, { ok: true });
     }

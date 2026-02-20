@@ -2,8 +2,9 @@
 
 export async function handler(event) {
   // --- HARDCODED FIXES ---
-  const clientId = "255077263612-j39k16rqh685nn7sd4oh1qkn5f7eb1ls.apps.googleusercontent.com"; // 
-  const redirectUri = "http://localhost:8888/.netlify/functions/google-oauth-callback";
+  const clientId = "255077263612-j39k16rqh685nn7sd4oh1qkn5f7eb1ls.apps.googleusercontent.com";
+  // FIX: Pointing to the LIVE callback URL
+  const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT;
   // -----------------------
 
   const SCOPES = [

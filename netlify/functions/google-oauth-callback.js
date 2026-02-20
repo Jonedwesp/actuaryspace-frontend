@@ -17,7 +17,7 @@ export async function handler(event) {
   // --- HARDCODED FIXES FROM YOUR .ENV ---
   const clientId = "255077263612-j39k16rqh685nn7sd4oh1qkn5f7eb1ls.apps.googleusercontent.com"; // 
   const clientSecret = "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"; // 
-  const redirectUri = "http://localhost:8888/.netlify/functions/google-oauth-callback";
+  const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT;
   // -----------------------
 
   const tokenUrl = "https://oauth2.googleapis.com/token";
@@ -39,17 +39,19 @@ export async function handler(event) {
   if (!resp.ok) return { statusCode: 500, body: `Token Error: ${JSON.stringify(tokenJson)}` };
 
   const accessToken = tokenJson.access_token || "";
+  const refreshToken = tokenJson.refresh_token || ""; // <-- FIX: Variable is now defined
+
   const headers = [
     cookie("AS_GCHAT_AT", accessToken, { maxAge: Number(tokenJson.expires_in || 3600) }),
     cookie("AS_GCHAT_OK", "1", { maxAge: 10368000, httpOnly: false }),
-    cookie("AS_GCHAT_RT", refreshToken, { maxAge: 31536000 }) // <--- NEW: Save the RT cookie
+    cookie("AS_GCHAT_RT", refreshToken, { maxAge: 31536000 })
   ];
 
   return {
     statusCode: 302,
     multiValueHeaders: { "Set-Cookie": headers },
     headers: { 
-      "Location": "http://localhost:8888/", // Keeps you on localhost
+      "Location": "https://siya.actuaryspace.co.za/", // Keeps you on localhost
       "Cache-Control": "no-cache" 
     },
     body: "",
