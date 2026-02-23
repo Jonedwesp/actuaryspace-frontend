@@ -64,8 +64,8 @@ exports.handler = async function (event, context) {
     
     // 2. Map folder names to Gmail search queries
     // 'label:trash' is the specific query required to see items in the Bin
-    const query = folder === "TRASH" ? "label:trash" : "in:inbox";
     
+    const query = folder === "TRASH" ? "is:trash" : "in:inbox";
 
     const listRes = await request(
       `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=15`,

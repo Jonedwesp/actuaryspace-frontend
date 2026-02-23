@@ -1,4 +1,4 @@
-import https from "node:https";
+const https = require("https");
 
 // Helper 1: Base64URL encoder
 function makeBase64Url(str) {
@@ -78,11 +78,11 @@ exports.handler = async (event) => {
       };
     }
 
-// 2. Construct Raw Email String (RFC 2822 Format) with Signature
+    // 2. Construct Raw Email String (RFC 2822 Format) with Signature
     const signature = [
       '',
       'Kind regards,',
-      'Siyabonga Dyani',
+      'Siyabonga Nono',
       'Actuary Consulting'
     ].join('\r\n');
 
@@ -93,7 +93,7 @@ exports.handler = async (event) => {
       `Content-Type: text/plain; charset="UTF-8"`,
       '',
       body + signature
-    ].join('\r\n');;
+    ].join('\r\n');
 
     const encodedEmail = makeBase64Url(rawEmail);
 

@@ -248,7 +248,7 @@ function dedupeMergeMessages(prev, incoming) {
   }
 
   // This puts the largest (newest) timestamp at the top
-merged.sort((a, b) => getMsgTs(b) - getMsgTs(a));
+merged.sort((a, b) => getMsgTs(a) - getMsgTs(b));
   return merged;
 }
 
@@ -1131,7 +1131,13 @@ const RightPanel = React.memo(function RightPanel() {
   };
 
   // ... (inside the return statement below) ...
-  const [trelloBuckets, setTrelloBuckets] = useState([]);
+ // 👇 SWR CACHE: Load instantly from memory so the screen is never empty
+  const [trelloBuckets, setTrelloBuckets] = useState(() => {
+    try {
+      const cached = localStorage.getItem("TRELLO_CACHE");
+      return cached ? JSON.parse(cached) : [];
+    } catch(e) { return []; }
+  });
   const [clientFiles, setClientFiles] = useState([]);
 
   // --- DRAG AND DROP STATE ---
@@ -1438,6 +1444,10 @@ const RightPanel = React.memo(function RightPanel() {
             ? ["Siya - Review", "Siya", "Bonolo S", "Bonisa", "Songeziwe", "Enock"]
             : ["Yolandie to Data Capture", "Yolandie to Analyst", "Yolandie to Data Analyst", "Yolandie to Reviewer", "Yolandie to Send"];
 
+        // Broadcast ALL lists (unfiltered) so the Move dropdown has every option
+        const allListsRaw = mapped.map(b => ({ id: b.id, title: b.title, cardsLength: b.cards.length }));
+        window.dispatchEvent(new CustomEvent("updateAllLists", { detail: allListsRaw }));
+
         let filtered = mapped.filter((b) => PERSONA_TITLES.includes(b.title));
         
         // 5. SORT LOGIC
@@ -1461,6 +1471,9 @@ const RightPanel = React.memo(function RightPanel() {
             // Broadcast the fresh data to the main App for the Middle Pane to use!
             window.dispatchEvent(new CustomEvent("trelloPolled", { detail: mapped }));
             
+            // 👇 CACHE SAVE: Memorize the latest lists for the next time you open the app
+            localStorage.setItem("TRELLO_CACHE", JSON.stringify(mapped));
+            
             return mapped;
         });
 
@@ -1469,8 +1482,8 @@ const RightPanel = React.memo(function RightPanel() {
       }
     }
 
-    // Initial Fetch
-    fetchTrello();
+    // Initial Fetch (Bypass the 8-second cooldown block on first load)
+    fetchTrello(true);
 
     // Poll every 12 seconds (Safe zone for Trello API)
     pollTimer = setInterval(() => fetchTrello(), 12000);
@@ -1573,8 +1586,7 @@ const RightPanel = React.memo(function RightPanel() {
                   archivedCards.map(c => (
                     <div 
                       key={c.id} 
-                      className="tl-card" 
-                      style={{ position: 'relative', width: '100%', marginBottom: '8px', cursor: 'pointer', border: '1px solid transparent' }}
+                      style={{ background: '#2c3338', borderRadius: '8px', padding: '12px', marginBottom: '8px', cursor: 'pointer', position: 'relative', border: '1px solid transparent', display: 'flex', flexDirection: 'column', gap: '8px' }}
                       onMouseEnter={e => e.currentTarget.style.borderColor = '#579dff'}
                       onMouseLeave={e => e.currentTarget.style.borderColor = 'transparent'}
                       onClick={() => {
@@ -1582,48 +1594,38 @@ const RightPanel = React.memo(function RightPanel() {
                         setShowArchiveModal(false);
                       }}
                     >
-                       {/* 1. Cover Color */}
-                       {(() => {
-                         const finalColor = getTrelloCoverColor(c.title) || { sky: "#6CC3E0", orange: "#FAA53D", blue: "#579DFF", green: "#4BCE97", yellow: "#F5CD47", red: "#F87168", purple: "#9F8FEF" }[c.cover?.color];
-                         if (finalColor) return <div className="tl-card-cover" style={{ backgroundColor: finalColor }} />;
-                         return null;
-                       })()}
+                       {/* Card Title */}
+                       <div style={{ color: '#b6c2cf', fontWeight: 500, fontSize: '14px', paddingRight: '30px', lineHeight: '1.4' }}>
+                          {c.title}
+                       </div>
+                       
+                       {/* Badges Row (Archived Badge + Custom Fields) */}
+                       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          {/* Built-in Archived Icon */}
+                          <span style={{ background: '#ffffff33', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', color: '#b6c2cf', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 500 }}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM6.24 5h11.52l.83 1H5.41l.83-1zM5 19V8h14v11H5zm11-5.5l-4 4-4-4 1.41-1.41L11 13.67V10h2v3.67l1.59-1.58L16 13.5z"/></svg>
+                            Archived
+                          </span>
+                          
+                          {/* All other badges (Status, Activity, etc) */}
+                          {(c.badges || []).map((b, k) => (
+                            <span key={k} className={`tl-badge ${b.type || "label-default"}`} style={{ padding: '4px 8px', fontSize: '12px' }}>
+                              {b.text}
+                            </span>
+                          ))}
+                       </div>
 
-                       {/* 2. Badges & Title */}
-                       {(() => {
-                         const labelBadges = (c.labels || []).map(l => ({ text: l, type: getLabelColor(l), isTop: true }));
-                         const labelTexts = new Set(labelBadges.map(b => (b.text || "").toLowerCase().trim()));
-                         const uniqueCardBadges = (c.badges || []).filter(b => !labelTexts.has((b.text || "").toLowerCase().trim()));
-                         const allBadges = [...labelBadges, ...uniqueCardBadges];
-                         const topBadges = allBadges.filter(b => b.isTop);
-                         const bottomBadges = allBadges.filter(b => b.isBottom);
-
-                         return (
-                           <>
-                             {topBadges.length > 0 && <div className="tl-badges">{topBadges.map((b, k) => <span key={k} className={`tl-badge ${b.type || "label-default"}`}>{b.text}</span>)}</div>}
-                             <div className="tl-card-title" style={{ paddingRight: '24px' }}>{c.title}</div>
-                             {bottomBadges.length > 0 && <div className="tl-badges" style={{marginTop:"6px", flexDirection:"column", alignItems:"flex-start", gap:"4px"}}>{bottomBadges.map((b, k) => <span key={k} className={`tl-badge ${b.type || "label-default"}`}>{b.text}</span>)}</div>}
-                           </>
-                         );
-                       })()}
-
-                       {/* 3. Footer (Icons & People) */}
-                       {(c.description || c.due || (c.people && c.people.length > 0)) && (
-                          <div className="tl-footer">
-                            <div className="tl-icons">
-                              {c.description && <span>≡</span>} 
-                              {c.due && <span>🕒</span>}
-                            </div>
-                            <div className="tl-people">
-                              {c.people?.map((p, idx) => {
-                                const img = avatarFor(p);
-                                return img ? <img key={idx} className="av-img" src={img} alt={p} /> : <div key={idx} className="av">{p.slice(0,1)}</div>;
-                              })}
-                            </div>
+                       {/* Bottom Row: Avatars aligned to the right */}
+                       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
+                          <div className="tl-people" style={{ margin: 0 }}>
+                            {c.people?.map((p, idx) => {
+                              const img = avatarFor(p);
+                              return img ? <img key={idx} className="av-img" src={img} alt={p} style={{ width: 24, height: 24 }} /> : <div key={idx} className="av" style={{ width: 24, height: 24 }}>{p.slice(0,1)}</div>;
+                            })}
                           </div>
-                       )}
+                       </div>
 
-                       {/* RESTORE ICON (Top Right overlay) */}
+                       {/* RESTORE ICON (Top Right hover button) */}
                        <button
                          title="Recover"
                          onClick={async (e) => {
@@ -1631,11 +1633,11 @@ const RightPanel = React.memo(function RightPanel() {
                             setArchivedCards(prev => prev.filter(x => x.id !== c.id));
                             fetch("/.netlify/functions/trello-restore", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cardId: c.id }) });
                          }}
-                         style={{ position: 'absolute', top: '8px', right: '8px', background: 'rgba(9, 30, 66, 0.6)', borderRadius: '4px', border: 'none', color: '#fff', cursor: 'pointer', padding: '4px', display: 'grid', placeItems: 'center', zIndex: 10 }}
-                         onMouseEnter={e => e.currentTarget.style.background = '#579dff'}
-                         onMouseLeave={e => e.currentTarget.style.background = 'rgba(9, 30, 66, 0.6)'}
+                         style={{ position: 'absolute', top: '12px', right: '12px', background: 'transparent', border: 'none', color: '#9fadbc', cursor: 'pointer', padding: '4px', display: 'grid', placeItems: 'center', transition: 'color 0.2s' }}
+                         onMouseEnter={e => e.currentTarget.style.color = '#fff'}
+                         onMouseLeave={e => e.currentTarget.style.color = '#9fadbc'}
                        >
-                          <svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>
+                          <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>
                        </button>
                     </div>
                   ))
@@ -1802,13 +1804,40 @@ function formatChatText(text) {
     }
 
     // D. Plain Text
-    return part;
-  });
-}
+        return part;
+      });
+    }
+
+const EmailSignature = () => (
+  <div style={{ padding: "0 16px 24px 16px", fontFamily: "Verdana, Arial, sans-serif", fontSize: "13px", color: "#3c4043", lineHeight: "1.6", cursor: "default" }}>
+    <div style={{ marginBottom: "16px" }}>Kind regards</div>
+    <div style={{ color: "#b38f6a", fontWeight: "bold", fontSize: "15px", marginBottom: "16px" }}>Siyabonga Nono</div>
+    <div style={{ color: "#b38f6a", marginBottom: "16px" }}>Bsc in Math Science in Actuarial Science</div>
+    
+    <div style={{ marginBottom: "12px", color: "#5f6368" }}>
+      <b style={{ color: "#5f6368" }}>T</b> 011 463 0313 <span style={{ display: "inline-block", width: "8px" }}></span> <b style={{ color: "#5f6368" }}>M</b> 072 689 0562
+    </div>
+    <div style={{ marginBottom: "12px", color: "#5f6368" }}>
+      <b style={{ color: "#5f6368" }}>E</b> <a href="mailto:siyabonga@actuaryconsulting.co.za" style={{ color: "#1a73e8", textDecoration: "none" }}>siyabonga@actuaryconsulting.co.za</a> <span style={{ display: "inline-block", width: "8px" }}></span> <b style={{ color: "#5f6368" }}>W</b> <a href="http://actuaryconsulting.co.za" style={{ color: "#1a73e8", textDecoration: "none" }}>actuaryconsulting.co.za</a>
+    </div>
+    <div style={{ marginBottom: "20px", color: "#5f6368" }}>
+      <b style={{ color: "#5f6368" }}>A</b> Corner 5th &amp; Maude Street, Sandown, Sandton, 2031
+    </div>
+    
+    <div style={{ marginBottom: "16px" }}>
+      <div style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontSize: "32px", color: "#b38f6a", letterSpacing: "1px", lineHeight: "1" }}>ACTUARY</div>
+      <div style={{ fontFamily: "Verdana, sans-serif", fontSize: "12px", color: "#5f6368", letterSpacing: "6.5px", marginTop: "6px", marginLeft: "2px" }}>CONSULTING</div>
+    </div>
+    
+    <div style={{ fontSize: "10px", color: "#9aa0a6", lineHeight: "1.5", textAlign: "justify", borderTop: "1px solid #f1f3f4", paddingTop: "12px" }}>
+      The information contained in this email is confidential and may be subject to legal privilege. The content of this email, which may include one or more attachments, is strictly confidential, and is intended solely for the use of the named recipient/s. If you are not the intended recipient, you cannot use, copy, distribute, disclose or retain the email or any part of its contents or take any action in reliance on it. If you have received this email in error, please email the sender by replying to this message and to permanently delete it and all attachments from your computer. All reasonable precautions have been taken to ensure that no viruses are present in this email and the company cannot accept responsibility for any loss or damage arising from the use of this email or attachments.
+    </div>
+  </div>
+);
 
 /* ---------- app ---------- */
 export default function App() {
-  const [inputValue, setInputValue] = useState("");
+  const [inputValue, setInputValue] = useState("");
 const [searchQuery, setSearchQuery] = useState("");
   const [notifications, setNotifications] = useState([]);
 
@@ -1849,7 +1878,65 @@ const [searchQuery, setSearchQuery] = useState("");
   const [gchatDmNames, setGchatDmNames] = useState({});
   const [gchatAutoScroll, setGchatAutoScroll] = useState(true);
   const [pendingUpload, setPendingUpload] = useState(null); // { file: File, kind: "pdf" }
-  const [trelloBuckets, setTrelloBuckets] = useState([]); // <--- ADD THIS LINE BACK
+  const [trelloBuckets, setTrelloBuckets] = useState([]); 
+  const [allTrelloLists, setAllTrelloLists] = useState([]); // Tracks ALL board lists
+
+ // NEW DRAFT POSITION STATE
+  const [draftPos, setDraftPos] = useState({ x: 0, y: 0 });
+  const isDraggingDraft = useRef(false);
+
+  const handleDraftMouseDown = (e) => {
+    if (isDraftEnlarged) return;
+    e.preventDefault(); // Prevents text highlighting which breaks the drag
+    isDraggingDraft.current = true;
+    const startX = e.clientX - draftPos.x;
+    const startY = e.clientY - draftPos.y;
+
+    const onMouseMove = (moveEvent) => {
+      if (!isDraggingDraft.current) return;
+      setDraftPos({
+        x: moveEvent.clientX - startX,
+        y: moveEvent.clientY - startY,
+      });
+    };
+
+    const onMouseUp = () => {
+      isDraggingDraft.current = false;
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  };
+
+  useEffect(() => {
+    // 1. Initial Master List Fetch (Gets empty lists too!)
+    fetch("/.netlify/functions/trello-lists")
+      .then(res => res.json())
+      .then(data => {
+        if (data.lists) {
+          setAllTrelloLists(data.lists.map(l => ({ id: l.id, title: l.name, cardsLength: 0 })));
+        }
+      })
+      .catch(err => console.error("Failed to fetch master lists:", err));
+
+    // 2. Keep the position counts accurate when polling happens
+    const handler = e => {
+      setAllTrelloLists(prevLists => {
+         const activeLists = e.detail; 
+         const master = [...prevLists];
+         activeLists.forEach(active => {
+            const found = master.find(m => m.id === active.id);
+            if (found) found.cardsLength = active.cardsLength;
+            else master.push(active);
+         });
+         return master;
+      });
+    };
+    window.addEventListener("updateAllLists", handler);
+    return () => window.removeEventListener("updateAllLists", handler);
+  }, []);
   // Add this near your other state variables
   const [timerNow, setTimerNow] = useState(Date.now());
   // 👇 NEW: States for the "Add Time" popup
@@ -1949,11 +2036,11 @@ useEffect(() => {
   const [gmailFolder, setGmailFolder] = useState("INBOX"); // Tracks current folder
 
 
-  // NEW: email draft helper state
-  const [showDraftPicker, setShowDraftPicker] = useState(false);
-  const [selectedDraftTemplate, setSelectedDraftTemplate] = useState(null);
-  const [draftTo, setDraftTo] = useState("");   // 👈 NEW
-
+// NEW: email draft helper state
+ const [showDraftPicker, setShowDraftPicker] = useState(false);
+ const [selectedDraftTemplate, setSelectedDraftTemplate] = useState(null);
+ const [draftTo, setDraftTo] = useState("");   // 👈 NEW
+ const [isDraftEnlarged, setIsDraftEnlarged] = useState(false); // 👈 NEW
 
 
   /* Trello modal */
@@ -3636,32 +3723,45 @@ if (currentView.app === "gmail") {
     };
 
     const handleDeleteSelected = async () => {
-      const count = selectedEmailIds.size;
-      const isPermanent = gmailFolder === "TRASH";
-      
-      if (!window.confirm(`${isPermanent ? 'Permanently delete' : 'Move to trash'} ${count} message${count > 1 ? 's' : ''}?`)) return;
-      
-      try {
-        const idsToDelete = Array.from(selectedEmailIds);
-        
-        // 👇 THIS CALLS YOUR NEW FUNCTION
-        await fetch("/.netlify/functions/gmail-delete-bulk", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            messageIds: idsToDelete, 
-            permanent: isPermanent 
-          })
-        });
+      const snapshotIds = Array.from(selectedEmailIds); // 1. Capture IDs immediately
+      const count = snapshotIds.length;
+      const isPermanent = gmailFolder === "TRASH";
+      
+      if (!window.confirm(`${isPermanent ? 'Permanently delete' : 'Move to trash'} ${count} message${count > 1 ? 's' : ''}?`)) return;
+      
+      try {
+        // 2. Call the backend
+        const res = await fetch("/.netlify/functions/gmail-delete-bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            messageIds: snapshotIds, 
+            permanent: isPermanent 
+          })
+        });
 
-        // Update UI locally after server confirms success
-        setGmailEmails(prev => prev.filter(e => !selectedEmailIds.has(e.id)));
-        setSelectedEmailIds(new Set());
-      } catch (err) { 
-        console.error("Bulk delete failed", err);
-        alert("Failed to delete emails. Check console.");
-      }
-    };
+        const json = await res.json();
+
+        // 3. ONLY update UI if the server actually succeeded
+        if (res.ok && json.ok) {
+  // 1. Clear the local emails list to force the 'useEffect' loader to run again
+  setGmailEmails([]); 
+  
+  // 2. Clear the checkmark selection
+  setSelectedEmailIds(new Set());
+
+  // 3. Switch the folder state back to Inbox so the user sees the restored mail
+  setGmailFolder("INBOX");
+  
+  console.log("Sync complete. Inbox refreshing...");
+} else {
+  throw new Error(json.error || "Server failed to move items");
+}
+      } catch (err) { 
+        console.error("Bulk delete failed", err);
+        alert("Failed to sync with Gmail. The items will reappear.");
+      }
+    };
 
     return (
       <div style={{ position: "relative", display: "flex", flexDirection: "column", height: "100%", background: "#fff", borderRadius: "12px", border: "1px solid #e6e6e6", overflow: "hidden" }}>
@@ -3715,10 +3815,44 @@ if (currentView.app === "gmail") {
           <div style={{ flex: 0 }}></div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            {/* 1. SELECTION COUNT AND DELETE ACTIONS */}
+            {/* 1. SELECTION COUNT AND ACTIONS */}
             {selectedEmailIds.size > 0 && (
               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                 <span style={{ fontSize: "13px", color: "#5f6368" }}>{selectedEmailIds.size} selected</span>
+                
+                {/* 🔄 ADDED: RESTORE BUTTON (Only visible in Trash view) */}
+                {gmailFolder === "TRASH" && (
+                  <button 
+                    onClick={async () => {
+                      const snapshotIds = Array.from(selectedEmailIds);
+                      try {
+                        const res = await fetch("/.netlify/functions/gmail-delete-bulk?action=restore", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ messageIds: snapshotIds })
+                        });
+                        const json = await res.json();
+                        
+                        if (res.ok && json.ok) {
+                          // 1. Remove from current Trash view
+                          setGmailEmails(prev => prev.filter(e => !snapshotIds.includes(e.id)));
+                          setSelectedEmailIds(new Set());
+                          
+                          // 2. 🔄 RE-SYNC: Force a tiny delay and then clear the list 
+                          // so the next time you click 'Back to Inbox', it fetches fresh.
+                          console.log("Emails restored. Inbox will refresh on next visit.");
+                        }
+                      } catch (err) { 
+                        console.error("Restore failed", err);
+                        alert("Failed to restore emails."); 
+                      }
+                    }}
+                    style={{ background: "#fff", border: "1px solid #dadce0", borderRadius: "4px", padding: "6px 12px", cursor: "pointer", fontSize: "13px", color: "#1a73e8", fontWeight: 500 }}
+                  >
+                    Restore to Inbox
+                  </button>
+                )}
+
                 <button 
                   onClick={handleDeleteSelected} 
                   style={{ background: "#fff", border: "1px solid #dadce0", borderRadius: "4px", padding: "6px 12px", cursor: "pointer", fontSize: "13px", color: "#d93025", fontWeight: 500 }}
@@ -3868,18 +4002,53 @@ if (currentView.app === "gmail") {
           ))}
         </div>
 
-        {/* 🔽 COMPOSE EDITOR (Floating over Inbox) 🔽 */}
+{/* 🔽 COMPOSE EDITOR (Floating over Inbox) 🔽 */}
         {selectedDraftTemplate && !email && (
-          <div style={{ 
-            position: "absolute", bottom: "0", right: "24px", width: "500px", 
-            zIndex: 1000, border: "1px solid #dadce0", boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
-            background: "#fff", borderTopLeftRadius: "12px", borderTopRightRadius: "12px", 
-            display: "flex", flexDirection: "column", overflow: "hidden"
+          <div style={{
+            position: "absolute", 
+            bottom: "0", 
+            right: "24px",
+            zIndex: 1000, 
+            border: "1px solid #dadce0", 
+            boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
+            background: "#fff", 
+            borderTopLeftRadius: "12px", 
+            borderTopRightRadius: "12px", 
+            display: "flex", 
+            flexDirection: "column", 
+            overflow: "hidden",
+            width: isDraftEnlarged ? "calc(100% - 48px)" : "500px",
+            height: isDraftEnlarged ? "calc(100% - 48px)" : "560px", /* Fixed height stops it from floating too high */
+            transform: isDraftEnlarged ? "none" : `translate(${draftPos.x}px, ${draftPos.y}px)`,
+            transition: "width 0.1s ease, height 0.1s ease" /* Animate size only, not drag */
           }}>
-            {/* Header */}
-            <div style={{ padding: "10px 16px", background: "#f2f6fc", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
+            {/* Draggable Header */}
+            <div 
+              style={{ padding: "10px 16px", background: "#f2f6fc", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: isDraftEnlarged ? "default" : "move", userSelect: "none" }}
+              onMouseDown={handleDraftMouseDown}
+            >
               <span style={{ fontWeight: 600, color: "#1f1f1f", fontSize: "14px" }}>New Message</span>
-              <button onClick={() => setSelectedDraftTemplate(null)} style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: "16px", color: "#5f6368" }}>✕</button>
+              <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                <button 
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => { e.stopPropagation(); setIsDraftEnlarged(prev => !prev); setDraftPos({x:0, y:0}); }} 
+                  style={{ border: "none", background: "transparent", cursor: "pointer", color: "#5f6368", display: "flex", alignItems: "center" }} 
+                  title={isDraftEnlarged ? "Minimize" : "Maximize"}
+                >
+                  {isDraftEnlarged ? (
+                    <svg width="14" height="14" viewBox="0 0 24 24"><path fill="currentColor" d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 24 24"><path fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+                  )}
+                </button>
+                <button 
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => { e.stopPropagation(); setSelectedDraftTemplate(null); setDraftPos({x:0, y:0}); }} 
+                  style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: "16px", color: "#5f6368" }}
+                >
+                  ✕
+                </button>
+              </div>
             </div>
             
          {/* To Field with Suggestions */}
@@ -3933,7 +4102,7 @@ if (currentView.app === "gmail") {
               )}
             </div>
 
-            {/* Subject Field */}
+{/* Subject Field */}
             <div style={{ padding: "8px 16px", borderBottom: "1px solid #f1f3f4", display: "flex", alignItems: "center" }}>
               <input
                 type="text"
@@ -3944,14 +4113,30 @@ if (currentView.app === "gmail") {
               />
             </div>
 
-            {/* Body */}
-            <textarea
-              className="email-draft-textarea"
-              value={selectedDraftTemplate.body}
-              onChange={(e) => setSelectedDraftTemplate((prev) => prev ? { ...prev, body: e.target.value } : prev)}
-              style={{ flex: 1, border: "none", padding: "16px", resize: "none", outline: "none", minHeight: "240px", fontSize: "14px", fontFamily: "Verdana, sans-serif" }}
-            />
-
+        {/* Body Container (Scrolls together with Signature) */}
+            <div style={{ flex: 1, overflowY: "auto", background: "#fff", display: "flex", flexDirection: "column" }}>
+              <textarea
+                className="email-draft-textarea"
+                value={selectedDraftTemplate.body}
+                onChange={(e) => setSelectedDraftTemplate((prev) => prev ? { ...prev, body: e.target.value } : prev)}
+                style={{ 
+                  border: "none", 
+                  padding: "16px", 
+                  resize: "none", 
+                  outline: "none", 
+                  minHeight: "200px", 
+                  fontSize: "14px", 
+                  fontFamily: "Verdana, sans-serif",
+                  background: "transparent",
+                  flexShrink: 0
+                }}
+                onInput={(e) => {
+                  e.target.style.height = "auto";
+                  e.target.style.height = e.target.scrollHeight + "px";
+                }}
+              />
+              <EmailSignature />
+            </div>
             {/* Footer */}
             <div style={{ padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff" }}>
               <button
@@ -4267,7 +4452,7 @@ if (currentView.app === "gmail") {
                   >
                     Cancel
                   </button>
-                  <button
+ <button
                     className="btn blue"
                     onClick={async () => {
                       if (!draftTo.trim()) {
@@ -4298,15 +4483,32 @@ if (currentView.app === "gmail") {
                   </button>
                 </div>
               </div>
-              <textarea
-                className="email-draft-textarea"
-                value={selectedDraftTemplate.body}
-                onChange={(e) => setSelectedDraftTemplate((prev) => prev ? { ...prev, body: e.target.value } : prev)}
-              />
+              <div style={{ maxHeight: "400px", overflowY: "auto", display: "flex", flexDirection: "column" }}>
+                <textarea
+                  className="email-draft-textarea"
+                  value={selectedDraftTemplate.body}
+                  onChange={(e) => setSelectedDraftTemplate((prev) => prev ? { ...prev, body: e.target.value } : prev)}
+                  style={{
+                    border: "none",
+                    padding: "16px",
+                    resize: "none",
+                    outline: "none",
+                    minHeight: "120px",
+                    height: "auto",
+                    overflow: "hidden",
+                    flexShrink: 0
+                  }}
+                  onInput={(e) => {
+                    e.target.style.height = "auto";
+                    e.target.style.height = e.target.scrollHeight + "px";
+                  }}
+                />
+                <EmailSignature />
+              </div>
             </div>
           )}
         </div>
-      );
+      );
 
       const previewPane = emailPreview ? (
         <div className="email-preview">
@@ -4511,7 +4713,8 @@ if (currentView.app === "gmail") {
                                style={{ width: '100%', padding: '8px 12px', borderRadius: '4px', border: 'none', background: '#22272b', color: '#b6c2cf', cursor: 'pointer', outline: '1px solid #738496' }} 
                                onClick={e => e.stopPropagation()}
                             >
-                               {trelloBuckets.map(b => <option key={b.id} value={b.id}>{b.title}</option>)}
+                               {/* Use allTrelloLists here instead of trelloBuckets! */}
+                               {allTrelloLists.map(b => <option key={b.id} value={b.id}>{b.title}</option>)}
                             </select>
                           </div>
                           <div style={{ flex: 1 }}>
@@ -4523,8 +4726,8 @@ if (currentView.app === "gmail") {
                                onClick={e => e.stopPropagation()}
                             >
                                {(() => {
-                                  const targetBucket = trelloBuckets.find(b => b.id === moveTargetList);
-                                  const currentCount = targetBucket ? targetBucket.cards.length : 0;
+                                  const targetBucket = allTrelloLists.find(b => b.id === moveTargetList);
+                                  const currentCount = targetBucket ? targetBucket.cardsLength : 0;
                                   const isSameList = moveTargetList === c.listId;
                                   const maxPos = isSameList ? Math.max(1, currentCount) : currentCount + 1;
                                   return Array.from({ length: maxPos }, (_, i) => (
