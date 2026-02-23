@@ -59,10 +59,18 @@ exports.handler = async function (event, context) {
       console.log("Current Token Scopes:", tokenData.scope);
     }
 
-   const listRes = await request(
-    `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=in:inbox&maxResults=15`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
+   // 1. Determine which folder to look in (default to INBOX)
+    const folder = event.queryStringParameters?.folder || "INBOX";
+    
+    // 2. Map folder names to Gmail search queries
+    // 'label:trash' is the specific query required to see items in the Bin
+    const query = folder === "TRASH" ? "label:trash" : "in:inbox";
+    
+
+    const listRes = await request(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=15`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
     const listData = await listRes.json();
     
     // Improved error reporting for 403 Scopes issue

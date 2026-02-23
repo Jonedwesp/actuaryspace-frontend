@@ -1,7 +1,6 @@
-const https = require('https');
-const getAccessToken = require('./_sa-token'); // Re-using your Service Account generator
+import https from "node:https";
 
-// Helper 1: Base64URL encoder (Gmail requires this specific format)
+// Helper 1: Base64URL encoder
 function makeBase64Url(str) {
   return Buffer.from(str).toString('base64')
     .replace(/\+/g, '-')
@@ -9,7 +8,7 @@ function makeBase64Url(str) {
     .replace(/=+$/, '');
 }
 
-// Helper 2: Native HTTPS fetch to prevent crashes
+// Helper 2: Native HTTPS fetch
 function fetchJson(url, options, bodyData) {
   return new Promise((resolve, reject) => {
     const req = https.request(url, options, (res) => {
@@ -31,8 +30,27 @@ function fetchJson(url, options, bodyData) {
   });
 }
 
+// Helper 3: Refresh Token to Access Token exchange
+async function getAccessTokenFromRefresh() {
+  const params = new URLSearchParams({
+    client_id: process.env.GOOGLE_CLIENT_ID,
+    client_secret: process.env.GOOGLE_CLIENT_SECRET,
+    refresh_token: process.env.AS_GCHAT_RT,
+    grant_type: "refresh_token",
+  });
+
+  const res = await fetchJson("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+  }, params.toString());
+
+  if (res.status !== 200) {
+    throw new Error(`Token exchange failed: ${JSON.stringify(res.json)}`);
+  }
+  return res.json.access_token;
+}
+
 exports.handler = async (event) => {
-  // Only allow POST requests
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: "Method Not Allowed" };
   }
@@ -47,37 +65,39 @@ exports.handler = async (event) => {
       };
     }
 
-    // 1. Determine Identity based on Environment (Siya vs Yolandie)
-    const persona = process.env.VITE_PERSONA || "SIYA";
-    const impersonatedEmail = persona.toUpperCase() === "YOLANDIE" 
-      ? "yolandie@actuaryspace.co.za" 
-      : "siya@actuaryspace.co.za";
+    const impersonatedEmail = "siya@actuaryspace.co.za";
 
-    // 2. Get Service Account Token for Gmail Impersonation
-    const accessToken = await getAccessToken([
-      "https://www.googleapis.com/auth/gmail.send",
-      "https://www.googleapis.com/auth/gmail.modify"
-    ], impersonatedEmail);
-
-    if (!accessToken) {
+    // 1. Get Access Token using the stable Refresh Token method
+    let accessToken;
+    try {
+      accessToken = await getAccessTokenFromRefresh();
+    } catch (tokenErr) {
       return { 
         statusCode: 500, 
-        body: JSON.stringify({ ok: false, error: "Failed to generate Service Account token" }) 
+        body: JSON.stringify({ ok: false, error: `Auth Error: ${tokenErr.message}` }) 
       };
     }
 
-    // 3. Construct Raw Email String (RFC 2822 Format)
-    // CRITICAL: The 'From' header is strictly required when using Service Accounts
-    const rawEmail = `To: ${to}\r\n` +
-                     `From: ${impersonatedEmail}\r\n` +
-                     `Subject: ${subject}\r\n` +
-                     `Content-Type: text/plain; charset="UTF-8"\r\n\r\n` +
-                     `${body}`;
+// 2. Construct Raw Email String (RFC 2822 Format) with Signature
+    const signature = [
+      '',
+      'Kind regards,',
+      'Siyabonga Dyani',
+      'Actuary Consulting'
+    ].join('\r\n');
 
-    // 4. Encode the email to Base64URL
+    const rawEmail = [
+      `To: ${to}`,
+      `From: ${impersonatedEmail}`,
+      `Subject: ${subject}`,
+      `Content-Type: text/plain; charset="UTF-8"`,
+      '',
+      body + signature
+    ].join('\r\n');;
+
     const encodedEmail = makeBase64Url(rawEmail);
 
-    // 5. Send via Gmail API
+    // 3. Send via Gmail API
     const sendOptions = {
       method: 'POST',
       headers: {
@@ -91,23 +111,19 @@ exports.handler = async (event) => {
     const sendRes = await fetchJson('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', sendOptions, sendBody);
 
     if (sendRes.status !== 200) {
-      console.error("Gmail send failed:", sendRes.json || sendRes.raw);
-      // Pass the exact Google error message to the frontend popup
-      const googleError = sendRes.json?.error?.message || "Unknown Google API Error";
+      const googleError = sendRes.json?.error?.message || "Unknown Gmail API Error";
       return { 
         statusCode: 500, 
         body: JSON.stringify({ ok: false, error: `Gmail API: ${googleError}` }) 
       };
     }
 
-    // Success!
     return {
       statusCode: 200,
       body: JSON.stringify({ ok: true, messageId: sendRes.json.id })
     };
 
   } catch (err) {
-    console.error("gmail-send-email fatal error:", err);
     return {
       statusCode: 500,
       body: JSON.stringify({ ok: false, error: String(err) })

@@ -414,6 +414,49 @@ const AC_CONTACTS = [
   "Kwakhanya","Jennifer","Munyaradzi","Leroy","Cameron","Jenny","Yolandie",
   "Vanessa","Yael","Cynthia"
 ];
+const AC_EMAIL_MAP = {
+  "Namir": "namir@actuaryconsulting.co.za",
+  "Joel": "joel@actuaryconsulting.co.za",
+  "Dionee": "dionee@actuaryconsulting.co.za",
+  "Simoné": "simone@actuaryconsulting.co.za",
+  "Ryan": "ryan@actuaryconsulting.co.za",
+  "Conah": "conah@actuaryconsulting.co.za",
+  "Thami": "thami@actuaryconsulting.co.za",
+  "Melissa": "melissa@actuaryconsulting.co.za",
+  "Waldo": "waldo@actuaryconsulting.co.za",
+  "Melvin": "melvin@actuaryconsulting.co.za",
+  "Tiffany": "tiffany@actuaryconsulting.co.za",
+  "Albert": "albert@actuaryconsulting.co.za",
+  "Alicia K": "aliciak@actuaryconsulting.co.za",
+  "Alicia O": "aliciao@actuaryconsulting.co.za",
+  "Ethan": "ethan@actuaryconsulting.co.za",
+  "Martin": "martin@actuaryconsulting.co.za",
+  "Leonah": "leonah@actuaryconsulting.co.za",
+  "Matthew": "matthew@actuaryconsulting.co.za",
+  "Siyabonga": "siya@actuaryspace.co.za",
+  "Enock": "enock@actuaryconsulting.co.za",
+  "Treasure": "treasure@actuaryconsulting.co.za",
+  "Melokuhle": "melokuhle@actuaryconsulting.co.za",
+  "Eugene": "eugene@actuaryconsulting.co.za",
+  "Bianca": "bianca@actuaryconsulting.co.za",
+  "Jonathan": "jonathan@actuaryconsulting.co.za",
+  "Bonolo": "bonolo@actuaryconsulting.co.za",
+  "Willem": "willem@actuaryconsulting.co.za",
+  "Shamiso": "shamiso@actuaryconsulting.co.za",
+  "Miné": "mine@actuaryconsulting.co.za",
+  "Songeziwe": "songeziwe@actuaryconsulting.co.za",
+  "Michelle": "michelle@actuaryconsulting.co.za",
+  "Kwakhanya": "kwakhanya@actuaryconsulting.co.za",
+  "Jennifer": "jennifer@actuaryconsulting.co.za",
+  "Munyaradzi": "munyaradzi@actuaryconsulting.co.za",
+  "Leroy": "leroy@actuaryconsulting.co.za",
+  "Cameron": "cameron@actuaryconsulting.co.za",
+  "Jenny": "jenny@actuaryconsulting.co.za",
+  "Yolandie": "yolandie@actuaryspace.co.za",
+  "Vanessa": "vanessa@actuaryconsulting.co.za",
+  "Yael": "yael@actuaryconsulting.co.za",
+  "Cynthia": "cynthia@actuaryconsulting.co.za"
+};
 
 /* ---------- WhatsApp ---------- */
 const WA_AUTO_REPLIES = [
@@ -1042,6 +1085,52 @@ function getTrelloCoverColor(title) {
 
 const RightPanel = React.memo(function RightPanel() {
   const [preview, setPreview] = React.useState(null);
+  const [showArchiveModal, setShowArchiveModal] = useState(false);
+  const [archivedCards, setArchivedCards] = useState([]);
+  const [archivedLoading, setArchivedLoading] = useState(false);
+
+  const openArchiveBin = async () => {
+    setShowArchiveModal(true);
+    setArchivedLoading(true);
+    try {
+      // 🔗 SYNCED: This specifically matches your filename "trello-archived"
+      const res = await fetch("/.netlify/functions/trello-archived");
+      const json = await res.json();
+      if (json.cards) {
+        // 🛠️ DATA MAPPER: Formats raw Trello data to match your UI perfectly
+        const mapped = json.cards.map(c => {
+           const labelNames = (c.labels || []).map(l => l.name).filter(Boolean);
+           
+           // Extract the translated custom fields from the new backend
+           let badgeArr = labelNames.map(l => ({ text: l, isBottom: false }));
+           if (c.parsedCustomFields) {
+               if (c.parsedCustomFields.Priority) badgeArr.push({ text: `Priority: ${c.parsedCustomFields.Priority}`, isBottom: true });
+               if (c.parsedCustomFields.Status) badgeArr.push({ text: `Status: ${c.parsedCustomFields.Status}`, isBottom: true });
+               if (c.parsedCustomFields.Active) badgeArr.push({ text: `Active: ${c.parsedCustomFields.Active}`, isBottom: true });
+           }
+
+           return {
+              id: c.id,
+              title: c.name,
+              due: c.due || "",
+              labels: labelNames,
+              badges: ensureBadgeTypes(badgeArr),
+              people: c.idMembers || [],
+              listId: c.idList,
+              list: "Archived",
+              customFields: c.parsedCustomFields || {},
+              description: c.desc || "",
+              cover: c.cover || null,
+              isArchived: true
+           };
+        });
+        setArchivedCards(mapped);
+      }
+    } catch(err) { console.error("Failed to load archive", err); }
+    setArchivedLoading(false);
+  };
+
+  // ... (inside the return statement below) ...
   const [trelloBuckets, setTrelloBuckets] = useState([]);
   const [clientFiles, setClientFiles] = useState([]);
 
@@ -1457,7 +1546,104 @@ const RightPanel = React.memo(function RightPanel() {
 
   return (
     <div className="right-panel">
-      <div className="panel-title">Trello Cards</div>
+      <div className="panel-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingRight: '8px' }}>
+        <span>Trello Cards</span>
+        <button 
+          onClick={openArchiveBin} 
+          style={{ background: 'transparent', border: 'none', color: '#9fadbc', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 500, transition: 'color 0.2s' }}
+          onMouseEnter={e => e.currentTarget.style.color = '#8993a4'} // 🎨 LIGHT GRAY HOVER
+          onMouseLeave={e => e.currentTarget.style.color = '#9fadbc'}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM6.24 5h11.52l.83 1H5.41l.83-1zM5 19V8h14v11H5zm11-5.5l-4 4-4-4 1.41-1.41L11 13.67V10h2v3.67l1.59-1.58L16 13.5z"/></svg>
+          Archive Bin
+        </button>
+      </div>
+
+      {/* ARCHIVE MODAL OVERLAY */}
+      {showArchiveModal && (
+        <div style={{ position: 'fixed', top:0, left:0, width:'100vw', height:'100vh', background:'rgba(0,0,0,0.6)', zIndex: 9999, display:'grid', placeItems:'center' }} onClick={() => setShowArchiveModal(false)}>
+          <div style={{ background: '#282e33', width: '400px', maxHeight: '80vh', borderRadius: '8px', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 16px rgba(0,0,0,0.4)', border: '1px solid #454f59' }} onClick={e => e.stopPropagation()}>
+             <div style={{ padding: '16px', borderBottom: '1px solid #454f59', display: 'flex', justifyContent: 'space-between', color: '#b6c2cf', fontWeight: 600 }}>
+                <span>Archived items</span>
+                <button onClick={() => setShowArchiveModal(false)} style={{ background:'none', border:'none', color:'#9fadbc', cursor:'pointer', fontSize:'16px' }}>✕</button>
+             </div>
+             <div style={{ padding: '16px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {archivedLoading ? <div style={{ color: '#9fadbc', textAlign:'center', padding: '20px' }}>Loading archive...</div> :
+                  archivedCards.length === 0 ? <div style={{ color: '#9fadbc', textAlign:'center', padding: '20px' }}>No archived cards found.</div> :
+                  archivedCards.map(c => (
+                    <div 
+                      key={c.id} 
+                      className="tl-card" 
+                      style={{ position: 'relative', width: '100%', marginBottom: '8px', cursor: 'pointer', border: '1px solid transparent' }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = '#579dff'}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = 'transparent'}
+                      onClick={() => {
+                        window.dispatchEvent(new CustomEvent("openTrelloCard", { detail: c }));
+                        setShowArchiveModal(false);
+                      }}
+                    >
+                       {/* 1. Cover Color */}
+                       {(() => {
+                         const finalColor = getTrelloCoverColor(c.title) || { sky: "#6CC3E0", orange: "#FAA53D", blue: "#579DFF", green: "#4BCE97", yellow: "#F5CD47", red: "#F87168", purple: "#9F8FEF" }[c.cover?.color];
+                         if (finalColor) return <div className="tl-card-cover" style={{ backgroundColor: finalColor }} />;
+                         return null;
+                       })()}
+
+                       {/* 2. Badges & Title */}
+                       {(() => {
+                         const labelBadges = (c.labels || []).map(l => ({ text: l, type: getLabelColor(l), isTop: true }));
+                         const labelTexts = new Set(labelBadges.map(b => (b.text || "").toLowerCase().trim()));
+                         const uniqueCardBadges = (c.badges || []).filter(b => !labelTexts.has((b.text || "").toLowerCase().trim()));
+                         const allBadges = [...labelBadges, ...uniqueCardBadges];
+                         const topBadges = allBadges.filter(b => b.isTop);
+                         const bottomBadges = allBadges.filter(b => b.isBottom);
+
+                         return (
+                           <>
+                             {topBadges.length > 0 && <div className="tl-badges">{topBadges.map((b, k) => <span key={k} className={`tl-badge ${b.type || "label-default"}`}>{b.text}</span>)}</div>}
+                             <div className="tl-card-title" style={{ paddingRight: '24px' }}>{c.title}</div>
+                             {bottomBadges.length > 0 && <div className="tl-badges" style={{marginTop:"6px", flexDirection:"column", alignItems:"flex-start", gap:"4px"}}>{bottomBadges.map((b, k) => <span key={k} className={`tl-badge ${b.type || "label-default"}`}>{b.text}</span>)}</div>}
+                           </>
+                         );
+                       })()}
+
+                       {/* 3. Footer (Icons & People) */}
+                       {(c.description || c.due || (c.people && c.people.length > 0)) && (
+                          <div className="tl-footer">
+                            <div className="tl-icons">
+                              {c.description && <span>≡</span>} 
+                              {c.due && <span>🕒</span>}
+                            </div>
+                            <div className="tl-people">
+                              {c.people?.map((p, idx) => {
+                                const img = avatarFor(p);
+                                return img ? <img key={idx} className="av-img" src={img} alt={p} /> : <div key={idx} className="av">{p.slice(0,1)}</div>;
+                              })}
+                            </div>
+                          </div>
+                       )}
+
+                       {/* RESTORE ICON (Top Right overlay) */}
+                       <button
+                         title="Recover"
+                         onClick={async (e) => {
+                            e.stopPropagation();
+                            setArchivedCards(prev => prev.filter(x => x.id !== c.id));
+                            fetch("/.netlify/functions/trello-restore", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cardId: c.id }) });
+                         }}
+                         style={{ position: 'absolute', top: '8px', right: '8px', background: 'rgba(9, 30, 66, 0.6)', borderRadius: '4px', border: 'none', color: '#fff', cursor: 'pointer', padding: '4px', display: 'grid', placeItems: 'center', zIndex: 10 }}
+                         onMouseEnter={e => e.currentTarget.style.background = '#579dff'}
+                         onMouseLeave={e => e.currentTarget.style.background = 'rgba(9, 30, 66, 0.6)'}
+                       >
+                          <svg width="16" height="16" viewBox="0 0 24 24"><path fill="currentColor" d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>
+                       </button>
+                    </div>
+                  ))
+                }
+             </div>
+          </div>
+        </div>
+      )}
       <div className="right-scroll left-scroll">
         <div className="trello-col-wrap">
           {trelloBuckets.map((bucket, i) => (
@@ -1623,7 +1809,11 @@ function formatChatText(text) {
 /* ---------- app ---------- */
 export default function App() {
   const [inputValue, setInputValue] = useState("");
+const [searchQuery, setSearchQuery] = useState("");
   const [notifications, setNotifications] = useState([]);
+
+
+
   // 👇 NEW state for the label picker
   const [showLabelPicker, setShowLabelPicker] = useState(false);
 
@@ -1751,7 +1941,6 @@ useEffect(() => {
   const [emailIdx, setEmailIdx] = useState(0);
   const [email, setEmail] = useState(EMAIL_THREADS[0]);
   const [emailPreview, setEmailPreview] = useState(null);
-
   /* Gmail Inbox State */
   const [gmailEmails, setGmailEmails] = useState([]);
   const [gmailLoading, setGmailLoading] = useState(false);
@@ -1764,6 +1953,8 @@ useEffect(() => {
   const [showDraftPicker, setShowDraftPicker] = useState(false);
   const [selectedDraftTemplate, setSelectedDraftTemplate] = useState(null);
   const [draftTo, setDraftTo] = useState("");   // 👈 NEW
+
+
 
   /* Trello modal */
   const [trelloCard, setTrelloCard] = useState(null);
@@ -2245,40 +2436,31 @@ useEffect(() => {
 
   // 📧 GMAIL INBOX LOADER
   useEffect(() => {
-    if (currentView.app !== "gmail") return;
+    if (currentView.app !== "gmail") return;
 
-    let cancelled = false;
-    async function loadInbox() {
-      setGmailLoading(true);
-      setGmailError("");
-      try {
-        const res = await fetch("/.netlify/functions/gmail-inbox");
-        const json = await res.json().catch(() => ({}));
+    let cancelled = false;
+    async function loadInbox() {
+      setGmailLoading(true);
+      setGmailError("");
+      try {
+        const res = await fetch(`/.netlify/functions/gmail-inbox?folder=${gmailFolder}`);
+        const json = await res.json().catch(() => ({}));
 
-        if (!res.ok || !json.ok) {
-          throw new Error(json.error || `HTTP ${res.status}`);
-        }
+        if (!res.ok || !json.ok) throw new Error(json.error || `HTTP ${res.status}`);
 
         if (!cancelled) {
-          // Merge server data but lock in our local 'read' state to prevent flickering back to bold
-          setGmailEmails(prev => {
-            const localReadIds = new Set(prev.filter(e => e.isUnread === false).map(e => e.id));
-            return (json.emails || []).map(serverEmail => {
-              if (localReadIds.has(serverEmail.id)) return { ...serverEmail, isUnread: false };
-              return serverEmail;
-            });
-          });
+          setGmailEmails(json.emails || []);
         }
       } catch (err) {
-        if (!cancelled) setGmailError(String(err.message || err));
-      } finally {
-        if (!cancelled) setGmailLoading(false);
-      }
-    }
+        if (!cancelled) setGmailError(String(err.message || err));
+      } finally {
+        if (!cancelled) setGmailLoading(false);
+      }
+    }
 
-    loadInbox();
-    return () => { cancelled = true; };
-  }, [currentView.app]);
+    loadInbox();
+    return () => { cancelled = true; };
+  }, [currentView.app, gmailFolder]); // 👈 Added gmailFolder here
 
  
     // When we are not looking at an email, the right-panel client files should be empty
@@ -2335,8 +2517,9 @@ useEffect(() => {
       description: (e.detail.description ?? deriveDescriptionFromTitle(e.detail.title)),
       customFields: e.detail.customFields || {}, /* 👈 CRITICAL: Loads the saved time when tab opens */
       timers: { time: e.detail.eta || "0m" },
-      activity: []
-    });
+                  activity: [],
+                  isArchived: e.detail.isArchived || false // <-- THIS IS THE FIX
+                });
   };
   window.addEventListener("openTrelloCard", handler);
   return () => window.removeEventListener("openTrelloCard", handler);
@@ -2946,41 +3129,59 @@ const handleStartChat = async () => {
   }
 };
 
-  /* middle renderer */
-  const middleContent = useMemo(() => {
-    if (currentView.app === "whatsapp" && currentView.contact) {
-      const msgs = waChats[currentView.contact] || [];
-      return (
-        <div className="wa-chat">
-          <div className="wa-header">
-            <div className="wa-avatar">
-              {avatarFor(currentView.contact)
-                ? <img src={avatarFor(currentView.contact)} alt={currentView.contact} />
-                : <span>{currentView.contact?.slice(0,1)}</span>}
-            </div>
-            <div className="wa-meta">
-              <div className="wa-name">{currentView.contact}</div>
-              <div className="wa-status">online</div>
-            </div>
-          </div>
-          <div className="wa-body" ref={waBodyRef}>
-            {msgs.map((m, idx) => (
-              <div key={idx} className={`wa-msg ${m.from}`}>
-                <div className="wa-bubble">
-                  <div className="wa-text">{m.text}</div>
-                  <div className="wa-time">
-                    {m.time}
-                    {m.from === "me" && <span className="wa-ticks">✔✔</span>}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      );
-    }
+/* middle renderer */
+  const middleContent = useMemo(() => {
+    // SAFE FILTER LOGIC
+    const q = (searchQuery || "").toLowerCase();
+    
+    const filteredEmails = (gmailEmails || []).filter(e => {
+      const subject = (e.subject || "").toLowerCase();
+      const from = (e.from || "").toLowerCase();
+      const snippet = (e.snippet || "").toLowerCase();
+      return subject.includes(q) || from.includes(q) || snippet.includes(q);
+    });
 
-  if (currentView.app === "gchat") {
+    const filteredGchatSpaces = (gchatSpaces || []).filter(s => {
+      const learnedName = gchatDmNames[s.id] || "";
+      const title = (s.type === "DIRECT_MESSAGE" 
+        ? (learnedName || s.displayName || "Direct Message") 
+        : (s.displayName || "Unnamed")).toLowerCase();
+      return title.includes(q);
+    });
+
+    if (currentView.app === "whatsapp" && currentView.contact) {
+      const msgs = waChats[currentView.contact] || [];
+      return (
+        <div className="wa-chat">
+          <div className="wa-header">
+            <div className="wa-avatar">
+              {avatarFor(currentView.contact)
+                ? <img src={avatarFor(currentView.contact)} alt={currentView.contact} />
+                : <span>{currentView.contact?.slice(0,1)}</span>}
+            </div>
+            <div className="wa-meta">
+              <div className="wa-name">{currentView.contact}</div>
+              <div className="wa-status">online</div>
+            </div>
+          </div>
+          <div className="wa-body" ref={waBodyRef}>
+            {msgs.map((m, idx) => (
+              <div key={idx} className={`wa-msg ${m.from}`}>
+                <div className="wa-bubble">
+                  <div className="wa-text">{m.text}</div>
+                  <div className="wa-time">
+                    {m.time}
+                    {m.from === "me" && <span className="wa-ticks">✔✔</span>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+  if (currentView.app === "gchat") {
     // 👇 Name Sniffer (Keep this)
     const otherPersonName = gchatMessages.find(
       (m) => m?.sender?.name && m.sender.name !== gchatMe
@@ -3426,60 +3627,92 @@ const handleStartChat = async () => {
   );
 }
 
-      if (currentView.app === "gmail") {
-    const allSelected = gmailEmails.length > 0 && selectedEmailIds.size === gmailEmails.length;
+if (currentView.app === "gmail") {
+    const allSelected = (filteredEmails || []).length > 0 && selectedEmailIds.size === filteredEmails.length;
 
-    const toggleSelectAll = () => {
-      if (allSelected) setSelectedEmailIds(new Set());
-      else setSelectedEmailIds(new Set(gmailEmails.map(e => e.id)));
-    };
+    const toggleSelectAll = () => {
+      if (allSelected) setSelectedEmailIds(new Set());
+      else setSelectedEmailIds(new Set(filteredEmails.map(e => e.id)));
+    };
 
-    const handleDeleteSelected = async () => {
-      const count = selectedEmailIds.size;
-      const isPermanent = gmailFolder === "TRASH";
-      if (!window.confirm(`${isPermanent ? 'Permanently delete' : 'Move to trash'} ${count} message${count > 1 ? 's' : ''}?`)) return;
-      
-      try {
-        await fetch("/.netlify/functions/gmail-delete-bulk", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messageIds: Array.from(selectedEmailIds), permanent: isPermanent })
-        });
-        setGmailEmails(prev => prev.filter(e => !selectedEmailIds.has(e.id)));
-        setSelectedEmailIds(new Set());
-      } catch (err) { console.error("Delete failed", err); }
-    };
+    const handleDeleteSelected = async () => {
+      const count = selectedEmailIds.size;
+      const isPermanent = gmailFolder === "TRASH";
+      
+      if (!window.confirm(`${isPermanent ? 'Permanently delete' : 'Move to trash'} ${count} message${count > 1 ? 's' : ''}?`)) return;
+      
+      try {
+        const idsToDelete = Array.from(selectedEmailIds);
+        
+        // 👇 THIS CALLS YOUR NEW FUNCTION
+        await fetch("/.netlify/functions/gmail-delete-bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            messageIds: idsToDelete, 
+            permanent: isPermanent 
+          })
+        });
 
-    return (
-      <div style={{ position: "relative", display: "flex", flexDirection: "column", height: "100%", background: "#fff", borderRadius: "12px", border: "1px solid #e6e6e6", overflow: "hidden" }}>
-        {/* Header Bar */}
-        <div style={{ padding: "8px 16px", borderBottom: "1px solid #eee", background: "#f8f9fa", display: "flex", alignItems: "center", minHeight: "48px", gap: "12px" }}>
-          
-          <button 
-            className="btn blue" 
-            onClick={() => {
-              setEmail(null);
-              setEmailPreview(null);
-              setSelectedDraftTemplate({ ...DRAFT_TEMPLATES.find(t => t.id === "new_blank") });
-              setDraftTo("");
-            }}
-            style={{ borderRadius: "20px", padding: "10px 20px", fontSize: "14px", fontWeight: 500, display: "flex", alignItems: "center", gap: "8px" }}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
-            Compose
-          </button>
-          
-          <div style={{ display: "flex", alignItems: "center", padding: "0 4px" }}>
-            <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} style={{ cursor: "pointer", width: "18px", height: "18px" }} />
+        // Update UI locally after server confirms success
+        setGmailEmails(prev => prev.filter(e => !selectedEmailIds.has(e.id)));
+        setSelectedEmailIds(new Set());
+      } catch (err) { 
+        console.error("Bulk delete failed", err);
+        alert("Failed to delete emails. Check console.");
+      }
+    };
+
+    return (
+      <div style={{ position: "relative", display: "flex", flexDirection: "column", height: "100%", background: "#fff", borderRadius: "12px", border: "1px solid #e6e6e6", overflow: "hidden" }}>
+        {/* Header Bar */}
+        <div style={{ padding: "8px 16px", borderBottom: "1px solid #eee", background: "#f8f9fa", display: "flex", alignItems: "center", minHeight: "48px", gap: "12px" }}>
+          
+          <button 
+            className="btn blue" 
+            onClick={() => {
+              setEmail(null);
+           setEmailPreview(null);
+              setSelectedDraftTemplate({ ...DRAFT_TEMPLATES.find(t => t.id === "new_blank") });
+              setDraftTo("");
+            }}
+            style={{ borderRadius: "20px", padding: "10px 20px", fontSize: "14px", fontWeight: 500, display: "flex", alignItems: "center", gap: "8px" }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+            Compose
+          </button>
+          
+          <div style={{ display: "flex", alignItems: "center", padding: "0 4px" }}>
+            <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} style={{ cursor: "pointer", width: "18px", height: "18px" }} />
+          </div>
+
+          <div style={{ fontWeight: 600, fontSize: "14px", color: "#202124", display: "flex", alignItems: "center", gap: "8px" }}>
+            <img src={gmailIcon} alt="Gmail" style={{ width: 18, height: 18 }} />
+            {gmailFolder === "TRASH" ? "Trash" : "Inbox"}
+          </div>
+
+          {/* SEARCH BAR (Moved inside Gmail Header) */}
+          <div style={{ flex: 1, margin: "0 20px", position: "relative" }}>
+            <input
+              type="text"
+              placeholder="Search in mail..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "8px 12px 8px 35px",
+                borderRadius: "8px",
+                border: "1px solid #dadce0",
+                fontSize: "14px",
+                outline: "none",
+                background: "#f1f3f4"
+              }}
+            />
+            <svg style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: "#5f6368" }} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
           </div>
 
-          <div style={{ fontWeight: 600, fontSize: "14px", color: "#202124", display: "flex", alignItems: "center", gap: "8px" }}>
-            <img src={gmailIcon} alt="Gmail" style={{ width: 18, height: 18 }} />
-            {gmailFolder === "TRASH" ? "Trash" : "Inbox"} - {PERSONA.toUpperCase() === "SIYA" ? "siya@actuaryspace.co.za" : "yolandie@actuaryspace.co.za"}
-          </div>
-
-          {/* Spacer - This pushes the Trash pill to the far right inside your blue circle area */}
-          <div style={{ flex: 1 }}></div>
+          {/* Spacer */}
+          <div style={{ flex: 0 }}></div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             {/* 1. SELECTION COUNT AND DELETE ACTIONS */}
@@ -3525,16 +3758,16 @@ const handleStartChat = async () => {
           </div>
         </div>
 
-        {/* Body */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "0" }}>
+     {/* Body */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "0" }}>
           {gmailLoading && <div style={{ padding: "16px", color: "#5f6368" }}>Loading inbox...</div>}
           {gmailError && <div style={{ padding: "16px", color: "#ea4335" }}>Error: {gmailError}</div>}
-          
-          {!gmailLoading && !gmailError && gmailEmails.length === 0 && (
-            <div style={{ padding: "16px", color: "#5f6368", textAlign: "center", marginTop: "20px" }}>No emails found.</div>
+          
+          {!gmailLoading && !gmailError && filteredEmails.length === 0 && (
+            <div style={{ padding: "16px", color: "#5f6368", textAlign: "center", marginTop: "20px" }}>No matching emails found.</div>
           )}
 
-{!gmailLoading && !gmailError && gmailEmails.map((msg, i) => (
+{!gmailLoading && !gmailError && filteredEmails.map((msg, i) => (
             <div 
               key={msg.id || i}
               style={{ 
@@ -3649,8 +3882,8 @@ const handleStartChat = async () => {
               <button onClick={() => setSelectedDraftTemplate(null)} style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: "16px", color: "#5f6368" }}>✕</button>
             </div>
             
-            {/* To Field */}
-            <div style={{ padding: "8px 16px", borderBottom: "1px solid #f1f3f4", display: "flex", alignItems: "center" }}>
+         {/* To Field with Suggestions */}
+            <div style={{ padding: "8px 16px", borderBottom: "1px solid #f1f3f4", display: "flex", alignItems: "center", position: "relative" }}>
               <span style={{ color: "#5f6368", fontSize: "14px", width: "40px" }}>To</span>
               <input
                 type="text"
@@ -3659,6 +3892,45 @@ const handleStartChat = async () => {
                 onChange={(e) => setDraftTo(e.target.value)}
                 style={{ flex: 1, border: "none", outline: "none", fontSize: "14px", color: "#202124" }}
               />
+              
+              {/* Suggestion Dropdown */}
+              {draftTo.length > 1 && !draftTo.includes("@") && (
+                <div style={{
+                  position: "absolute",
+                  top: "100%",
+                  left: "56px",
+                  right: "16px",
+                  background: "white",
+                  border: "1px solid #dadce0",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                  zIndex: 2000,
+                  maxHeight: "200px",
+                  overflowY: "auto",
+                  borderRadius: "4px"
+                }}>
+                  {Object.entries(AC_EMAIL_MAP)
+                    .filter(([name]) => name.toLowerCase().includes(draftTo.toLowerCase()))
+                    .map(([name, email]) => (
+                      <div 
+                        key={email}
+                        onClick={() => setDraftTo(email)}
+                        onMouseEnter={(e) => e.currentTarget.style.background = "#f1f3f4"}
+                        onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                        style={{
+                          padding: "8px 12px",
+                          cursor: "pointer",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          fontSize: "13px"
+                        }}
+                      >
+                        <span style={{ fontWeight: 600 }}>{name}</span>
+                        <span style={{ color: "#5f6368" }}>{email}</span>
+                      </div>
+                    ))
+                  }
+                </div>
+              )}
             </div>
 
             {/* Subject Field */}
@@ -4146,31 +4418,55 @@ const handleStartChat = async () => {
                         <span>›</span>
                       </div>
 
-                      {/* ARCHIVE OPTION */}
-                      <div 
-                        style={{ padding: '8px 16px', cursor: 'pointer', color: '#b6c2cf' }}
-                        onMouseEnter={e => e.currentTarget.style.background = '#a6c5e229'}
-                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          const cid = c.id;
-                          
-                          // 1. Optimistic Update: Instantly wipe from screen
-                          setTrelloBuckets(prev => prev.map(b => ({ ...b, cards: b.cards.filter(card => card.id !== cid) })));
-                          setTrelloMenuOpen(false);
-                          setTrelloCard(null);
+                      {/* ARCHIVE / RESTORE OPTION */}
+                      {c.isArchived ? (
+                        <div 
+                          style={{ padding: '8px 16px', cursor: 'pointer', color: '#b6c2cf' }}
+                          onMouseEnter={e => e.currentTarget.style.background = '#a6c5e229'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            const cid = c.id;
+                            
+                            // Optimistic Update: Instantly change UI to active
+                            setTrelloCard(prev => ({ ...prev, isArchived: false, boardList: "Restored" }));
+                            setTrelloMenuOpen(false);
 
-                          // 2. Background Sync
-                          try {
-                            await fetch("/.netlify/functions/trello-archive", {
-                              method: "POST", headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ cardId: cid })
-                            });
-                          } catch (err) { console.error("Archive failed", err); }
-                        }}
-                      >
-                        Archive
-                      </div>
+                            try {
+                              await fetch("/.netlify/functions/trello-restore", {
+                                method: "POST", headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ cardId: cid })
+                              });
+                            } catch (err) { console.error("Restore failed", err); }
+                          }}
+                        >
+                          Restore
+                        </div>
+                      ) : (
+                        <div 
+                          style={{ padding: '8px 16px', cursor: 'pointer', color: '#b6c2cf' }}
+                          onMouseEnter={e => e.currentTarget.style.background = '#a6c5e229'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            const cid = c.id;
+                            
+                            // Optimistic Update: Instantly wipe from screen
+                            setTrelloBuckets(prev => prev.map(b => ({ ...b, cards: b.cards.filter(card => card.id !== cid) })));
+                            setTrelloMenuOpen(false);
+                            setTrelloCard(null);
+
+                            try {
+                              await fetch("/.netlify/functions/trello-archive", {
+                                method: "POST", headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ cardId: cid })
+                              });
+                            } catch (err) { console.error("Archive failed", err); }
+                          }}
+                        >
+                          Archive
+                        </div>
+                      )}
                     </>
                   ) : (
                     /* SUB-MENU: MOVE CARD UI */
@@ -4673,7 +4969,12 @@ const handleStartChat = async () => {
                </div>
                
                <div className="timer-row" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  {parseFloat(c.customFields?.WorkTimerStart) > 1000000000000 ? (
+                  
+                  {c.isArchived ? (
+                     <div style={{ color: '#5e6c84', fontSize: '13px', fontWeight: 600, padding: '6px 12px', background: '#091e420f', borderRadius: '4px' }}>
+                        Read-Only (Restore card to track time)
+                     </div>
+                  ) : parseFloat(c.customFields?.WorkTimerStart) > 1000000000000 ? (
                       <button 
                         className="btn-red" 
                         style={{ backgroundColor: '#eb5a46', color: '#fff', border: 'none', borderRadius: 3, padding: '6px 12px', fontWeight: 600, cursor: 'pointer', width: '105px', textAlign: 'center' }}
@@ -4684,32 +4985,25 @@ const handleStartChat = async () => {
                            const oldDur = parseFloat(c.customFields.WorkDuration || "0");
                            const newTotal = (oldDur + sessionMins).toFixed(2);
                            
-                           // Lock local state
                            window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "WorkDuration", ttlMs: 10000 } }));
                            window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "WorkTimerStart", ttlMs: 10000 } }));
 
-                           // Update modal UI instantly
                            setTrelloCard(prev => ({
-                              ...prev,
-                              customFields: { ...prev.customFields, WorkTimerStart: null, WorkDuration: newTotal }
+                              ...prev, customFields: { ...prev.customFields, WorkTimerStart: null, WorkDuration: newTotal }
                            }));
 
-                           // Sync background list
                            window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
                               detail: { cardId: c.id, updater: old => ({ 
                                  ...old, customFields: { ...old.customFields, WorkTimerStart: null, WorkDuration: newTotal } 
                               }) }
                            }));
 
-                           // Push to Trello using your guaranteed working API
                            try {
                               await fetch("/.netlify/functions/trello-set-custom-field", {
-                                 method: "POST",
-                                 body: JSON.stringify({ cardId: c.id, fieldName: "WorkDuration", valueText: String(newTotal) })
+                                 method: "POST", body: JSON.stringify({ cardId: c.id, fieldName: "WorkDuration", valueText: String(newTotal) })
                               });
                               await fetch("/.netlify/functions/trello-set-custom-field", {
-                                 method: "POST",
-                                 body: JSON.stringify({ cardId: c.id, fieldName: "WorkTimerStart", valueText: "" })
+                                 method: "POST", body: JSON.stringify({ cardId: c.id, fieldName: "WorkTimerStart", valueText: "" })
                               });
                            } catch(err) { console.error("WorkFlow Timer Stop Failed", err); }
                         }}
@@ -4722,25 +5016,18 @@ const handleStartChat = async () => {
                         style={{ backgroundColor: '#f2d600', color: '#172b4d', border: 'none', borderRadius: 3, padding: '6px 12px', fontWeight: 600, cursor: 'pointer', width: '105px', textAlign: 'center' }}
                         onClick={async () => {
                            const now = Date.now();
-                           
                            window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "WorkTimerStart", ttlMs: 10000 } }));
-
                            setTrelloCard(prev => ({
-                              ...prev,
-                              customFields: { ...prev.customFields, WorkTimerStart: now }
+                              ...prev, customFields: { ...prev.customFields, WorkTimerStart: now }
                            }));
-
                            window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
                               detail: { cardId: c.id, updater: old => ({ 
                                  ...old, customFields: { ...old.customFields, WorkTimerStart: now } 
                               }) }
                            }));
-
-                           // Push to Trello using your guaranteed working API
                            try {
                               await fetch("/.netlify/functions/trello-set-custom-field", {
-                                 method: "POST",
-                                 body: JSON.stringify({ cardId: c.id, fieldName: "WorkTimerStart", valueText: String(now) })
+                                 method: "POST", body: JSON.stringify({ cardId: c.id, fieldName: "WorkTimerStart", valueText: String(now) })
                               });
                            } catch(err) { console.error("WorkFlow Timer Start Failed", err); }
                         }}
@@ -4750,8 +5037,9 @@ const handleStartChat = async () => {
                   )}
 
                   <div className="timer-display">
+                     {/* Pass null for start time if archived, so the clock stops ticking visually! */}
                      <LiveTimer 
-                        startTime={c.customFields?.WorkTimerStart} 
+                        startTime={!c.isArchived ? c.customFields?.WorkTimerStart : null} 
                         duration={c.customFields?.WorkDuration} 
                      />
                   </div>  
@@ -4771,177 +5059,164 @@ const handleStartChat = async () => {
                </div>
                
                <div className="timer-row" style={{ position: 'relative' }}>
-                  {/* START / STOP BUTTON */}
-                  {c.customFields?.TimerStart ? (
-                      <button 
-                        className="btn-red" 
-                        style={{ backgroundColor: '#eb5a46', color: '#fff', border: 'none', borderRadius: 3, padding: '6px 12px', fontWeight: 600, cursor: 'pointer' }}
-                        onClick={async () => {
-                           // --- STOP LOGIC ---
-                           const stopTime = Date.now();
-                           const startTime = parseFloat(c.customFields.TimerStart);
-                           const sessionMins = (stopTime - startTime) / 1000 / 60;
-                           const oldDur = parseFloat(c.customFields.Duration || "0");
-                           const newTotal = (oldDur + sessionMins).toFixed(2);
+                      
+                      {c.isArchived ? (
+                         <div style={{ color: '#5e6c84', fontSize: '13px', fontWeight: 600, padding: '6px 12px', background: '#091e420f', borderRadius: '4px', display: 'inline-block', marginBottom: '8px' }}>
+                            Read-Only (Restore card to track time)
+                         </div>
+                      ) : c.customFields?.TimerStart ? (
+                          <button 
+                            className="btn-red" 
+                            style={{ backgroundColor: '#eb5a46', color: '#fff', border: 'none', borderRadius: 3, padding: '6px 12px', fontWeight: 600, cursor: 'pointer' }}
+                            onClick={async () => {
+                               const stopTime = Date.now();
+                               const startTime = parseFloat(c.customFields.TimerStart);
+                               const sessionMins = (stopTime - startTime) / 1000 / 60;
+                               const oldDur = parseFloat(c.customFields.Duration || "0");
+                               const newTotal = (oldDur + sessionMins).toFixed(2);
+                               
+                               window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "Duration", ttlMs: 10000 } }));
+                               window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "TimerStart", ttlMs: 10000 } }));
+
+                               setTrelloCard(prev => ({
+                                  ...prev, customFields: { ...prev.customFields, TimerStart: null, Duration: newTotal }
+                               }));
+
+                               await fetch("/.netlify/functions/trello-timer", {
+                                  method: "POST", body: JSON.stringify({ cardId: c.id, action: "stop" })
+                               });
+                               
+                               window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
+                                  detail: { cardId: c.id, updater: old => ({ 
+                                     ...old, customFields: { ...old.customFields, TimerStart: null, Duration: newTotal } 
+                                  }) }
+                               }));
+                            }}
+                          >
+                            Stop
+                          </button>
+                      ) : (
+                          <button 
+                            className="btn-blue"
+                            onClick={async () => {
+                               const now = Date.now();
+                               
+                               window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "TimerStart", ttlMs: 10000 } }));
+
+                               setTrelloCard(prev => ({
+                                  ...prev, customFields: { ...prev.customFields, TimerStart: now }
+                               }));
+
+                               await fetch("/.netlify/functions/trello-timer", {
+                                  method: "POST", body: JSON.stringify({ cardId: c.id, action: "start" })
+                               });
+
+                               window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
+                                  detail: { cardId: c.id, updater: old => ({ 
+                                     ...old, customFields: { ...old.customFields, TimerStart: now } 
+                                  }) }
+                               }));
+                            }}
+                          >
+                            Start timer
+                          </button>
+                      )}
+
+                      {!c.isArchived && (
+                         <button 
+                            className="t-btn-gray" 
+                            title="Add manual time"
+                            onClick={() => setShowAddTime(!showAddTime)}
+                         >
+                            <span>+</span> Add time
+                         </button>
+                      )}
+
+                      {/* POPUP FOR MANUAL TIME */}
+                      {showAddTime && !c.isArchived && (
+                        <div className="label-picker-popover" style={{ width: 260, top: 45, left: 80, padding: 16, cursor: 'default' }}>
+                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                              <span style={{ fontWeight: 600, color: '#172b4d' }}>Add time tracking</span>
+                              <button onClick={() => setShowAddTime(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 16 }}>✕</button>
+                           </div>
                            
-                           // 1. Trigger Protection (10s)
-                           window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "Duration", ttlMs: 10000 } }));
-                           window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "TimerStart", ttlMs: 10000 } }));
+                           <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+                              <div style={{ flex: 1 }}>
+                                 <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#5e6c84', marginBottom: 4 }}>Hours</label>
+                                 <input 
+                                    type="number" min="0" 
+                                    value={manualHours} 
+                                    onChange={e => setManualHours(e.target.value)}
+                                    style={{ width: '100%', padding: '6px 8px', borderRadius: 3, border: '2px solid #dfe1e6' }}
+                                 />
+                              </div>
+                              <div style={{ flex: 1 }}>
+                                 <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#5e6c84', marginBottom: 4 }}>Minutes</label>
+                                 <input 
+                                    type="number" min="0" 
+                                    value={manualMins} 
+                                    onChange={e => setManualMins(e.target.value)}
+                                    style={{ width: '100%', padding: '6px 8px', borderRadius: 3, border: '2px solid #dfe1e6' }}
+                                 />
+                              </div>
+                           </div>
 
-                           // 2. Update UI
-                           setTrelloCard(prev => ({
-                              ...prev,
-                              customFields: { ...prev.customFields, TimerStart: null, Duration: newTotal }
-                           }));
+                           <button 
+                              className="btn-blue" 
+                              style={{ width: '100%', justifyContent: 'center' }}
+                              onClick={async () => {
+                                 const h = parseFloat(manualHours) || 0;
+                                 const m = parseFloat(manualMins) || 0;
+                                 const addedMinutes = (h * 60) + m;
 
-                           // 3. Send to Trello
-                           await fetch("/.netlify/functions/trello-timer", {
-                              method: "POST",
-                              body: JSON.stringify({ cardId: c.id, action: "stop" })
-                           });
-                           
-                           // 4. Sync Buckets
-                           window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
-                              detail: { cardId: c.id, updater: old => ({ 
-                                 ...old, customFields: { ...old.customFields, TimerStart: null, Duration: newTotal } 
-                              }) }
-                           }));
-                        }}
-                      >
-                        Stop
-                      </button>
-                  ) : (
-                      <button 
-                        className="btn-blue"
-                        onClick={async () => {
-                           // --- START LOGIC ---
-                           const now = Date.now();
-                           
-                           // 1. Trigger Protection (10s)
-                           window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "TimerStart", ttlMs: 10000 } }));
+                                 if (addedMinutes > 0) {
+                                    const oldDur = parseFloat(c.customFields.Duration || "0");
+                                    const newTotal = (oldDur + addedMinutes).toFixed(2);
 
-                           // 2. Update UI
-                           setTrelloCard(prev => ({
-                              ...prev,
-                              customFields: { ...prev.customFields, TimerStart: now }
-                           }));
+                                    window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "Duration", ttlMs: 10000 } }));
 
-                           // 3. Send to Trello
-                           await fetch("/.netlify/functions/trello-timer", {
-                              method: "POST",
-                              body: JSON.stringify({ cardId: c.id, action: "start" })
-                           });
+                                    setTrelloCard(prev => ({
+                                       ...prev,
+                                       customFields: { ...prev.customFields, Duration: newTotal }
+                                    }));
+                                    setShowAddTime(false);
+                                    setManualHours("0");
+                                    setManualMins("0");
 
-                           // 4. Sync Buckets
-                           window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
-                              detail: { cardId: c.id, updater: old => ({ 
-                                 ...old, customFields: { ...old.customFields, TimerStart: now } 
-                              }) }
-                           }));
-                        }}
-                      >
-                        Start timer
-                      </button>
-                  )}
+                                    await fetch("/.netlify/functions/trello-set-custom-field", {
+                                       method: "POST",
+                                       body: JSON.stringify({ 
+                                          cardId: c.id, 
+                                          fieldName: "Duration", 
+                                          valueText: newTotal 
+                                       })
+                                    });
 
-                  {/* ADD TIME BUTTON */}
-                  <button 
-                     className="t-btn-gray" 
-                     title="Add manual time"
-                     onClick={() => setShowAddTime(!showAddTime)}
-                  >
-                     <span>+</span> Add time
-                  </button>
+                                    window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
+                                       detail: { cardId: c.id, updater: old => ({ 
+                                          ...old, customFields: { ...old.customFields, Duration: newTotal } 
+                                       }) }
+                                    }));
+                                 }
+                              }}
+                           >
+                              Add time
+                           </button>
+                        </div>
+                      )}
+                      
+                      {/* LIVE COUNTER */}
+                      <div className="timer-display">
+                         <LiveTimer 
+                            startTime={!c.isArchived ? c.customFields?.TimerStart : null} 
+                            duration={c.customFields?.Duration} 
+                         />
+                      </div>
 
-                  {/* POPUP FOR MANUAL TIME */}
-                  {showAddTime && (
-                    <div className="label-picker-popover" style={{ width: 260, top: 45, left: 80, padding: 16, cursor: 'default' }}>
-                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                          <span style={{ fontWeight: 600, color: '#172b4d' }}>Add time tracking</span>
-                          <button onClick={() => setShowAddTime(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 16 }}>✕</button>
-                       </div>
-                       
-                       <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-                          <div style={{ flex: 1 }}>
-                             <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#5e6c84', marginBottom: 4 }}>Hours</label>
-                             <input 
-                                type="number" min="0" 
-                                value={manualHours} 
-                                onChange={e => setManualHours(e.target.value)}
-                                style={{ width: '100%', padding: '6px 8px', borderRadius: 3, border: '2px solid #dfe1e6' }}
-                             />
-                          </div>
-                          <div style={{ flex: 1 }}>
-                             <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#5e6c84', marginBottom: 4 }}>Minutes</label>
-                             <input 
-                                type="number" min="0" 
-                                value={manualMins} 
-                                onChange={e => setManualMins(e.target.value)}
-                                style={{ width: '100%', padding: '6px 8px', borderRadius: 3, border: '2px solid #dfe1e6' }}
-                             />
-                          </div>
-                       </div>
-
-                       <button 
-                          className="btn-blue" 
-                          style={{ width: '100%', justifyContent: 'center' }}
-                          onClick={async () => {
-                             const h = parseFloat(manualHours) || 0;
-                             const m = parseFloat(manualMins) || 0;
-                             const addedMinutes = (h * 60) + m;
-
-                             if (addedMinutes > 0) {
-                                const oldDur = parseFloat(c.customFields.Duration || "0");
-                                const newTotal = (oldDur + addedMinutes).toFixed(2);
-
-                                // 1. Trigger Protection (10s)
-                                window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "Duration", ttlMs: 10000 } }));
-
-                                // 2. Update UI
-                                setTrelloCard(prev => ({
-                                   ...prev,
-                                   customFields: { ...prev.customFields, Duration: newTotal }
-                                }));
-                                setShowAddTime(false);
-                                setManualHours("0");
-                                setManualMins("0");
-
-                                // 3. Backend Save
-                                await fetch("/.netlify/functions/trello-set-custom-field", {
-                                   method: "POST",
-                                   body: JSON.stringify({ 
-                                      cardId: c.id, 
-                                      fieldName: "Duration", 
-                                      valueText: newTotal 
-                                   })
-                                });
-
-                                // 4. Sync Buckets
-                                window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
-                                   detail: { cardId: c.id, updater: old => ({ 
-                                      ...old, customFields: { ...old.customFields, Duration: newTotal } 
-                                   }) }
-                                }));
-                             }
-                          }}
-                       >
-                          Add time
-                       </button>
-                    </div>
-                  )}
-                  
-                  {/* LIVE COUNTER */}
-                  <div className="timer-display">
-                     <LiveTimer 
-                        startTime={c.customFields?.TimerStart} 
-                        duration={c.customFields?.Duration} 
-                     />
-                  </div>
-
-                  <div className="timer-estimate" style={{marginLeft:8, fontSize:12, color:'#5e6c84'}}>
-                     Estimate: 0m
-                  </div>
-               </div>
+                      <div className="timer-estimate" style={{marginLeft:8, fontSize:12, color:'#5e6c84'}}>
+                         Estimate: 0m
+                      </div>
+                   </div>
                
                {/* 🗑️ BANNER REMOVED */}
             </div>
@@ -5044,6 +5319,7 @@ const handleStartChat = async () => {
         moveTargetPos,
         trelloBuckets,
         selectedEmailIds,
+        searchQuery,
       ]);
 
   return (
@@ -5084,61 +5360,62 @@ const handleStartChat = async () => {
           currentView.app === "email" && emailPreview ? "has-email-preview" : ""
         }`}
       >
-        <div className="panel-title" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingRight: "24px", paddingLeft: "12px" }}>
+<div className="panel-title" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingRight: "24px", paddingLeft: "12px" }}>
           
           {/* LEFT SIDE: Google Chat & Gmail Buttons */}
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <button
-              className="connect-google-btn"
-              onClick={() => {
-                setGchatSelectedSpace(null); 
-                setInputValue("");           
-                setCurrentView({ app: "gchat", contact: null });
-              }}
-              type="button"
-            >
-              <img src={gchatIcon} alt="GChat" />
-              Google Chat
-            </button>
+            <button
+              className="connect-google-btn"
+              onClick={() => {
+                setGchatSelectedSpace(null); 
+                setInputValue("");           
+                setCurrentView({ app: "gchat", contact: null });
+              }}
+              type="button"
+            >
+              <img src={gchatIcon} alt="GChat" />
+              Google Chat
+            </button>
 
-            <button
-              className="connect-google-btn"
-              onClick={() => {
-                setInputValue("");
-                setCurrentView({ app: "gmail", contact: null });
-              }}
-              type="button"
-            >
-              <img src={gmailIcon} alt="Gmail" />
-              Gmail
-            </button>
-          </div>
-          {/* RIGHT SIDE: Connect + Close App Button */}
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <a
-              href="/.netlify/functions/google-auth-start"
-              className="connect-google-btn"
-            >
-              Connect / Reconnect Google
-            </a>
+            <button
+              className="connect-google-btn"
+              onClick={() => {
+                setInputValue("");
+                setCurrentView({ app: "gmail", contact: null });
+              }}
+              type="button"
+            >
+              <img src={gmailIcon} alt="Gmail" />
+              Gmail
+            </button>
+          </div>
 
-            {/* 👇 NEW: Close App Button (Only shows when in an app) */}
-            {currentView.app !== "none" && (
-              <button
-                onClick={() => setCurrentView({ app: "none", contact: null })}
-                style={{
-                  width: "32px", height: "32px", borderRadius: "50%",
-                  border: "1px solid #dadce0", background: "white",
-                  display: "grid", placeItems: "center", cursor: "pointer",
-                  color: "#5f6368", fontSize: "18px", fontWeight: "300"
-                }}
-                title="Close App"
-              >
-                ×
-              </button>
-            )}
-          </div>
-        </div>
+          {/* RIGHT SIDE: Connect + Close App Button */}
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <a
+              href="/.netlify/functions/google-auth-start"
+              className="connect-google-btn"
+            >
+              Connect / Reconnect Google
+            </a>
+
+            {/* 👇 NEW: Close App Button (Only shows when in an app) */}
+            {currentView.app !== "none" && (
+              <button
+                onClick={() => setCurrentView({ app: "none", contact: null })}
+                style={{
+                  width: "32px", height: "32px", borderRadius: "50%",
+                  border: "1px solid #dadce0", background: "white",
+                  display: "grid", placeItems: "center", cursor: "pointer",
+                  color: "#5f6368", fontSize: "18px", fontWeight: "300"
+                }}
+                title="Close App"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        </div>
 
         <div className="middle-content">{middleContent}</div>
 
