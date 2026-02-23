@@ -1,178 +1,116 @@
-// netlify/functions/gmail-send-email.js
-// Sends email via Gmail API using a service account with domain-wide delegation.
-// From address is taken from process.env.GMAIL_IMPERSONATE (e.g. namir@actuaryconsulting.co.za)
+const https = require('https');
+const getAccessToken = require('./_sa-token'); // Re-using your Service Account generator
 
-import { JWT } from "google-auth-library";
-import { loadServiceAccount } from "./_google-creds.js";
-
-// Helper: turn MIME string into base64url (required by Gmail API)
-function toBase64Url(str) {
-  return Buffer.from(str, "utf8")
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
+// Helper 1: Base64URL encoder (Gmail requires this specific format)
+function makeBase64Url(str) {
+  return Buffer.from(str).toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
 }
 
-// Helper: normalise a "to" string into comma-separated emails
-// Accepts "a@x.com, b@y.com" or "a@x.com; b@y.com"
-function normaliseRecipients(toRaw) {
-  if (!toRaw) return "";
-  return toRaw
-    .split(/[;,]/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .join(", ");
+// Helper 2: Native HTTPS fetch to prevent crashes
+function fetchJson(url, options, bodyData) {
+  return new Promise((resolve, reject) => {
+    const req = https.request(url, options, (res) => {
+      let chunks = [];
+      res.on('data', d => chunks.push(d));
+      res.on('end', () => {
+        const str = Buffer.concat(chunks).toString();
+        try {
+          const json = JSON.parse(str || '{}');
+          resolve({ status: res.statusCode, json });
+        } catch (e) {
+          resolve({ status: res.statusCode, raw: str });
+        }
+      });
+    });
+    req.on('error', reject);
+    if (bodyData) req.write(bodyData);
+    req.end();
+  });
 }
 
-// Build an HTML (Verdana) MIME message
-// Build a multipart/alternative MIME message: plain-text + HTML (Verdana)
-function createMimeMessage({ from, to, subject, body }) {
-  const textBody = body || "";
-
-  const safeHtmlBody = (body || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\n/g, "<br>");
-
-  const htmlBody = `<div style="font-family: Verdana, Geneva, sans-serif; font-size:14px; line-height:1.5;">
-${safeHtmlBody}
-</div>`;
-
-  const boundary = "mixed_" + Date.now();
-
-  const lines = [
-    `From: ${from}`,
-    `To: ${to}`,
-    `Subject: ${subject}`,
-    "MIME-Version: 1.0",
-    `Content-Type: multipart/alternative; boundary="${boundary}"`,
-    "",
-    `--${boundary}`,
-    'Content-Type: text/plain; charset="UTF-8"',
-    "Content-Transfer-Encoding: 7bit",
-    "",
-    textBody,
-    "",
-    `--${boundary}`,
-    'Content-Type: text/html; charset="UTF-8"',
-    "Content-Transfer-Encoding: 7bit",
-    "",
-    htmlBody,
-    "",
-    `--${boundary}--`,
-    "",
-  ];
-
-  // Gmail wants CRLF line endings everywhere
-  return lines.join("\r\n");
-}
-
-export async function handler(event) {
-  // CORS preflight
-  if (event.httpMethod === "OPTIONS") {
-    return {
-      statusCode: 204,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-      },
-      body: "",
-    };
-  }
-
+exports.handler = async (event) => {
+  // Only allow POST requests
   if (event.httpMethod !== "POST") {
-    return {
-      statusCode: 405,
-      headers: { "Access-Control-Allow-Origin": "*" },
-      body: JSON.stringify({ ok: false, error: "Method not allowed" }),
-    };
+    return { statusCode: 405, body: "Method Not Allowed" };
   }
 
   try {
-    const rawBody = event.body || "{}";
-    const payload = JSON.parse(rawBody);
-
-    let { to, subject, body } = payload;
-
-    if (!to || !String(to).trim()) {
-      throw new Error("Missing 'to' in request body");
+    const { to, subject, body } = JSON.parse(event.body || "{}");
+    
+    if (!to || !body) {
+      return { 
+        statusCode: 400, 
+        body: JSON.stringify({ ok: false, error: "Missing 'to' or 'body'" }) 
+      };
     }
 
-    subject = subject || "(no subject)";
-    body = body || "";
+    // 1. Determine Identity based on Environment (Siya vs Yolandie)
+    const persona = process.env.VITE_PERSONA || "SIYA";
+    const impersonatedEmail = persona.toUpperCase() === "YOLANDIE" 
+      ? "yolandie@actuaryspace.co.za" 
+      : "siya@actuaryspace.co.za";
 
-    // ✅ load service account from file/short env (NOT huge JSON env)
-    const sa = loadServiceAccount();
+    // 2. Get Service Account Token for Gmail Impersonation
+    const accessToken = await getAccessToken([
+      "https://www.googleapis.com/auth/gmail.send",
+      "https://www.googleapis.com/auth/gmail.modify"
+    ], impersonatedEmail);
 
-    // ✅ who we are sending "as"
-    const impersonate = process.env.GMAIL_IMPERSONATE;
-    if (!impersonate) {
-      throw new Error("GMAIL_IMPERSONATE env var is not set");
+    if (!accessToken) {
+      return { 
+        statusCode: 500, 
+        body: JSON.stringify({ ok: false, error: "Failed to generate Service Account token" }) 
+      };
     }
 
-    // ✅ create Gmail client
-    const client = new JWT({
-      email: sa.client_email,
-      key: sa.private_key,
-      scopes: ["https://www.googleapis.com/auth/gmail.send"],
-      subject: impersonate,
-    });
+    // 3. Construct Raw Email String (RFC 2822 Format)
+    // CRITICAL: The 'From' header is strictly required when using Service Accounts
+    const rawEmail = `To: ${to}\r\n` +
+                     `From: ${impersonatedEmail}\r\n` +
+                     `Subject: ${subject}\r\n` +
+                     `Content-Type: text/plain; charset="UTF-8"\r\n\r\n` +
+                     `${body}`;
 
-    // ✅ authorize token
-    await client.authorize();
+    // 4. Encode the email to Base64URL
+    const encodedEmail = makeBase64Url(rawEmail);
 
-    const toHeader = normaliseRecipients(to);
-    const fromHeader = impersonate;
+    // 5. Send via Gmail API
+    const sendOptions = {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    };
 
-    const mime = createMimeMessage({
-      from: fromHeader,
-      to: toHeader,
-      subject,
-      body,
-    });
+    const sendBody = JSON.stringify({ raw: encodedEmail });
 
-    const raw = toBase64Url(mime);
+    const sendRes = await fetchJson('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', sendOptions, sendBody);
 
-    // Send via Gmail API
-    const url =
-      "https://gmail.googleapis.com/gmail/v1/users/me/messages/send";
+    if (sendRes.status !== 200) {
+      console.error("Gmail send failed:", sendRes.json || sendRes.raw);
+      // Pass the exact Google error message to the frontend popup
+      const googleError = sendRes.json?.error?.message || "Unknown Google API Error";
+      return { 
+        statusCode: 500, 
+        body: JSON.stringify({ ok: false, error: `Gmail API: ${googleError}` }) 
+      };
+    }
 
-    const res = await client.request({
-      url,
-      method: "POST",
-      data: { raw },
-    });
-
-    const data = res.data || {};
-
+    // Success!
     return {
       statusCode: 200,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        ok: true,
-        id: data.id || null,
-        labelIds: data.labelIds || [],
-      }),
+      body: JSON.stringify({ ok: true, messageId: sendRes.json.id })
     };
-  } catch (err) {
-    console.error("gmail-send-email error:", err);
 
+  } catch (err) {
+    console.error("gmail-send-email fatal error:", err);
     return {
       statusCode: 500,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        ok: false,
-        error: err.message || String(err),
-      }),
+      body: JSON.stringify({ ok: false, error: String(err) })
     };
   }
-}
+};

@@ -29,7 +29,8 @@ exports.handler = async (event) => {
     const cfRes = await fetch(`https://api.trello.com/1/boards/${cardJson.idBoard}/customFields?key=${key}&token=${token}`);
     const fields = await cfRes.json();
 
-    // 3. Find the Field (Case Insensitive)const field = fields.find(f => f.name.trim().toLowerCase().includes(fieldName.trim().toLowerCase()));
+    // 3. Find the Field (Case Insensitive)
+    const field = fields.find(f => f.name.trim().toLowerCase().includes(fieldName.trim().toLowerCase()));
     
     if (!field) return json(404, { error: `Field '${fieldName}' not found on board.` });
 

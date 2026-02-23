@@ -4,17 +4,16 @@ export async function handler(event) {
   // --- HARDCODED FIXES ---
   const clientId = "255077263612-j39k16rqh685nn7sd4oh1qkn5f7eb1ls.apps.googleusercontent.com";
   // FIX: Pointing to the LIVE callback URL
-  const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT;
-  // -----------------------
+  const redirectUri = "http://localhost:8888/.netlify/functions/google-auth-callback";
 
   const SCOPES = [
     "openid",
     "email",
     "profile",
-    "https://www.googleapis.com/auth/chat.spaces.readonly",
-    "https://www.googleapis.com/auth/chat.memberships.readonly",
-    "https://www.googleapis.com/auth/chat.messages.readonly", // <-- We keep this one to fix the 502 error
-    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/chat.spaces",
+    "https://www.googleapis.com/auth/chat.memberships",
+    "https://www.googleapis.com/auth/chat.messages", // <-- We keep this one to fix the 502 error
+    "https://www.googleapis.com/auth/gmail",
     "https://www.googleapis.com/auth/directory.readonly"
   ];
 

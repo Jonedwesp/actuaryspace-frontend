@@ -247,7 +247,8 @@ function dedupeMergeMessages(prev, incoming) {
     merged.push(msg);
   }
 
-  merged.sort((a, b) => getMsgTs(a) - getMsgTs(b));
+  // This puts the largest (newest) timestamp at the top
+merged.sort((a, b) => getMsgTs(b) - getMsgTs(a));
   return merged;
 }
 
@@ -1325,7 +1326,15 @@ const RightPanel = React.memo(function RightPanel() {
               people: c.idMembers || c.people || [],
               listId: b.id,
               list: title,
-              customFields: c.customFields || {},
+              customFields: (() => {
+                 let safeCF = {};
+                 for (let k in (c.customFields || {})) {
+                    if (k.includes("TimerStart")) safeCF.WorkTimerStart = c.customFields[k];
+                    else if (k.includes("Duration")) safeCF.WorkDuration = c.customFields[k];
+                    else safeCF[k] = c.customFields[k];
+                 }
+                 return safeCF;
+              })(),
               description: c.desc || c.description || "",
               cover: c.cover || null
             })),
@@ -1744,9 +1753,11 @@ useEffect(() => {
   const [emailPreview, setEmailPreview] = useState(null);
 
   /* Gmail Inbox State */
-  const [gmailEmails, setGmailEmails] = useState([]);
-  const [gmailLoading, setGmailLoading] = useState(false);
-  const [gmailError, setGmailError] = useState("");
+  const [gmailEmails, setGmailEmails] = useState([]);
+  const [gmailLoading, setGmailLoading] = useState(false);
+  const [gmailError, setGmailError] = useState("");
+  const [selectedEmailIds, setSelectedEmailIds] = useState(new Set());
+  const [gmailFolder, setGmailFolder] = useState("INBOX"); // Tracks current folder
 
 
   // NEW: email draft helper state
@@ -1757,7 +1768,11 @@ useEffect(() => {
   /* Trello modal */
   const [trelloCard, setTrelloCard] = useState(null);
   const [trelloMenuOpen, setTrelloMenuOpen] = useState(false);
-
+  const [showMoveSubmenu, setShowMoveSubmenu] = useState(false);
+  const [moveTab, setMoveTab] = useState("outbox");
+  const [moveTargetList, setMoveTargetList] = useState("");
+  const [moveTargetPos, setMoveTargetPos] = useState(1);
+  
   // NEW: local Description editor state
   const [descEditing, setDescEditing] = useState(false);
   const [descDraft, setDescDraft] = useState("");
@@ -2327,11 +2342,12 @@ useEffect(() => {
   return () => window.removeEventListener("openTrelloCard", handler);
 }, []);
 
-  useEffect(() => {
+useEffect(() => {
     const close = (e) => {
       // ignore clicks originating inside the menu or the button
       if (e.target.closest?.(".kebab-wrap")) return;
       setTrelloMenuOpen(false);
+      setShowMoveSubmenu(false); // <--- THIS IS THE NEW LINE
     };
     document.addEventListener("click", close);
     return () => document.removeEventListener("click", close);
@@ -3411,16 +3427,106 @@ const handleStartChat = async () => {
 }
 
       if (currentView.app === "gmail") {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#fff", borderRadius: "12px", border: "1px solid #e6e6e6", overflow: "hidden" }}>
-        {/* Header */}
-        <div style={{ padding: "12px 16px", borderBottom: "1px solid #eee", background: "#f8f9fa", fontWeight: 600, fontSize: "15px", color: "#202124", display: "flex", alignItems: "center", gap: "8px" }}>
-          <img src={gmailIcon} alt="Gmail" style={{ width: 20, height: 20 }} />
-          Inbox - {PERSONA.toUpperCase() === "SIYA" ? "siya@actuaryspace.co.za" : "yolandie@actuaryspace.co.za"}
-        </div>
+    const allSelected = gmailEmails.length > 0 && selectedEmailIds.size === gmailEmails.length;
 
-        {/* Body */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "0" }}>
+    const toggleSelectAll = () => {
+      if (allSelected) setSelectedEmailIds(new Set());
+      else setSelectedEmailIds(new Set(gmailEmails.map(e => e.id)));
+    };
+
+    const handleDeleteSelected = async () => {
+      const count = selectedEmailIds.size;
+      const isPermanent = gmailFolder === "TRASH";
+      if (!window.confirm(`${isPermanent ? 'Permanently delete' : 'Move to trash'} ${count} message${count > 1 ? 's' : ''}?`)) return;
+      
+      try {
+        await fetch("/.netlify/functions/gmail-delete-bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messageIds: Array.from(selectedEmailIds), permanent: isPermanent })
+        });
+        setGmailEmails(prev => prev.filter(e => !selectedEmailIds.has(e.id)));
+        setSelectedEmailIds(new Set());
+      } catch (err) { console.error("Delete failed", err); }
+    };
+
+    return (
+      <div style={{ position: "relative", display: "flex", flexDirection: "column", height: "100%", background: "#fff", borderRadius: "12px", border: "1px solid #e6e6e6", overflow: "hidden" }}>
+        {/* Header Bar */}
+        <div style={{ padding: "8px 16px", borderBottom: "1px solid #eee", background: "#f8f9fa", display: "flex", alignItems: "center", minHeight: "48px", gap: "12px" }}>
+          
+          <button 
+            className="btn blue" 
+            onClick={() => {
+              setEmail(null);
+              setEmailPreview(null);
+              setSelectedDraftTemplate({ ...DRAFT_TEMPLATES.find(t => t.id === "new_blank") });
+              setDraftTo("");
+            }}
+            style={{ borderRadius: "20px", padding: "10px 20px", fontSize: "14px", fontWeight: 500, display: "flex", alignItems: "center", gap: "8px" }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+            Compose
+          </button>
+          
+          <div style={{ display: "flex", alignItems: "center", padding: "0 4px" }}>
+            <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} style={{ cursor: "pointer", width: "18px", height: "18px" }} />
+          </div>
+
+          <div style={{ fontWeight: 600, fontSize: "14px", color: "#202124", display: "flex", alignItems: "center", gap: "8px" }}>
+            <img src={gmailIcon} alt="Gmail" style={{ width: 18, height: 18 }} />
+            {gmailFolder === "TRASH" ? "Trash" : "Inbox"} - {PERSONA.toUpperCase() === "SIYA" ? "siya@actuaryspace.co.za" : "yolandie@actuaryspace.co.za"}
+          </div>
+
+          {/* Spacer - This pushes the Trash pill to the far right inside your blue circle area */}
+          <div style={{ flex: 1 }}></div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            {/* 1. SELECTION COUNT AND DELETE ACTIONS */}
+            {selectedEmailIds.size > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <span style={{ fontSize: "13px", color: "#5f6368" }}>{selectedEmailIds.size} selected</span>
+                <button 
+                  onClick={handleDeleteSelected} 
+                  style={{ background: "#fff", border: "1px solid #dadce0", borderRadius: "4px", padding: "6px 12px", cursor: "pointer", fontSize: "13px", color: "#d93025", fontWeight: 500 }}
+                >
+                  {gmailFolder === "TRASH" ? "Delete Permanently" : "🗑 Delete"}
+                </button>
+              </div>
+            )}
+
+            {/* 2. TRASH PILL BUTTON - Positioned Far Right */}
+            <button
+              onClick={() => {
+                // If we are in Trash, go to Inbox. If in Inbox, go to Trash.
+                const nextFolder = gmailFolder === "TRASH" ? "INBOX" : "TRASH";
+                setGmailFolder(nextFolder);
+                setGmailEmails([]); // Clear current list to trigger loader
+                setSelectedEmailIds(new Set()); // Reset selection
+              }}
+              style={{ 
+                height: "32px", 
+                padding: "0 16px", 
+                borderRadius: "16px", 
+                fontSize: "13px", 
+                fontWeight: 500,
+                cursor: "pointer",
+                background: gmailFolder === "TRASH" ? "#fce8e6" : "#fff",
+                color: gmailFolder === "TRASH" ? "#d93025" : "#5f6368",
+                border: gmailFolder === "TRASH" ? "1px solid #d93025" : "1px solid #dadce0",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px"
+              }}
+            >
+              {/* This text toggles correctly based on current state */}
+              <span>{gmailFolder === "TRASH" ? "⬅ Back to Inbox" : "🗑 View Trash"}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "0" }}>
           {gmailLoading && <div style={{ padding: "16px", color: "#5f6368" }}>Loading inbox...</div>}
           {gmailError && <div style={{ padding: "16px", color: "#ea4335" }}>Error: {gmailError}</div>}
           
@@ -3428,199 +3534,420 @@ const handleStartChat = async () => {
             <div style={{ padding: "16px", color: "#5f6368", textAlign: "center", marginTop: "20px" }}>No emails found.</div>
           )}
 
-          {!gmailLoading && !gmailError && gmailEmails.map((msg, i) => (
-            <div 
-              key={msg.id || i}
-              style={{ 
-                display: "flex", 
-                padding: "10px 16px", 
-                borderBottom: "1px solid #f1f3f4",
-                cursor: "pointer",
-                background: msg.isUnread ? "#ffffff" : "#f2f6fc",
-                fontWeight: msg.isUnread ? 700 : 400,
-                alignItems: "center",
-                gap: "12px",
-                fontSize: "14px"
-              }}
-       onMouseEnter={(e) => e.currentTarget.style.boxShadow = "inset 1px 0 0 #dadce0, inset -1px 0 0 #dadce0, 0 1px 2px 0 rgba(60,64,67,.3), 0 1px 3px 1px rgba(60,64,67,.15)"}
-              onMouseLeave={(e) => e.currentTarget.style.boxShadow = "none"}
-         onClick={() => {
-  // 1. Mark as read in the UI instantly
-  setGmailEmails(prev => prev.map(e => e.id === msg.id ? { ...e, isUnread: false } : e));
-  
-  // Call backend to mark as read permanently
-  if (msg.isUnread) {
-    fetch("/.netlify/functions/gmail-mark-read", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messageId: msg.id })
-    }).catch(err => console.error("Mark read failed", err));
+{!gmailLoading && !gmailError && gmailEmails.map((msg, i) => (
+            <div 
+              key={msg.id || i}
+              style={{ 
+                display: "flex", 
+                padding: "10px 16px", 
+                borderBottom: "1px solid #f1f3f4",
+                cursor: "pointer",
+                background: selectedEmailIds.has(msg.id) ? "#e8f0fe" : (msg.isUnread ? "#ffffff" : "#f2f6fc"),
+                fontWeight: msg.isUnread ? 700 : 400,
+                alignItems: "center",
+                gap: "12px",
+                fontSize: "14px"
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.boxShadow = "inset 1px 0 0 #dadce0, inset -1px 0 0 #dadce0, 0 1px 2px 0 rgba(60,64,67,.3)"}
+              onMouseLeave={(e) => e.currentTarget.style.boxShadow = "none"}
+              onClick={() => {
+                setGmailEmails(prev => prev.map(e => e.id === msg.id ? { ...e, isUnread: false } : e));
+                if (msg.isUnread) {
+                  fetch("/.netlify/functions/gmail-mark-read", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ messageId: msg.id })
+                  }).catch(err => console.error("Mark read failed", err));
+                }
+                const fromParts = msg.from ? msg.from.split("<") : ["Unknown", ""];
+                const fromName = fromParts[0].replace(/"/g, '').trim();
+                const fromEmail = fromParts[1] ? "<" + fromParts[1] : "";
+                
+                // Smarter HTML detection to prevent stripping plain text spacing
+                const isHtml = /<(html|body|div|p|br|b|strong|i|em|a|span|table|style)[^>]*>/i.test(msg.body || "");
+                
+                // Reconstruct newlines if the backend compressed the plain text into a blob
+                let rawBody = msg.body || msg.snippet || "";
+                if (!isHtml && rawBody.split('\n').length < 4) {
+                  rawBody = rawBody
+                    .replace(/(---------- Forwarded message ---------)/gi, '\n\n$1\n')
+                    .replace(/(From:|Date:|Subject:|To:|Cc:)/g, '\n$1')
+                    .replace(/(Dear\s+[A-Za-z]+|Hi\s+[A-Za-z]+|Good\s+day)/gi, '\n\n$1\n\n')
+                    .replace(/(Kind\s+Regards|Regards|Sincerely|Thank\s+you)/gi, '\n\n$1\n')
+                    .replace(/(On\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^:]+wrote:)/gi, '\n\n$1\n')
+                    .replace(/(>\s*>)/g, '>>')
+                    .replace(/(>\s+)/g, '\n$1')
+                    .replace(/(\s\d+\.)/g, '\n$1')
+                    .replace(/\n{3,}/g, '\n\n')
+                    .trim();
+                }
+
+                setEmail({
+                  id: msg.id, subject: msg.subject, fromName, fromEmail,
+                  time: new Date(msg.date).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
+                  body: isHtml ? "" : rawBody,
+                  bodyHtml: isHtml ? msg.body : "",
+                  attachments: msg.subject.includes("Payslips") ? [{ name: "Payslips.pdf", url: "/pdfs/Payslips.pdf", type: "pdf" }] : [],
+                  actions: [{ key: "submit_trello", label: "Submit to Trello" }, { key: "update_tracker", label: "Update AC Tracker" }]
+                });
+                setEmailPreview(null);
+                setCurrentView({ app: "email", contact: null });
+              }}
+            >
+              {/* Checkbox Container */}
+              <div 
+                style={{ padding: "0 4px", display: "flex", alignItems: "center" }}
+                onClick={(e) => {
+                  e.stopPropagation(); 
+                  setSelectedEmailIds(prev => {
+                    const next = new Set(prev);
+                    if (next.has(msg.id)) next.delete(msg.id);
+                    else next.add(msg.id);
+                    return next;
+                  });
+                }}
+              >
+                <input 
+                  type="checkbox" 
+                  checked={selectedEmailIds.has(msg.id)} 
+                  readOnly 
+                  style={{ cursor: "pointer", width: "16px", height: "16px" }} 
+                />
+              </div>
+
+              {/* Sender Name */}
+              <div style={{ width: "200px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: "#202124" }}>
+                {msg.from ? msg.from.split("<")[0].replace(/"/g, '').trim() : "(Unknown)"}
+              </div>
+
+              {/* Subject and Snippet */}
+              <div style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                <span style={{ color: "#202124", marginRight: "6px" }}>{msg.subject}</span>
+                <span style={{ color: "#5f6368", fontWeight: 400 }}>- {msg.snippet}</span>
+              </div>
+
+              
+{/* Date */}
+              <div style={{ width: "80px", textAlign: "right", fontSize: "12px", color: msg.isUnread ? "#1a73e8" : "#5f6368" }}>
+                {msg.date ? new Date(msg.date).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : ""}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* 🔽 COMPOSE EDITOR (Floating over Inbox) 🔽 */}
+        {selectedDraftTemplate && !email && (
+          <div style={{ 
+            position: "absolute", bottom: "0", right: "24px", width: "500px", 
+            zIndex: 1000, border: "1px solid #dadce0", boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
+            background: "#fff", borderTopLeftRadius: "12px", borderTopRightRadius: "12px", 
+            display: "flex", flexDirection: "column", overflow: "hidden"
+          }}>
+            {/* Header */}
+            <div style={{ padding: "10px 16px", background: "#f2f6fc", display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer" }}>
+              <span style={{ fontWeight: 600, color: "#1f1f1f", fontSize: "14px" }}>New Message</span>
+              <button onClick={() => setSelectedDraftTemplate(null)} style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: "16px", color: "#5f6368" }}>✕</button>
+            </div>
+            
+            {/* To Field */}
+            <div style={{ padding: "8px 16px", borderBottom: "1px solid #f1f3f4", display: "flex", alignItems: "center" }}>
+              <span style={{ color: "#5f6368", fontSize: "14px", width: "40px" }}>To</span>
+              <input
+                type="text"
+                autoFocus
+                value={draftTo}
+                onChange={(e) => setDraftTo(e.target.value)}
+                style={{ flex: 1, border: "none", outline: "none", fontSize: "14px", color: "#202124" }}
+              />
+            </div>
+
+            {/* Subject Field */}
+            <div style={{ padding: "8px 16px", borderBottom: "1px solid #f1f3f4", display: "flex", alignItems: "center" }}>
+              <input
+                type="text"
+                placeholder="Subject"
+                defaultValue=""
+                id="compose-subject"
+                style={{ flex: 1, border: "none", outline: "none", fontSize: "14px", color: "#202124", fontWeight: 500 }}
+              />
+            </div>
+
+            {/* Body */}
+            <textarea
+              className="email-draft-textarea"
+              value={selectedDraftTemplate.body}
+              onChange={(e) => setSelectedDraftTemplate((prev) => prev ? { ...prev, body: e.target.value } : prev)}
+              style={{ flex: 1, border: "none", padding: "16px", resize: "none", outline: "none", minHeight: "240px", fontSize: "14px", fontFamily: "Verdana, sans-serif" }}
+            />
+
+            {/* Footer */}
+            <div style={{ padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff" }}>
+              <button
+                className="btn blue"
+                onClick={async () => {
+                  if (!draftTo.trim()) { alert("Please add a recipient email address."); return; }
+                  const subj = document.getElementById("compose-subject")?.value || "New Message";
+                  try {
+                    const res = await fetch("/.netlify/functions/gmail-send-email", {
+                      method: "POST", headers: { "content-type": "application/json" },
+                      body: JSON.stringify({ to: draftTo, subject: subj, body: selectedDraftTemplate.body }),
+                    });
+                    const json = await res.json().catch(() => ({}));
+                    if (!res.ok || json.ok === false) throw new Error(json.error || `HTTP ${res.status}`);
+                    alert(`Email sent successfully to: ${draftTo}`);
+                    setSelectedDraftTemplate(null);
+                    setDraftTo("");
+                  } catch (err) { alert(`Sending failed: ${err?.message || String(err)}`); }
+                }}
+                style={{ background: "#0b57d0", color: "#fff", padding: "8px 24px", borderRadius: "24px", border: "none", fontWeight: 500, cursor: "pointer" }}
+              >
+                Send
+              </button>
+              <button onClick={() => { setSelectedDraftTemplate(null); setDraftTo(""); }} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#5f6368" }}>
+                <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M15 4V3H9v1H4v2h1v13c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V6h1V4h-5zm2 15H7V6h10v13zM9 8h2v9H9zm4 0h2v9h-2z"/></svg>
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
   }
-  
-  // 2. Parse sender details
-  const fromParts = msg.from ? msg.from.split("<") : ["Unknown", ""];
-  const fromName = fromParts[0].replace(/"/g, '').trim();
-  const fromEmail = fromParts[1] ? "<" + fromParts[1] : "";
 
-  // 3. Set the active email data - NOW USING msg.body
-  setEmail({
-    id: msg.id,
-    subject: msg.subject,
-    fromName: fromName,
-    fromEmail: fromEmail,
-    time: new Date(msg.date).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
-    body: msg.body || msg.snippet, // Use the multi-line body from our updated function
-    attachments: msg.subject.includes("Payslips") ? [
-      { name: "Payslips.pdf", url: "/pdfs/Payslips.pdf", type: "pdf" }
-    ] : [],
-    actions: [
-      { key: "submit_trello", label: "Submit to Trello" },
-      { key: "update_tracker", label: "Update AC Tracker" },
-    ]
-  });
-
-  // 4. Clear any existing right-pane files, then switch view
-  setEmailPreview(null);
-  setCurrentView({ app: "email", contact: null });
-}}
-            >
-              <div style={{ width: "200px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: "#202124" }}>
-                {msg.from ? msg.from.split("<")[0].replace(/"/g, '').trim() : "(Unknown)"}
-              </div>
-              <div style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                <span style={{ color: "#202124", marginRight: "6px" }}>{msg.subject}</span>
-                <span style={{ color: "#5f6368", fontWeight: 400 }}>- {msg.snippet}</span>
-              </div>
-              <div style={{ width: "80px", textAlign: "right", fontSize: "12px", color: msg.isUnread ? "#1a73e8" : "#5f6368" }}>
-                {msg.date ? new Date(msg.date).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : ""}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-      if (currentView.app === "email") {
+      if (currentView.app === "email") {
       const att = (email && email.attachments) || [];
       const actions = (email && email.actions) || [];
     
 
-      const emailPane = (
-        <div className="email-pane">
-          <div className="email-head" style={{ alignItems: 'center', gap: '12px' }}>
-            {/* 🔙 NEW: Back Button to return to Inbox */}
-            <button 
-              onClick={() => setCurrentView({ app: "gmail", contact: null })}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                cursor: 'pointer',
-                fontSize: '20px',
-                color: '#5f6368',
-                display: 'flex',
-                alignItems: 'center',
-                padding: '4px'
-              }}
-              title="Back to Inbox"
-            >
-              ←
-            </button>
-            <div className="email-from" style={{ flex: 1 }}>
-              <div className="email-from-name">{email.fromName}</div>
-              <div className="email-from-email">{email.fromEmail}</div>
+  const handleDeleteEmail = async (id) => {
+        if (!window.confirm("Delete this message?")) return;
+        try {
+          await fetch("/.netlify/functions/gmail-delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ messageId: id })
+          });
+          setGmailEmails(prev => prev.filter(e => e.id !== id));
+          setCurrentView({ app: "gmail", contact: null });
+        } catch (err) {
+          console.error("Delete failed", err);
+        }
+      };
+
+   const emailPane = (
+        <div className="email-pane" style={{ border: "none", boxShadow: "none", padding: "8px 24px", background: "#fff" }}>
+          {/* Top Gmail Action Bar */}
+          <div className="gmail-action-bar" style={{ padding: "8px 0", borderBottom: "none" }}>
+            <div className="gmail-action-icon" onClick={() => setCurrentView({ app: "gmail", contact: null })} title="Back to inbox">
+              <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
             </div>
-            <div className="email-meta">
-              <div className="email-subject">{email.subject}</div>
-              <div className="email-time">{email.time}</div>
+            <div className="gmail-action-icon" title="Archive">
+              <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM6.24 5h11.52l.83 1H5.41l.83-1zM5 19V8h14v11H5zm11-5.5l-4 4-4-4 1.41-1.41L11 13.67V10h2v3.67l1.59-1.58L16 13.5z"/></svg>
+            </div>
+            <div className="gmail-action-icon" onClick={() => handleDeleteEmail(email.id)} title="Delete">
+              <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+            </div>
+            <div className="gmail-action-icon" title="Mark as unread">
+              <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8l8 5 8-5v10zm-8-7L4 6h16l-8 5z"/></svg>
             </div>
           </div>
 
-          <div className="email-body">
-  {email.bodyHtml ? (
-    <div
-      className="email-body-html"
-      dangerouslySetInnerHTML={{ __html: email.bodyHtml }}
-    />
-  ) : (
-    <div 
-      className="email-body-text" 
-      style={{ 
-        whiteSpace: "pre-wrap", 
-        lineHeight: "1.5", 
-        fontFamily: "Verdana, Geneva, sans-serif",
-        fontSize: "14px",
-        color: "#202124",
-        padding: "12px 0"
-      }}
-    >
-      {email.body || ""}
-    </div>
-  )}
-  {email.systemNote ? (
-    <div className="email-note">{email.systemNote}</div>
-  ) : null}
-</div>
+          {/* Subject Line Row */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 0 8px 56px" }}>
+            <h2 style={{ fontSize: "22px", fontWeight: 400, color: "#1f1f1f", margin: 0, display: "flex", alignItems: "center", gap: "12px", fontFamily: "'Google Sans', Roboto, Arial, sans-serif" }}>
+              {email.subject}
+              <span style={{ fontSize: "12px", background: "#f1f3f4", padding: "2px 6px", borderRadius: "4px", color: "#5f6368", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                Inbox
+                <span style={{ fontSize: "10px", cursor: "pointer" }}>✕</span>
+              </span>
+            </h2>
+            <div style={{ display: "flex", gap: "16px", color: "#5f6368" }}>
+              <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z"/></svg>
+              <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>
+            </div>
+          </div>
 
-          {/* ACTIONS: Trello / Tracker + Create Draft */}
-          <div className="email-actions">
-            {actions.map((a) => (
-              <button
-                key={a.key}
-                className="email-action-btn"
-                onClick={() => handleEmailAction(a.key)}
-              >
-                {a.label}
-              </button>
-            ))}
+          {/* Sender Info Row */}
+          <div style={{ display: "flex", alignItems: "flex-start", marginTop: "16px" }}>
+            <div style={{ width: "40px", height: "40px", borderRadius: "50%", background: "#5c6bc0", color: "white", display: "grid", placeItems: "center", fontSize: "18px", marginRight: "16px", flexShrink: 0 }}>
+              {email.fromName ? email.fromName.charAt(0).toUpperCase() : "U"}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: "6px", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
+                  <span style={{ fontWeight: 600, color: "#202124", fontSize: "14px" }}>{email.fromName}</span>
+                  <span style={{ color: "#5f6368", fontSize: "12px" }}>{email.fromEmail}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "12px", color: "#5f6368", fontSize: "12px", flexShrink: 0 }}>
+                  <span>{email.time}</span>
+                  <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+                  <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>
+                  <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+                </div>
+              </div>
+              <div style={{ fontSize: "12px", color: "#5f6368", marginTop: "2px", display: "flex", alignItems: "center", gap: "4px" }}>
+                to me <span style={{ fontSize: "10px" }}>▼</span>
+              </div>
+            </div>
+          </div>
 
-            <button
-              className="email-action-btn"
-              onClick={() => setShowDraftPicker((v) => !v)}
-            >
-              Create Draft
-            </button>
+{/* Email Body */}
+          <div className="email-body" style={{ marginLeft: "56px", marginTop: "24px", paddingRight: "48px", paddingBottom: "60px" }}>
+            {email.bodyHtml ? (
+              <div
+                className="email-body-html"
+                style={{ fontFamily: "'Google Sans', Roboto, Arial, sans-serif", fontSize: "14px", color: "#202124", lineHeight: "1.6" }}
+                dangerouslySetInnerHTML={{ __html: email.bodyHtml }}
+              />
+            ) : (
+              <div className="email-body-text" style={{ fontFamily: "Roboto, Arial, sans-serif", fontSize: "14px", color: "#202124", wordBreak: "break-word" }}>
+                {(() => {
+                  const body = email.body || "";
+                  
+                  const renderFormattedBody = (text, depth = 0) => {
+                    const forwardRegex = /[-]{3,}\s*Forwarded message\s*[-]{3,}/i;
+                    const replyRegex = /(^On\s.+\sat\s.+\s.+\swrote:)/im;
+
+                    if (forwardRegex.test(text)) {
+                      const parts = text.split(forwardRegex);
+                      return (
+                        <>
+                          {parts[0] && (
+                            <div className="gmail-paragraph-wrapper">
+                              {parts[0].trim().split('\n').map((line, i) => (
+                                <div key={i} style={{ marginBottom: line.trim() ? "14px" : "8px", minHeight: line.trim() ? "auto" : "12px" }}>{line}</div>
+                              ))}
+                            </div>
+                          )}
+                          {parts.slice(1).map((segment, idx) => (
+                            <div key={idx} className="gmail-forward-wrap" style={{ marginTop: "28px", paddingLeft: depth > 0 ? "12px" : "0", borderLeft: depth > 0 ? "1px solid #dadce0" : "none" }}>
+                              <div style={{ color: "#5f6368", fontSize: "13px", marginBottom: "16px", fontStyle: "normal" }}>
+                                ---------- Forwarded message ---------
+                              </div>
+                              {renderFormattedBody(segment.trim(), depth + 1)}
+                            </div>
+                          ))}
+                        </>
+                      );
+                    }
+
+                    if (replyRegex.test(text)) {
+                      const parts = text.split(replyRegex);
+                      return (
+                        <>
+                          {parts[0] && <div>{parts[0].trim()}</div>}
+                          <div className="gmail-reply-quote" style={{ borderLeft: "2px solid #72a8ff", paddingLeft: "16px", color: "#505050", marginTop: "16px" }}>
+                            <div style={{ fontWeight: "500", marginBottom: "12px", color: "#5f6368" }}>{parts[1]}</div>
+                            {parts.slice(2).join("").split('\n').map((line, i) => (
+                              <div key={i} style={{ marginBottom: "12px" }}>{line}</div>
+                            ))}
+                          </div>
+                        </>
+                      );
+                    }
+
+                    // Fallback for standard text: Split by newlines into paragraphs
+                    return (
+                      <div className="gmail-paragraph-wrapper">
+                        {text.split('\n').map((line, i) => (
+                          <div key={i} style={{ marginBottom: line.trim() ? "14px" : "8px", minHeight: line.trim() ? "auto" : "12px", lineHeight: "1.6" }}>
+                            {line}
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  };
+
+                  return renderFormattedBody(body);
+                })()}
+              </div>
+            )}
           </div>
 
-          {/* Attachments header + grid FIRST */}
-          {att.length > 0 && (
-            <>
-              <div className="email-attach-title">
-                {att.length} Attachment{att.length > 1 ? "s" : ""}
-              </div>
-              <div className="email-attach-grid">
-                {att.map((f, i) => (
-                  <button
-                    key={i}
-                    className="email-attach"
-                    onClick={() => setEmailPreview(f)}
-                    title={f.name}
-                  >
-                    <div className="email-attach-preview">
-                      <iframe
-                        className="email-attach-frame"
-                        title={f.name}
-                        src={f.url}
-                      />
-                    </div>
-                    <div className="email-attach-footer">
-                      <span className="email-attach-icon">
-                        {f.type ? f.type.toUpperCase() : "FILE"}
-                      </span>
-                      <span className="email-attach-name">{f.name}</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
+          {/* Attachments Section */}
+          {att.length > 0 && (
+            <div style={{ marginLeft: "56px", marginTop: "24px" }}>
+              <div style={{ borderTop: "1px solid #f1f3f4", margin: "16px 0", width: "100%" }}></div>
+              <div className="email-attach-grid">
+                {att.map((f, i) => (
+                  <button
+                    key={i}
+                    className="email-attach"
+                    onClick={() => setEmailPreview(f)}
+                    title={f.name}
+                    style={{ background: "#fff", border: "1px solid #dadce0", borderRadius: "8px", width: "180px", height: "auto", padding: "0", overflow: "hidden", display: "flex", flexDirection: "column" }}
+                  >
+                    <div className="email-attach-preview" style={{ height: "100px", background: "#f8f9fa", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <iframe
+                        className="email-attach-frame"
+                        title={f.name}
+                        src={f.url}
+                        style={{ pointerEvents: "none", width: "100%", height: "100%", border: "none" }}
+                      />
+                    </div>
+                    <div className="email-attach-footer" style={{ padding: "8px 12px", display: "flex", alignItems: "center", gap: "8px", background: "#fff", borderTop: "1px solid #dadce0", width: "100%" }}>
+                      <span style={{ background: "#ea4335", color: "white", padding: "2px 4px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold" }}>
+                        {f.type ? f.type.toUpperCase() : "FILE"}
+                      </span>
+                      <span className="email-attach-name" style={{ fontSize: "12px", color: "#3c4043", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f.name}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
-          {/* 🔽 TEMPLATE PICKER – under attachments */}
+          {/* Footer Actions (Reply, Forward, Smilie) */}
+          <div style={{ marginLeft: "56px", marginTop: "32px", display: "flex", gap: "8px" }}>
+            <button 
+              className="gmail-btn-outline" 
+              onClick={() => handleEmailAction("create_draft")}
+              style={{ borderRadius: "100px", padding: "8px 24px", color: "#3c4043", border: "1px solid #dadce0", display: "flex", alignItems: "center", gap: "8px", background: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: 500 }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>
+              Reply
+            </button>
+            <button 
+              className="gmail-btn-outline" 
+              onClick={() => handleEmailAction("create_draft")}
+              style={{ borderRadius: "100px", padding: "8px 24px", color: "#3c4043", border: "1px solid #dadce0", display: "flex", alignItems: "center", gap: "8px", background: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: 500 }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M14 9V5l7 7-7 7v-4.1c-5 0-8.5 1.6-11 5.1 1-5 4-10 11-11z"/></svg>
+              Forward
+            </button>
+            <button
+              style={{ borderRadius: "50%", width: "40px", height: "40px", border: "1px solid #dadce0", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#5f6368" }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/></svg>
+            </button>
+          </div>
+
+          {/* Trello / Tracker Actions (Custom ActuarySpace Buttons) */}
+          <div className="email-actions" style={{ marginLeft: "56px", marginTop: "24px", borderTop: "1px solid #f1f3f4", paddingTop: "24px", display: "flex", gap: "12px", justifyContent: "flex-start" }}>
+            {actions.map((a) => (
+              <button
+                key={a.key}
+                className="email-action-btn"
+                onClick={() => handleEmailAction(a.key)}
+              >
+                {a.label}
+              </button>
+            ))}
+            <button
+              className="email-action-btn"
+              onClick={() => setShowDraftPicker((v) => !v)}
+            >
+              Create Draft
+            </button>
+          </div>
+
+          {email.systemNote && (
+            <div className="email-note" style={{ marginLeft: "56px", marginTop: "12px" }}>{email.systemNote}</div>
+          )}
+
+   {/* 🔽 TEMPLATE PICKER */}
           {showDraftPicker && (
-            <div className="draft-picker">
-              <div className="draft-picker-title">
-                Choose a draft email template:
-              </div>
+            <div className="draft-picker" style={{ marginLeft: "56px" }}>
+              <div className="draft-picker-title">Choose a draft email template:</div>
               <div className="draft-picker-list">
                 {DRAFT_TEMPLATES.map((tpl) => (
                   <button
@@ -3628,7 +3955,7 @@ const handleStartChat = async () => {
                     className="draft-picker-item"
                     onClick={() => {
                       setSelectedDraftTemplate(tpl);
-                      setDraftTo(""); // clear recipients
+                      setDraftTo("");
                       setShowDraftPicker(false);
                     }}
                   >
@@ -3639,28 +3966,23 @@ const handleStartChat = async () => {
             </div>
           )}
 
-          {/* Draft editor with To / Cancel / Send */}
+         {/* Draft editor with To / Cancel / Send */}
           {selectedDraftTemplate && (
-            <div className="email-draft-preview">
-              {/* To: field */}
+            <div className="email-draft-preview" style={{ margin: "20px 56px", position: "relative", zIndex: 100, border: "1px solid #dadce0", boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}>
               <div className="email-draft-header">
                 <div className="email-draft-row">
                   <span className="email-draft-label">To</span>
                   <input
                     type="text"
                     className="email-draft-to"
-                    placeholder="e.g. roshan@dhllaw.co.za, tinashe@dhllaw.co.za"
+                    placeholder="e.g. roshan@dhllaw.co.za"
                     value={draftTo}
                     onChange={(e) => setDraftTo(e.target.value)}
                   />
                 </div>
               </div>
-
-              {/* Title + Cancel + Send */}
               <div className="email-draft-toolbar">
-                <div className="email-draft-title">
-                  Draft: {selectedDraftTemplate.label}
-                </div>
+                <div className="email-draft-title">Draft: {selectedDraftTemplate.label}</div>
                 <div className="email-draft-actions">
                   <button
                     className="btn ghost"
@@ -3668,92 +3990,51 @@ const handleStartChat = async () => {
                       setSelectedDraftTemplate(null);
                       setShowDraftPicker(false);
                       setDraftTo("");
-                      setEmail((prev) =>
-                        prev ? { ...prev, systemNote: undefined } : prev
-                      );
+                      setEmail((prev) => prev ? { ...prev, systemNote: undefined } : prev);
                     }}
                   >
                     Cancel
                   </button>
-
                   <button
                     className="btn blue"
                     onClick={async () => {
                       if (!draftTo.trim()) {
-                        setEmail((prev) =>
-                          prev
-                            ? {
-                                ...prev,
-                                systemNote:
-                                  "Please add at least one recipient email address before sending.",
-                              }
-                            : prev
-                        );
+                        setEmail((prev) => prev ? { ...prev, systemNote: "Please add at least one recipient email address before sending." } : prev);
                         return;
                       }
-
-                          try {
-                          const res = await fetch("/.netlify/functions/gmail-send-email", {
-                            method: "POST",
-                            headers: { "content-type": "application/json" },
-                            body: JSON.stringify({
-                              to: draftTo,
-                              subject: email.subject || "(no subject)",
-                              body: selectedDraftTemplate.body,
-                            }),
-                          });
-
-                          const json = await res.json().catch(() => ({}));
-                          if (!res.ok || json.ok === false) {
-                            throw new Error(json.error || `HTTP ${res.status}`);
-                          }
-
-                          // ✅ Update email note
-                          setEmail((prev) =>
-                            prev
-                              ? {
-                                  ...prev,
-                                  systemNote: `Email sent successfully to: ${draftTo}`,
-                                }
-                              : prev
-                          );
-
-                          // reset draft
-                          setSelectedDraftTemplate(null);
-                          setDraftTo("");
-                        } catch (err) {
-                          setEmail((prev) =>
-                            prev
-                              ? {
-                                  ...prev,
-                                  systemNote: `Sending failed: ${
-                                    err?.message || String(err)
-                                  }`,
-                                }
-                              : prev
-                          );
-                        }
+                      try {
+                        const res = await fetch("/.netlify/functions/gmail-send-email", {
+                          method: "POST",
+                          headers: { "content-type": "application/json" },
+                          body: JSON.stringify({
+                            to: draftTo,
+                            subject: email?.subject || "New Message",
+                            body: selectedDraftTemplate.body,
+                          }),
+                        });
+                        const json = await res.json().catch(() => ({}));
+                        if (!res.ok || json.ok === false) throw new Error(json.error || `HTTP ${res.status}`);
+                        setEmail((prev) => prev ? { ...prev, systemNote: `Email sent successfully to: ${draftTo}` } : prev);
+                        setSelectedDraftTemplate(null);
+                        setDraftTo("");
+                      } catch (err) {
+                        setEmail((prev) => prev ? { ...prev, systemNote: `Sending failed: ${err?.message || String(err)}` } : prev);
+                      }
                     }}
                   >
                     Send
                   </button>
                 </div>
               </div>
-
-              {/* Editable body */}
               <textarea
                 className="email-draft-textarea"
                 value={selectedDraftTemplate.body}
-                onChange={(e) =>
-                  setSelectedDraftTemplate((prev) =>
-                    prev ? { ...prev, body: e.target.value } : prev
-                  )
-                }
+                onChange={(e) => setSelectedDraftTemplate((prev) => prev ? { ...prev, body: e.target.value } : prev)}
               />
             </div>
           )}
         </div>
-      );
+      );
 
       const previewPane = emailPreview ? (
         <div className="email-preview">
@@ -3795,6 +4076,9 @@ const handleStartChat = async () => {
     return (
       <div className="trello-modal">
         {/* 1. TOP BAR (Icon + Title + Close) */}
+        {/* 1. TOP BAR (Icon + Title + Actions) */}
+        {/* 1. TOP BAR (Icon + Title + Actions) */}
+        {/* 1. TOP BAR (Icon + Title + Actions) */}
         <div className="trello-modal-topbar">
           <div className="trello-header-main">
             <div className="trello-icon-header">
@@ -3814,10 +4098,212 @@ const handleStartChat = async () => {
               </div>
             </div>
           </div>
-          <button 
-            className="trello-close"
-            onClick={() => { setTrelloMenuOpen(false); setTrelloCard(null); }}
-          >✕</button>
+          
+          {/* ACTIONS: Kebab Menu & Close */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            
+            <div className="kebab-wrap" style={{ position: 'relative' }}>
+              <button 
+                className="trello-close" 
+                style={{ fontSize: '18px', paddingBottom: '8px' }} 
+                onClick={(e) => { 
+                  e.stopPropagation(); 
+                  setTrelloMenuOpen(!trelloMenuOpen); 
+                  setShowMoveSubmenu(false); 
+                }}
+              >
+                •••
+              </button>
+
+              {/* DROPDOWN MENU */}
+              {trelloMenuOpen && (
+                <div style={{ position: 'absolute', right: 0, top: '40px', background: '#282e33', boxShadow: '0 8px 16px rgba(0,0,0,0.4)', borderRadius: '8px', width: '300px', zIndex: 999, border: '1px solid #454f59', padding: showMoveSubmenu ? '0' : '8px 0', fontSize: '14px', color: '#b6c2cf' }}>
+                  
+                  {!showMoveSubmenu ? (
+                    <>
+                      <div style={{ padding: '0 12px 8px', borderBottom: '1px solid #454f59', marginBottom: '8px', fontWeight: 600, textAlign: 'center', fontSize: '14px' }}>
+                        Actions
+                      </div>
+                      {/* MOVE OPTION */}
+                      <div 
+                        style={{ padding: '8px 16px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', color: '#b6c2cf' }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#a6c5e229'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                        onClick={(e) => { 
+                          e.stopPropagation(); 
+                          setMoveTargetList(c.listId); 
+                          
+                          // Set default position to current position in list
+                          const currentBucket = trelloBuckets.find(b => b.id === c.listId);
+                          const currentPos = currentBucket ? currentBucket.cards.findIndex(x => x.id === c.id) + 1 : 1;
+                          setMoveTargetPos(currentPos > 0 ? currentPos : 1);
+                          
+                          setMoveTab("outbox");
+                          setShowMoveSubmenu(true); 
+                        }}
+                      >
+                        <span>Move</span>
+                        <span>›</span>
+                      </div>
+
+                      {/* ARCHIVE OPTION */}
+                      <div 
+                        style={{ padding: '8px 16px', cursor: 'pointer', color: '#b6c2cf' }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#a6c5e229'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          const cid = c.id;
+                          
+                          // 1. Optimistic Update: Instantly wipe from screen
+                          setTrelloBuckets(prev => prev.map(b => ({ ...b, cards: b.cards.filter(card => card.id !== cid) })));
+                          setTrelloMenuOpen(false);
+                          setTrelloCard(null);
+
+                          // 2. Background Sync
+                          try {
+                            await fetch("/.netlify/functions/trello-archive", {
+                              method: "POST", headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ cardId: cid })
+                            });
+                          } catch (err) { console.error("Archive failed", err); }
+                        }}
+                      >
+                        Archive
+                      </div>
+                    </>
+                  ) : (
+                    /* SUB-MENU: MOVE CARD UI */
+                    <div style={{ padding: '12px' }}>
+                      {/* Header */}
+                      <div style={{ display: 'flex', alignItems: 'center', marginBottom: '16px', position: 'relative' }}>
+                        <button onClick={(e) => {e.stopPropagation(); setShowMoveSubmenu(false);}} style={{ position: 'absolute', left: 0, border:'none', background:'none', cursor:'pointer', color:'#9fadbc', fontSize:'18px' }}>‹</button>
+                        <div style={{ flex: 1, textAlign: 'center', fontWeight: 600, color: '#b6c2cf', fontSize: '14px' }}>Move card</div>
+                        <button onClick={(e) => {e.stopPropagation(); setTrelloMenuOpen(false); setShowMoveSubmenu(false);}} style={{ position: 'absolute', right: 0, border:'none', background:'none', cursor:'pointer', color:'#9fadbc', fontSize:'16px' }}>✕</button>
+                      </div>
+                      
+                      {/* Tabs */}
+                      <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', borderBottom: '1px solid #454f59' }}>
+                        <div onClick={(e) => {e.stopPropagation(); setMoveTab('inbox'); setMoveTargetList(c.listId);}} style={{ paddingBottom: '8px', cursor: 'pointer', color: moveTab === 'inbox' ? '#579dff' : '#b6c2cf', borderBottom: moveTab === 'inbox' ? '2px solid #579dff' : '2px solid transparent', fontWeight: moveTab === 'inbox' ? 600 : 400 }}>Inbox</div>
+                        <div onClick={(e) => {e.stopPropagation(); setMoveTab('outbox');}} style={{ paddingBottom: '8px', cursor: 'pointer', color: moveTab === 'outbox' ? '#579dff' : '#b6c2cf', borderBottom: moveTab === 'outbox' ? '2px solid #579dff' : '2px solid transparent', fontWeight: moveTab === 'outbox' ? 600 : 400 }}>Outbox</div>
+                      </div>
+
+                      {/* Body */}
+                      {moveTab === 'inbox' && (
+                        <div style={{ marginBottom: '16px' }}>
+                          <label style={{ display:'block', fontSize:'12px', fontWeight:700, color:'#b6c2cf', marginBottom:'4px' }}>Select position</label>
+                          <select 
+                             value={moveTargetPos} 
+                             onChange={(e) => setMoveTargetPos(Number(e.target.value))} 
+                             style={{ width: '100%', padding: '8px 12px', borderRadius: '4px', border: 'none', background: '#22272b', color: '#b6c2cf', cursor: 'pointer', outline: '1px solid #738496' }} 
+                             onClick={e => e.stopPropagation()}
+                          >
+                             {Array.from({ length: Math.max(1, trelloBuckets.find(b => b.id === c.listId)?.cards.length || 1) }, (_, i) => (
+                                <option key={i+1} value={i+1}>{i+1}</option>
+                             ))}
+                          </select>
+                        </div>
+                      )}
+
+                      {moveTab === 'outbox' && (
+                        <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                          <div style={{ flex: 2 }}>
+                            <label style={{ display:'block', fontSize:'12px', fontWeight:700, color:'#b6c2cf', marginBottom:'4px' }}>List</label>
+                            <select 
+                               value={moveTargetList} 
+                               onChange={(e) => { setMoveTargetList(e.target.value); setMoveTargetPos(1); }} 
+                               style={{ width: '100%', padding: '8px 12px', borderRadius: '4px', border: 'none', background: '#22272b', color: '#b6c2cf', cursor: 'pointer', outline: '1px solid #738496' }} 
+                               onClick={e => e.stopPropagation()}
+                            >
+                               {trelloBuckets.map(b => <option key={b.id} value={b.id}>{b.title}</option>)}
+                            </select>
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <label style={{ display:'block', fontSize:'12px', fontWeight:700, color:'#b6c2cf', marginBottom:'4px' }}>Position</label>
+                            <select 
+                               value={moveTargetPos} 
+                               onChange={(e) => setMoveTargetPos(Number(e.target.value))} 
+                               style={{ width: '100%', padding: '8px 12px', borderRadius: '4px', border: 'none', background: '#22272b', color: '#b6c2cf', cursor: 'pointer', outline: '1px solid #738496' }} 
+                               onClick={e => e.stopPropagation()}
+                            >
+                               {(() => {
+                                  const targetBucket = trelloBuckets.find(b => b.id === moveTargetList);
+                                  const currentCount = targetBucket ? targetBucket.cards.length : 0;
+                                  const isSameList = moveTargetList === c.listId;
+                                  const maxPos = isSameList ? Math.max(1, currentCount) : currentCount + 1;
+                                  return Array.from({ length: maxPos }, (_, i) => (
+                                     <option key={i+1} value={i+1}>{i+1}</option>
+                                  ));
+                               })()}
+                            </select>
+                          </div>
+                        </div>
+                      )}
+
+                      <button 
+                        style={{ width: '100%', padding: '8px', borderRadius: '4px', fontWeight: 600, justifyContent: 'center', background: '#579dff', color: '#1d2125', border: 'none', cursor: 'pointer' }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#85b8ff'}
+                        onMouseLeave={e => e.currentTarget.style.background = '#579dff'}
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          
+                          const cid = c.id;
+                          const targetId = moveTargetList;
+                          const newIndex = moveTargetPos - 1; // 0-based for arrays
+                          const targetName = trelloBuckets.find(b => b.id === targetId)?.title || c.boardList;
+
+                          // 1. Optimistic Update: Move instantly on UI
+                          setTrelloBuckets(prev => {
+                            let cardToMove = null;
+                            const stripped = prev.map(b => {
+                                if (b.id === c.listId) {
+                                    const idx = b.cards.findIndex(x => x.id === cid);
+                                    if (idx > -1) {
+                                        cardToMove = b.cards[idx];
+                                        const newCards = [...b.cards];
+                                        newCards.splice(idx, 1);
+                                        return { ...b, cards: newCards };
+                                    }
+                                }
+                                return b;
+                            });
+                            if (!cardToMove) return prev;
+                            return stripped.map(b => {
+                                if (b.id === targetId) {
+                                    const newCards = [...b.cards];
+                                    newCards.splice(newIndex, 0, cardToMove);
+                                    return { ...b, cards: newCards };
+                                }
+                                return b;
+                            });
+                          });
+
+                          setTrelloCard(prev => ({ ...prev, listId: targetId, boardList: targetName }));
+                          setTrelloMenuOpen(false);
+                          setShowMoveSubmenu(false);
+
+                          // 2. Background Sync
+                          try {
+                            await fetch("/.netlify/functions/trello-move", {
+                              method: "POST", headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ cardId: cid, targetListId: targetId, newIndex: newIndex })
+                            });
+                          } catch (err) { console.error("Move failed", err); }
+                        }}
+                      >
+                        Move
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <button 
+              className="trello-close"
+              onClick={() => { setTrelloMenuOpen(false); setTrelloCard(null); }}
+            >✕</button>
+          </div>
         </div>
 
         {/* 2. BODY (Columns) */}
@@ -4546,13 +5032,19 @@ const handleStartChat = async () => {
         gmailLoading,
         gmailError,
 
-        // Trello
-        trelloCard,
-        trelloMenuOpen,
-        descEditing,
-        descDraft,
-        showLabelPicker, 
-      ]);
+       // Trello
+        trelloCard,
+        trelloMenuOpen,
+        descEditing,
+        descDraft,
+        showLabelPicker, 
+        showMoveSubmenu,
+        moveTab,
+        moveTargetList,
+        moveTargetPos,
+        trelloBuckets,
+        selectedEmailIds,
+      ]);
 
   return (
   <PasswordGate>
@@ -4596,32 +5088,31 @@ const handleStartChat = async () => {
           
           {/* LEFT SIDE: Google Chat & Gmail Buttons */}
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <button
-              className="connect-google-btn"
-              onClick={() => {
-                setGchatSelectedSpace(null); // 👈 Force clear selection instantly
-                setInputValue("");           // 👈 Clear any lingering text
-                setCurrentView({ app: "gchat", contact: null });
-              }}
-              type="button"
-            >
-              <img src={gchatIcon} alt="GChat" />
-              Google Chat
-            </button>
+            <button
+              className="connect-google-btn"
+              onClick={() => {
+                setGchatSelectedSpace(null); 
+                setInputValue("");           
+                setCurrentView({ app: "gchat", contact: null });
+              }}
+              type="button"
+            >
+              <img src={gchatIcon} alt="GChat" />
+              Google Chat
+            </button>
 
-            <button
-              className="connect-google-btn"
-              onClick={() => {
-                setInputValue("");
-                setCurrentView({ app: "gmail", contact: null });
-              }}
-              type="button"
-            >
-              <img src={gmailIcon} alt="Gmail" />
-              Gmail
-            </button>
-          </div>
-
+            <button
+              className="connect-google-btn"
+              onClick={() => {
+                setInputValue("");
+                setCurrentView({ app: "gmail", contact: null });
+              }}
+              type="button"
+            >
+              <img src={gmailIcon} alt="Gmail" />
+              Gmail
+            </button>
+          </div>
           {/* RIGHT SIDE: Connect + Close App Button */}
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <a

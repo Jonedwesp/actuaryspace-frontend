@@ -1,7 +1,5 @@
-// netlify/functions/gchat-find-gm.js
 import { getAccessToken } from "./_google-creds.js";
 
-// This is your existing list from gchat-dm-name.js
 const KNOWN_USERS_MAP = {
   "jonathan@actuaryconsulting.co.za": "users/109833975621386956073",
   "simone@actuaryconsulting.co.za": "users/116928759608148752435",
@@ -27,27 +25,38 @@ const KNOWN_USERS_MAP = {
   "martin@actuaryconsulting.co.za": "users/104654529926543347255"
 };
 
+
 export async function handler(event) {
+  // 1. Log the start so the boss can see it in his terminal
+  console.log("--- STARTING GCHAT-FIND-GM ---");
+
   try {
-    const { email } = JSON.parse(event.body);
-    const token = await getAccessToken();
-
-    // WORKAROUND: Find the ID from our hardcoded map instead of calling the People API
-    const resourceName = KNOWN_USERS_MAP[email.toLowerCase().trim()];
-
-    if (!resourceName) {
-      return {
-        statusCode: 404,
-        body: JSON.stringify({ ok: false, error: "User not in your known contact list. Please add their ID to the map." })
-      };
+    // 2. Safety parse the body
+    let body = {};
+    try {
+      body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
+    } catch (e) {
+      console.error("JSON Parse failed:", e);
+      return { statusCode: 400, body: JSON.stringify({ error: "Invalid JSON format" }) };
     }
 
-    console.log(`🔎 Known ID found: ${resourceName}`);
+    const email = (body.email || "").toLowerCase().trim();
+    console.log("Looking for user:", email);
 
-    const res = await fetch(`https://chat.googleapis.com/v1/spaces:setup`, {
+    // 3. Check the map
+    const resourceName = KNOWN_USERS_MAP[email];
+    if (!resourceName) {
+      return { statusCode: 404, body: JSON.stringify({ error: `User ${email} not found in map` }) };
+    }
+
+    // 4. Get Google Token
+    const token = await getAccessToken();
+
+    // 5. Setup the space using native fetch
+    const response = await fetch(`https://chat.googleapis.com/v1/spaces:setup`, {
       method: "POST",
       headers: { 
-        Authorization: `Bearer ${token}`,
+        "Authorization": `Bearer ${token}`,
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
@@ -56,18 +65,18 @@ export async function handler(event) {
       })
     });
 
-    const setupData = await res.json();
-
-    if (res.ok) {
-      return {
-        statusCode: 200,
-        body: JSON.stringify({ ok: true, space: setupData })
-      };
-    }
-
-    return { statusCode: 404, body: JSON.stringify({ ok: false, error: setupData.error?.message }) };
+    const result = await response.json();
+    return { 
+      statusCode: response.ok ? 200 : response.status, 
+      body: JSON.stringify({ ok: response.ok, data: result }) 
+    };
 
   } catch (err) {
-    return { statusCode: 500, body: JSON.stringify({ ok: false, error: String(err) }) };
+    // 6. Force the error to be a string so we don't get that "table of numbers"
+    console.error("CRITICAL FUNCTION ERROR:", err.message);
+    return { 
+      statusCode: 500, 
+      body: JSON.stringify({ ok: false, error: err.message }) 
+    };
   }
 }

@@ -28,7 +28,7 @@
     .btn-yellow { background-color: #f2d600; color: #172b4d; }
     .btn-red { background-color: #eb5a46; color: #fff; }
     .btn:disabled { opacity: 0.6; cursor: not-allowed; }
-    .display { text-align: center; font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+    .display { text-align: center; font-size: 18px; font-weight: 600; margin-bottom: 4px; transition: color 0.3s; }
     .loading { font-size: 14px; color: #5e6c84; text-align: center; margin-top: 20px; }
   </style>
 </head>
@@ -56,14 +56,14 @@
     const startBtn = document.getElementById('start-btn');
     const stopBtn = document.getElementById('stop-btn');
 
-    // --- NEW: Time Formatting Helper ---
+    // --- Time Formatting Helper ---
     function formatTime(totalMins) {
       const m = Math.floor(totalMins);
-      if (m < 60) return `${m}m`; // Under an hour, just show minutes
+      if (m < 60) return `${m}m`;
       
       const hours = Math.floor(m / 60);
       const mins = m % 60;
-      return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`; // Show "1h 15m" or just "2h"
+      return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`; 
     }
 
     // 2. Fetch Initial Data
@@ -72,7 +72,6 @@
       cardId = card.id;
 
       try {
-        // Piggyback off our robust Netlify backend to read the current card fields
         const res = await fetch('/.netlify/functions/trello');
         const data = await res.json();
 
@@ -85,11 +84,9 @@
         }
 
         if (foundCard && foundCard.customFields) {
-          // Rename-Proofing: Find the keys no matter what they are called in Trello
           const startKey = Object.keys(foundCard.customFields).find(k => k.includes("TimerStart")) || "WorkTimerStart";
           const durKey = Object.keys(foundCard.customFields).find(k => k.includes("Duration")) || "WorkDuration";
 
-          // Parse with sanity shields!
           let storedDur = parseFloat(foundCard.customFields[durKey] || "0");
           if (storedDur > 1000000) storedDur = 0; 
           workDuration = storedDur;
@@ -98,10 +95,37 @@
           if (storedStart > 1000000000000) { 
             workTimerStart = storedStart;
           }
+
+          // 🛡️ THE OFFLINE CATCH-UP SYSTEM 🛡️
+          const offlineStr = localStorage.getItem(`offline_stop_${cardId}`);
+          if (offlineStr && workTimerStart) {
+            // We found a saved stop time locally, but the database still thinks it's running!
+            loader.style.display = 'block';
+            loader.innerText = "Syncing offline time...";
+            ui.style.display = 'none';
+            
+            const offlineData = JSON.parse(offlineStr);
+            const sessionMins = Math.max(0, offlineData.stopTime - workTimerStart) / 1000 / 60;
+            const recoveredTotal = (workDuration + sessionMins).toFixed(2);
+            
+            try {
+               await setField('WorkDuration', recoveredTotal);
+               await setField('WorkTimerStart', "");
+               
+               workDuration = parseFloat(recoveredTotal);
+               workTimerStart = null;
+               localStorage.removeItem(`offline_stop_${cardId}`); // Success! Clear the offline memory.
+            } catch(syncErr) {
+               console.warn("Still offline. Keeping local memory active.");
+            }
+          } else if (offlineStr && !workTimerStart) {
+             // Edge case: Server already successfully stopped, clear obsolete local memory.
+             localStorage.removeItem(`offline_stop_${cardId}`);
+          }
         }
         render();
       } catch (err) {
-        loader.innerText = "Error loading data. Try refreshing.";
+        loader.innerText = "Network offline. Retrying...";
         console.error("Fetch error:", err);
       }
     }
@@ -121,11 +145,9 @@
       } else {
         startBtn.style.display = 'block';
         stopBtn.style.display = 'none';
-        // 👇 Uses the new formatting helper
         display.innerText = `⏱ ${formatTime(workDuration)} logged`;
       }
       
-      // Auto-resize the Trello popup to fit our buttons perfectly
       t.sizeTo('body');
     }
 
@@ -135,17 +157,18 @@
       const diffMs = Math.max(0, Date.now() - workTimerStart);
       const liveMins = diffMs / 1000 / 60;
       const total = workDuration + liveMins;
-      // 👇 Uses the new formatting helper
       display.innerText = `⏱ ${formatTime(total)} (Recording)`;
     }
 
     // 5. Backend Write Helper
     async function setField(fieldName, valueText) {
-      return fetch('/.netlify/functions/trello-set-custom-field', {
+      const res = await fetch('/.netlify/functions/trello-set-custom-field', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cardId, fieldName, valueText: String(valueText) })
       });
+      if (!res.ok) throw new Error("Network failed");
+      return res;
     }
 
     // 6. Button Clicks
@@ -157,7 +180,7 @@
         workTimerStart = now;
         render();
       } catch (e) {
-        alert('Failed to start. Please try again.');
+        alert('Network Offline: Could not start timer. Please check your connection.');
       }
       setLoadingState(false);
     }
@@ -169,7 +192,7 @@
       const newTotal = (workDuration + sessionMins).toFixed(2);
 
       try {
-        // Save duration and wipe start time
+        // Attempt normal save
         await setField('WorkDuration', newTotal);
         await setField('WorkTimerStart', "");
         
@@ -177,7 +200,27 @@
         workTimerStart = null;
         render();
       } catch (e) {
-        alert('Failed to stop. Please try again.');
+        // ⚠️ THE OFFLINE TRAP TRIGGER ⚠️
+        console.warn("Network failed, saving to local memory.");
+        
+        // 1. Save the exact stop time locally
+        localStorage.setItem(`offline_stop_${cardId}`, JSON.stringify({ stopTime: stopTime }));
+        
+        // 2. Visually update the UI so the user isn't panicked
+        workDuration = parseFloat(newTotal);
+        workTimerStart = null;
+        if (liveInterval) clearInterval(liveInterval);
+        
+        startBtn.style.display = 'block';
+        stopBtn.style.display = 'none';
+        
+        display.innerText = `⏱ ${formatTime(workDuration)}`;
+        
+        // Give them a visual warning that it is waiting to sync
+        display.style.color = "#eb5a46";
+        setTimeout(() => { 
+            display.innerText = `⏱ ${formatTime(workDuration)} (Saved Offline)`; 
+        }, 100);
       }
       setLoadingState(false);
     }

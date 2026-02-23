@@ -89,33 +89,34 @@ exports.handler = async function (event, context) {
     const getH = (n) => headers.find((h) => h.name.toLowerCase() === n.toLowerCase())?.value || "";
 
     // 2. Helper to find the body in the nested parts structure
-    const getBody = (payload) => {
-      let result = "";
-      if (payload.parts) {
-        // Try to find plain text part first for best formatting
-        const textPart = payload.parts.find(p => p.mimeType === "text/plain");
-        if (textPart && textPart.body?.data) {
-          result = textPart.body.data;
-        } else {
-          // Fallback to recursive search if deep nested
-          payload.parts.forEach(part => {
-            if (!result) result = getBody(part);
-          });
-        }
-      } else if (payload.body?.data) {
-        result = payload.body.data;
-      }
-      return result;
-    };
+const getBody = (payload) => {
+  let result = "";
+  if (payload.parts) {
+    // Try to find plain text part first for best formatting
+    const textPart = payload.parts.find(p => p.mimeType === "text/plain");
+    if (textPart && textPart.body?.data) {
+      result = textPart.body.data;
+    } else {
+      // Fallback to recursive search if deep nested
+      payload.parts.forEach(part => {
+        if (!result) result = getBody(part);
+      });
+    }
+  } else if (payload.body?.data) {
+    result = payload.body.data;
+  }
+  return result;
+};
 
-    const rawBody = getBody(msgData.payload);
+  const rawBody = getBody(msgData.payload);
     // 3. Decode Base64 (Gmail uses URL-safe Base64)
     const decodedBody = Buffer.from(rawBody.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
 
     return {
       id: msg.id,
       snippet: msgData.snippet || "",
-      body: decodedBody || msgData.snippet || "", // Send the real decoded body
+      // Preserve newlines and full text for the frontend thread parser [cite: 566, 567]
+      body: decodedBody || msgData.snippet || "", 
       subject: getH("Subject") || "(No Subject)",
       from: getH("From") || "(Unknown)",
       date: getH("Date") || "",
