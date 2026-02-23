@@ -56,6 +56,16 @@
     const startBtn = document.getElementById('start-btn');
     const stopBtn = document.getElementById('stop-btn');
 
+    // --- NEW: Time Formatting Helper ---
+    function formatTime(totalMins) {
+      const m = Math.floor(totalMins);
+      if (m < 60) return `${m}m`; // Under an hour, just show minutes
+      
+      const hours = Math.floor(m / 60);
+      const mins = m % 60;
+      return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`; // Show "1h 15m" or just "2h"
+    }
+
     // 2. Fetch Initial Data
     async function init() {
       const card = await t.card('id');
@@ -75,12 +85,16 @@
         }
 
         if (foundCard && foundCard.customFields) {
+          // Rename-Proofing: Find the keys no matter what they are called in Trello
+          const startKey = Object.keys(foundCard.customFields).find(k => k.includes("TimerStart")) || "WorkTimerStart";
+          const durKey = Object.keys(foundCard.customFields).find(k => k.includes("Duration")) || "WorkDuration";
+
           // Parse with sanity shields!
-          let storedDur = parseFloat(foundCard.customFields.WorkDuration || "0");
+          let storedDur = parseFloat(foundCard.customFields[durKey] || "0");
           if (storedDur > 1000000) storedDur = 0; 
           workDuration = storedDur;
 
-          let storedStart = parseFloat(foundCard.customFields.WorkTimerStart || "0");
+          let storedStart = parseFloat(foundCard.customFields[startKey] || "0");
           if (storedStart > 1000000000000) { 
             workTimerStart = storedStart;
           }
@@ -107,7 +121,8 @@
       } else {
         startBtn.style.display = 'block';
         stopBtn.style.display = 'none';
-        display.innerText = `⏱ ${Math.floor(workDuration)}m logged`;
+        // 👇 Uses the new formatting helper
+        display.innerText = `⏱ ${formatTime(workDuration)} logged`;
       }
       
       // Auto-resize the Trello popup to fit our buttons perfectly
@@ -119,8 +134,9 @@
       if (!workTimerStart) return;
       const diffMs = Math.max(0, Date.now() - workTimerStart);
       const liveMins = diffMs / 1000 / 60;
-      const total = Math.floor(workDuration + liveMins);
-      display.innerText = `⏱ ${total}m (Recording)`;
+      const total = workDuration + liveMins;
+      // 👇 Uses the new formatting helper
+      display.innerText = `⏱ ${formatTime(total)} (Recording)`;
     }
 
     // 5. Backend Write Helper
@@ -144,7 +160,7 @@
         alert('Failed to start. Please try again.');
       }
       setLoadingState(false);
-    };
+    }
 
     stopBtn.onclick = async () => {
       setLoadingState(true);
@@ -164,7 +180,7 @@
         alert('Failed to stop. Please try again.');
       }
       setLoadingState(false);
-    };
+    }
 
     function setLoadingState(isLoading) {
       startBtn.disabled = isLoading;

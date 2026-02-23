@@ -28,8 +28,8 @@ exports.handler = async (event) => {
 
     // 2. Find Custom Fields (Supports both your old Timer and new WorkFlow Timer)
     const cfRes = await trelloRequest(`https://api.trello.com/1/boards/${boardId}/customFields?key=${key}&token=${token}`, "GET");
-    const startField = cfRes.data.find(f => f.name === "TimerStart" || f.name === "WorkTimerStart");
-    const durationField = cfRes.data.find(f => f.name === "Duration" || f.name === "WorkDuration");
+    const startField = cfRes.data.find(f => f.name.includes("TimerStart"));
+const durationField = cfRes.data.find(f => f.name.includes("Duration"));
 
     if (!startField || !durationField) {
       return { statusCode: 400, body: JSON.stringify({ error: "Missing timer custom fields on Trello board." }) };

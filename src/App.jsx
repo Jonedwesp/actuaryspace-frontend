@@ -3445,47 +3445,44 @@ const handleStartChat = async () => {
        onMouseEnter={(e) => e.currentTarget.style.boxShadow = "inset 1px 0 0 #dadce0, inset -1px 0 0 #dadce0, 0 1px 2px 0 rgba(60,64,67,.3), 0 1px 3px 1px rgba(60,64,67,.15)"}
               onMouseLeave={(e) => e.currentTarget.style.boxShadow = "none"}
          onClick={() => {
-                // 1. Mark as read in the UI instantly
-                setGmailEmails(prev => prev.map(e => e.id === msg.id ? { ...e, isUnread: false } : e));
-                
-                // Call backend to mark as read permanently
-                if (msg.isUnread) {
-                  fetch("/.netlify/functions/gmail-mark-read", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ messageId: msg.id })
-                  }).catch(err => console.error("Mark read failed", err));
-                }
-                
-                // 2. Parse sender details
-                const fromParts = msg.from ? msg.from.split("<") : ["Unknown", ""];
-                const fromName = fromParts[0].replace(/"/g, '').trim();
-                const fromEmail = fromParts[1] ? "<" + fromParts[1] : "";
+  // 1. Mark as read in the UI instantly
+  setGmailEmails(prev => prev.map(e => e.id === msg.id ? { ...e, isUnread: false } : e));
+  
+  // Call backend to mark as read permanently
+  if (msg.isUnread) {
+    fetch("/.netlify/functions/gmail-mark-read", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageId: msg.id })
+    }).catch(err => console.error("Mark read failed", err));
+  }
+  
+  // 2. Parse sender details
+  const fromParts = msg.from ? msg.from.split("<") : ["Unknown", ""];
+  const fromName = fromParts[0].replace(/"/g, '').trim();
+  const fromEmail = fromParts[1] ? "<" + fromParts[1] : "";
 
-                // 3. Set the active email data
+  // 3. Set the active email data - NOW USING msg.body
+  setEmail({
+    id: msg.id,
+    subject: msg.subject,
+    fromName: fromName,
+    fromEmail: fromEmail,
+    time: new Date(msg.date).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
+    body: msg.body || msg.snippet, // Use the multi-line body from our updated function
+    attachments: msg.subject.includes("Payslips") ? [
+      { name: "Payslips.pdf", url: "/pdfs/Payslips.pdf", type: "pdf" }
+    ] : [],
+    actions: [
+      { key: "submit_trello", label: "Submit to Trello" },
+      { key: "update_tracker", label: "Update AC Tracker" },
+    ]
+  });
 
-                // 3. Set the active email data
-                setEmail({
-                  id: msg.id,
-                  subject: msg.subject,
-                  fromName: fromName,
-                  fromEmail: fromEmail,
-                  time: new Date(msg.date).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
-                  body: msg.snippet + "\n\n(Note: This is a mock preview. Full email bodies will load when Siya's live token is connected.)",
-                  // Add a fake attachment to one of the mocks so you can test the PDF preview!
-                  attachments: msg.subject.includes("Payslips") ? [
-                    { name: "Payslips.pdf", url: "/pdfs/Payslips.pdf", type: "pdf" }
-                  ] : [],
-                  actions: [
-                    { key: "submit_trello", label: "Submit to Trello" },
-                    { key: "update_tracker", label: "Update AC Tracker" },
-                  ]
-                });
-
-                // 4. Clear any existing right-pane files, then switch view
-                setEmailPreview(null);
-                setCurrentView({ app: "email", contact: null });
-              }}
+  // 4. Clear any existing right-pane files, then switch view
+  setEmailPreview(null);
+  setCurrentView({ app: "email", contact: null });
+}}
             >
               <div style={{ width: "200px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: "#202124" }}>
                 {msg.from ? msg.from.split("<")[0].replace(/"/g, '').trim() : "(Unknown)"}
@@ -4271,7 +4268,7 @@ const handleStartChat = async () => {
                         startTime={c.customFields?.WorkTimerStart} 
                         duration={c.customFields?.WorkDuration} 
                      />
-                  </div>
+                  </div>  
                </div>
             </div>
 
@@ -4855,7 +4852,7 @@ function LiveTimer({ startTime, duration }) {
     return () => clearInterval(interval);
   }, []);
 
-  // 🛡️ SHIELD 1: If Duration is somehow corrupted to millions, visually reset it
+  // 🛡️ SHIELD 1: If Duration is corrupted, visually reset it
   let baseMinutes = parseFloat(duration || "0");
   if (baseMinutes > 1000000) baseMinutes = 0;
 
@@ -4870,7 +4867,15 @@ function LiveTimer({ startTime, duration }) {
     }
   }
 
-  const total = Math.floor(baseMinutes + currentSessionMinutes);
+  const totalMins = Math.floor(baseMinutes + currentSessionMinutes);
 
-  return <span>⏱ {total}m</span>;
+  // 🕒 Smart Time Formatting (Converts to Hours and Minutes)
+  let displayTime = `${totalMins}m`;
+  if (totalMins >= 60) {
+    const h = Math.floor(totalMins / 60);
+    const m = totalMins % 60;
+    displayTime = m > 0 ? `${h}h ${m}m` : `${h}h`;
+  }
+
+  return <span>⏱ {displayTime}</span>;
 }
