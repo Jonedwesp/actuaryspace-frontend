@@ -25,7 +25,6 @@ const KNOWN_USERS_MAP = {
   "martin@actuaryconsulting.co.za": "users/104654529926543347255"
 };
 
-
 export async function handler(event) {
   // 1. Log the start so the boss can see it in his terminal
   console.log("--- STARTING GCHAT-FIND-GM ---");
@@ -34,23 +33,42 @@ export async function handler(event) {
     // 2. Safety parse the body
     let body = {};
     try {
+      // If it's a string, try to parse it. If it's not JSON, catch will handle it.
       body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
     } catch (e) {
-      console.error("JSON Parse failed:", e);
-      return { statusCode: 400, body: JSON.stringify({ error: "Invalid JSON format" }) };
+      console.warn("Body is not JSON. Treating raw body as the email input.");
+      body = { email: event.body };
     }
 
-    const email = (body.email || "").toLowerCase().trim();
-    console.log("Looking for user:", email);
+    // Ensure we actually have an email string to work with
+    const rawInput = body && body.email ? body.email : event.body;
+    const emailInput = (rawInput || "").toLowerCase().trim();
+    
+    console.log("Final Resolved Email Input:", emailInput);
 
-    // 3. Check the map
-    const resourceName = KNOWN_USERS_MAP[email];
+    if (!emailInput) {
+      console.error("No email found in request body.");
+      return { statusCode: 400, body: JSON.stringify({ error: "Please enter a full email address." }) };
+    }
+    // 3. Format the Resource Name (Check map first, fallback to direct email)
+    let resourceName = KNOWN_USERS_MAP[emailInput];
+    
     if (!resourceName) {
-      return { statusCode: 404, body: JSON.stringify({ error: `User ${email} not found in map` }) };
+      // If it is not in the map, check if it is a valid email structure
+      if (emailInput.includes("@")) {
+        resourceName = `users/${emailInput}`;
+        console.log("User not in map, formatting directly as:", resourceName);
+      } else {
+        // Reject if they just typed a name instead of an email
+        console.error(`Invalid input. Not in map and not an email: ${emailInput}`);
+        return { statusCode: 400, body: JSON.stringify({ error: `Please enter a full email address.` }) };
+      }
+    } else {
+      console.log("Found user in map:", resourceName);
     }
 
     // 4. Get Google Token
-    const token = await getAccessToken();
+    const token = await getAccessToken(event);
 
     // 5. Setup the space using native fetch
     const response = await fetch(`https://chat.googleapis.com/v1/spaces:setup`, {

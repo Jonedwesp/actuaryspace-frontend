@@ -1088,6 +1088,7 @@ const RightPanel = React.memo(function RightPanel() {
   const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [archivedCards, setArchivedCards] = useState([]);
   const [archivedLoading, setArchivedLoading] = useState(false);
+  const [archiveSearch, setArchiveSearch] = useState(""); // 👈 NEW: Archive Search
 
   const openArchiveBin = async () => {
     setShowArchiveModal(true);
@@ -1139,6 +1140,13 @@ const RightPanel = React.memo(function RightPanel() {
     } catch(e) { return []; }
   });
   const [clientFiles, setClientFiles] = useState([]);
+
+  // ⚡ INSTANT REACTION: Listens to the main app and updates Right Pane in 0ms
+  useEffect(() => {
+    const handler = (e) => setTrelloBuckets(e.detail);
+    window.addEventListener("optimisticRightPane", handler);
+    return () => window.removeEventListener("optimisticRightPane", handler);
+  }, []);
 
   // --- DRAG AND DROP STATE ---
   const [dragging, setDragging] = useState(false);
@@ -1575,39 +1583,49 @@ const RightPanel = React.memo(function RightPanel() {
       {/* ARCHIVE MODAL OVERLAY */}
       {showArchiveModal && (
         <div style={{ position: 'fixed', top:0, left:0, width:'100vw', height:'100vh', background:'rgba(0,0,0,0.6)', zIndex: 9999, display:'grid', placeItems:'center' }} onClick={() => setShowArchiveModal(false)}>
-          <div style={{ background: '#282e33', width: '400px', maxHeight: '80vh', borderRadius: '8px', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 16px rgba(0,0,0,0.4)', border: '1px solid #454f59' }} onClick={e => e.stopPropagation()}>
-             <div style={{ padding: '16px', borderBottom: '1px solid #454f59', display: 'flex', justifyContent: 'space-between', color: '#b6c2cf', fontWeight: 600 }}>
+          <div style={{ background: '#f4f5f7', width: '400px', maxHeight: '80vh', borderRadius: '3px', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 16px rgba(0,0,0,0.4)' }} onClick={e => e.stopPropagation()}>
+             
+             {/* HEADER */}
+             <div style={{ padding: '16px 16px 8px 16px', display: 'flex', justifyContent: 'space-between', color: '#172b4d', fontWeight: 600 }}>
                 <span>Archived items</span>
-                <button onClick={() => setShowArchiveModal(false)} style={{ background:'none', border:'none', color:'#9fadbc', cursor:'pointer', fontSize:'16px' }}>✕</button>
+                <button onClick={() => setShowArchiveModal(false)} style={{ background:'none', border:'none', color:'#42526e', cursor:'pointer', fontSize:'16px' }}>✕</button>
              </div>
+             
+             {/* 🔍 ARCHIVE SEARCH BAR */}
+             <div style={{ padding: '0 16px 12px 16px', borderBottom: '1px solid rgba(9,30,66,0.13)' }}>
+                <input 
+                  type="text" 
+                  placeholder="Search archives..." 
+                  value={archiveSearch}
+                  onChange={(e) => setArchiveSearch(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: '3px', border: '2px solid #dfe1e6', outline: 'none', fontSize: '13px', color: '#172b4d' }}
+                />
+             </div>
+
              <div style={{ padding: '16px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {archivedLoading ? <div style={{ color: '#9fadbc', textAlign:'center', padding: '20px' }}>Loading archive...</div> :
-                  archivedCards.length === 0 ? <div style={{ color: '#9fadbc', textAlign:'center', padding: '20px' }}>No archived cards found.</div> :
-                  archivedCards.map(c => (
+                {archivedLoading ? <div style={{ color: '#5e6c84', textAlign:'center', padding: '20px' }}>Loading archive...</div> :
+                  archivedCards.filter(c => c.title.toLowerCase().includes(archiveSearch.toLowerCase())).length === 0 ? <div style={{ color: '#5e6c84', textAlign:'center', padding: '20px' }}>No archived cards found.</div> :
+                  archivedCards.filter(c => c.title.toLowerCase().includes(archiveSearch.toLowerCase())).map(c => (
                     <div 
                       key={c.id} 
-                      style={{ background: '#2c3338', borderRadius: '8px', padding: '12px', marginBottom: '8px', cursor: 'pointer', position: 'relative', border: '1px solid transparent', display: 'flex', flexDirection: 'column', gap: '8px' }}
-                      onMouseEnter={e => e.currentTarget.style.borderColor = '#579dff'}
+                      style={{ background: '#ffffff', borderRadius: '3px', padding: '12px', marginBottom: '8px', cursor: 'pointer', position: 'relative', boxShadow: '0 1px 1px rgba(9,30,66,0.25)', display: 'flex', flexDirection: 'column', gap: '8px', border: '1px solid transparent' }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = '#0079bf'}
                       onMouseLeave={e => e.currentTarget.style.borderColor = 'transparent'}
                       onClick={() => {
                         window.dispatchEvent(new CustomEvent("openTrelloCard", { detail: c }));
                         setShowArchiveModal(false);
                       }}
                     >
-                       {/* Card Title */}
-                       <div style={{ color: '#b6c2cf', fontWeight: 500, fontSize: '14px', paddingRight: '30px', lineHeight: '1.4' }}>
+                       <div style={{ color: '#172b4d', fontWeight: 500, fontSize: '14px', paddingRight: '30px', lineHeight: '1.4' }}>
                           {c.title}
                        </div>
                        
-                       {/* Badges Row (Archived Badge + Custom Fields) */}
                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
-                          {/* Built-in Archived Icon */}
-                          <span style={{ background: '#ffffff33', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', color: '#b6c2cf', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 500 }}>
+                          <span style={{ background: '#ebecf0', padding: '4px 8px', borderRadius: '3px', fontSize: '12px', color: '#42526e', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 500 }}>
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM6.24 5h11.52l.83 1H5.41l.83-1zM5 19V8h14v11H5zm11-5.5l-4 4-4-4 1.41-1.41L11 13.67V10h2v3.67l1.59-1.58L16 13.5z"/></svg>
                             Archived
                           </span>
                           
-                          {/* All other badges (Status, Activity, etc) */}
                           {(c.badges || []).map((b, k) => (
                             <span key={k} className={`tl-badge ${b.type || "label-default"}`} style={{ padding: '4px 8px', fontSize: '12px' }}>
                               {b.text}
@@ -1615,7 +1633,6 @@ const RightPanel = React.memo(function RightPanel() {
                           ))}
                        </div>
 
-                       {/* Bottom Row: Avatars aligned to the right */}
                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
                           <div className="tl-people" style={{ margin: 0 }}>
                             {c.people?.map((p, idx) => {
@@ -1625,7 +1642,6 @@ const RightPanel = React.memo(function RightPanel() {
                           </div>
                        </div>
 
-                       {/* RESTORE ICON (Top Right hover button) */}
                        <button
                          title="Recover"
                          onClick={async (e) => {
@@ -1633,9 +1649,9 @@ const RightPanel = React.memo(function RightPanel() {
                             setArchivedCards(prev => prev.filter(x => x.id !== c.id));
                             fetch("/.netlify/functions/trello-restore", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cardId: c.id }) });
                          }}
-                         style={{ position: 'absolute', top: '12px', right: '12px', background: 'transparent', border: 'none', color: '#9fadbc', cursor: 'pointer', padding: '4px', display: 'grid', placeItems: 'center', transition: 'color 0.2s' }}
-                         onMouseEnter={e => e.currentTarget.style.color = '#fff'}
-                         onMouseLeave={e => e.currentTarget.style.color = '#9fadbc'}
+                         style={{ position: 'absolute', top: '12px', right: '12px', background: 'transparent', border: 'none', color: '#6b778c', cursor: 'pointer', padding: '4px', display: 'grid', placeItems: 'center', transition: 'color 0.2s' }}
+                         onMouseEnter={e => e.currentTarget.style.color = '#172b4d'}
+                         onMouseLeave={e => e.currentTarget.style.color = '#6b778c'}
                        >
                           <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>
                        </button>
@@ -1878,37 +1894,62 @@ const [searchQuery, setSearchQuery] = useState("");
   const [gchatDmNames, setGchatDmNames] = useState({});
   const [gchatAutoScroll, setGchatAutoScroll] = useState(true);
   const [pendingUpload, setPendingUpload] = useState(null); // { file: File, kind: "pdf" }
-  const [trelloBuckets, setTrelloBuckets] = useState([]); 
+  // ⚡ ZERO-LATENCY ENGINE: Broadcasts Middle Pane changes directly to the Right Pane
+  const [trelloBuckets, _setTrelloBuckets] = useState(() => {
+    try {
+      const cached = localStorage.getItem("TRELLO_CACHE");
+      return cached ? JSON.parse(cached) : [];
+    } catch(e) { return []; }
+  }); 
+  const setTrelloBuckets = (action) => {
+      _setTrelloBuckets(prev => {
+          const next = typeof action === 'function' ? action(prev) : action;
+          window.dispatchEvent(new CustomEvent("optimisticRightPane", { detail: next }));
+          return next;
+      });
+  };
+  
   const [allTrelloLists, setAllTrelloLists] = useState([]); // Tracks ALL board lists
 
- // NEW DRAFT POSITION STATE
-  const [draftPos, setDraftPos] = useState({ x: 0, y: 0 });
-  const isDraggingDraft = useRef(false);
+// NEW DRAFT POSITION STATE
+ const [draftPos, setDraftPos] = useState({ x: 0, y: 0 });
+ const isDraggingDraft = useRef(false);
+ const draftWindowRef = useRef(null);
 
-  const handleDraftMouseDown = (e) => {
-    if (isDraftEnlarged) return;
-    e.preventDefault(); // Prevents text highlighting which breaks the drag
-    isDraggingDraft.current = true;
-    const startX = e.clientX - draftPos.x;
-    const startY = e.clientY - draftPos.y;
+ const handleDraftMouseDown = (e) => {
+   if (isDraftEnlarged) return;
+   e.preventDefault(); // Prevents text highlighting which breaks the drag
+   isDraggingDraft.current = true;
+   const startX = e.clientX - draftPos.x;
+   const startY = e.clientY - draftPos.y;
 
-    const onMouseMove = (moveEvent) => {
-      if (!isDraggingDraft.current) return;
-      setDraftPos({
-        x: moveEvent.clientX - startX,
-        y: moveEvent.clientY - startY,
-      });
-    };
+   let currentX = draftPos.x;
+   let currentY = draftPos.y;
 
-    const onMouseUp = () => {
-      isDraggingDraft.current = false;
-      document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseup", onMouseUp);
-    };
+   const onMouseMove = (moveEvent) => {
+     if (!isDraggingDraft.current) return;
+     
+     currentX = moveEvent.clientX - startX;
+     currentY = moveEvent.clientY - startY;
 
-    document.addEventListener("mousemove", onMouseMove);
-    document.addEventListener("mouseup", onMouseUp);
-  };
+     // Update the DOM directly to bypass React render lag (0ms latency)
+     if (draftWindowRef.current) {
+       draftWindowRef.current.style.transform = `translate(${currentX}px, ${currentY}px)`;
+     }
+   };
+
+   const onMouseUp = () => {
+     isDraggingDraft.current = false;
+     document.removeEventListener("mousemove", onMouseMove);
+     document.removeEventListener("mouseup", onMouseUp);
+     
+     // Sync back to React state ONLY when dragging stops so it persists
+     setDraftPos({ x: currentX, y: currentY });
+   };
+
+   document.addEventListener("mousemove", onMouseMove);
+   document.addEventListener("mouseup", onMouseUp);
+ };
 
   useEffect(() => {
     // 1. Initial Master List Fetch (Gets empty lists too!)
@@ -2019,6 +2060,43 @@ useEffect(() => {
 
   const seenDriveEmailIdsRef = useRef(new Set());
 
+  const handleToggleStar = async (e, msgId, currentStarred) => {
+    if (e) {
+      e.stopPropagation(); // 🛡️ Stops the click from reaching the parent row
+      e.preventDefault();  // 🛡️ Stops any default browser actions
+    }
+    
+    const newStarred = !currentStarred;
+
+    // 1. INSTANT UI UPDATE: Force the star to turn yellow immediately
+    setGmailEmails(prev => prev.map(msg => 
+      msg.id === msgId ? { ...msg, isStarred: newStarred } : msg
+    ));
+
+    // 2. BACKEND SYNC
+    console.log("Pushing star change to backend...");
+    try {
+      const res = await fetch("/.netlify/functions/gmail-toggle-star", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId: msgId, starred: newStarred })
+      });
+      const data = await res.json();
+      console.log("Backend response:", data);
+      
+      // If we are in the STARRED view and just unstarred an item, remove it from list
+      if (!newStarred && gmailFolder === "STARRED") {
+        setGmailEmails(prev => prev.filter(msg => msg.id !== msgId));
+      }
+    } catch (err) {
+      console.error("Failed to toggle star:", err);
+      // Revert UI only if the API strictly fails
+      setGmailEmails(prev => prev.map(msg => 
+        msg.id === msgId ? { ...msg, isStarred: currentStarred } : msg
+      ));
+    }
+  };
+
   /* WhatsApp */
   const [waChats, setWaChats] = useState(() => buildSeedChats());
   const waBodyRef = useRef(null);
@@ -2030,10 +2108,11 @@ useEffect(() => {
   const [emailPreview, setEmailPreview] = useState(null);
   /* Gmail Inbox State */
   const [gmailEmails, setGmailEmails] = useState([]);
-  const [gmailLoading, setGmailLoading] = useState(false);
-  const [gmailError, setGmailError] = useState("");
-  const [selectedEmailIds, setSelectedEmailIds] = useState(new Set());
-  const [gmailFolder, setGmailFolder] = useState("INBOX"); // Tracks current folder
+  const [gmailLoading, setGmailLoading] = useState(false);
+  const [gmailError, setGmailError] = useState("");
+  const [selectedEmailIds, setSelectedEmailIds] = useState(new Set());
+  const [gmailFolder, setGmailFolder] = useState("INBOX"); // Tracks current folder
+  const [gmailRefreshTrigger, setGmailRefreshTrigger] = useState(0); // 👈 NEW: Hard refresh trigger
 
 
 // NEW: email draft helper state
@@ -2041,6 +2120,8 @@ useEffect(() => {
  const [selectedDraftTemplate, setSelectedDraftTemplate] = useState(null);
  const [draftTo, setDraftTo] = useState("");   // 👈 NEW
  const [isDraftEnlarged, setIsDraftEnlarged] = useState(false); // 👈 NEW
+ const [draftAttachments, setDraftAttachments] = useState([]); // 👈 NEW: Holds email attachments
+ const draftFileInputRef = useRef(null); // 👈 NEW: Reference for the hidden file input
 
 
   /* Trello modal */
@@ -2050,6 +2131,7 @@ useEffect(() => {
   const [moveTab, setMoveTab] = useState("outbox");
   const [moveTargetList, setMoveTargetList] = useState("");
   const [moveTargetPos, setMoveTargetPos] = useState(1);
+  const [moveListSearch, setMoveListSearch] = useState(""); // 👈 NEW: Tracks search text
   
   // NEW: local Description editor state
   const [descEditing, setDescEditing] = useState(false);
@@ -2546,8 +2628,8 @@ useEffect(() => {
     }
 
     loadInbox();
-    return () => { cancelled = true; };
-  }, [currentView.app, gmailFolder]); // 👈 Added gmailFolder here
+    return () => { cancelled = true; };
+  }, [currentView.app, gmailFolder, gmailRefreshTrigger]); // 👈 Added trigger here
 
  
     // When we are not looking at an email, the right-panel client files should be empty
@@ -2641,17 +2723,17 @@ useEffect(() => {
 // CATCH POLLED DATA FROM RIGHT PANEL
   useEffect(() => {
     function handlePoll(e) {
-      setTrelloBuckets(e.detail);
+      _setTrelloBuckets(e.detail); // 🤫 Use _set to avoid echoing back to RightPanel
     }
     window.addEventListener("trelloPolled", handlePoll);
     return () => window.removeEventListener("trelloPolled", handlePoll);
   }, []);
 
-  // 2. RIGHT PANE: INSTANT UPDATE LISTENER (Fixes 10s delay)
+  // 2. MIDDLE PANE: INSTANT UPDATE LISTENER (Fixes 10s delay)
   useEffect(() => {
     function handlePatch(e) {
       const { cardId, updater } = e.detail;
-      setTrelloBuckets(prevBuckets => {
+      _setTrelloBuckets(prevBuckets => { // 🤫 Use _set to avoid echoing back to RightPanel
         return prevBuckets.map(b => ({
           ...b,
           cards: b.cards.map(c => {
@@ -3743,18 +3825,28 @@ if (currentView.app === "gmail") {
         const json = await res.json();
 
         // 3. ONLY update UI if the server actually succeeded
-        if (res.ok && json.ok) {
-  // 1. Clear the local emails list to force the 'useEffect' loader to run again
-  setGmailEmails([]); 
-  
-  // 2. Clear the checkmark selection
-  setSelectedEmailIds(new Set());
+        if (res.ok && json.ok) {
+          // 1. 🛡️ Force immediate loading state
+          setGmailEmails([]); 
+          setGmailLoading(true);
 
-  // 3. Switch the folder state back to Inbox so the user sees the restored mail
-  setGmailFolder("INBOX");
-  
-  console.log("Sync complete. Inbox refreshing...");
-} else {
+          // 2. Clear the checkmark selection
+          setSelectedEmailIds(new Set());
+
+          // 3. Switch folder state to force the useEffect to re-fetch "Server Truth"
+          // We set it to null briefly then to INBOX to ensure the dependency change triggers
+          setGmailFolder(""); 
+          setTimeout(() => {
+            setGmailFolder("INBOX");
+            
+            // 4. Dispatch a system notification so the user knows it worked
+            window.dispatchEvent(new CustomEvent("notify", { 
+              detail: { text: `${snapshotIds.length} emails moved back to Inbox`, alt: "Gmail", icon: gmailIcon } 
+            }));
+          }, 10);
+          
+          console.log("Restore successful. Re-syncing Inbox from Gmail API...");
+        } else {
   throw new Error(json.error || "Server failed to move items");
 }
       } catch (err) { 
@@ -3768,16 +3860,17 @@ if (currentView.app === "gmail") {
         {/* Header Bar */}
         <div style={{ padding: "8px 16px", borderBottom: "1px solid #eee", background: "#f8f9fa", display: "flex", alignItems: "center", minHeight: "48px", gap: "12px" }}>
           
-          <button 
-            className="btn blue" 
-            onClick={() => {
-              setEmail(null);
-           setEmailPreview(null);
-              setSelectedDraftTemplate({ ...DRAFT_TEMPLATES.find(t => t.id === "new_blank") });
-              setDraftTo("");
-            }}
-            style={{ borderRadius: "20px", padding: "10px 20px", fontSize: "14px", fontWeight: 500, display: "flex", alignItems: "center", gap: "8px" }}
-          >
+        <button 
+            className="btn blue" 
+            onClick={() => {
+              setEmail(null);
+           setEmailPreview(null);
+              setSelectedDraftTemplate({ ...DRAFT_TEMPLATES.find(t => t.id === "new_blank") });
+              setDraftTo("");
+              setDraftAttachments([]);
+            }}
+            style={{ borderRadius: "20px", padding: "10px 20px", fontSize: "14px", fontWeight: 500, display: "flex", alignItems: "center", gap: "8px" }}
+          >
             <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
             Compose
           </button>
@@ -3814,8 +3907,86 @@ if (currentView.app === "gmail") {
           {/* Spacer */}
           <div style={{ flex: 0 }}></div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            {/* 1. SELECTION COUNT AND ACTIONS */}
+    <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            {/* 1. STARRED BUTTON */}
+            <button
+              onClick={() => {
+                const nextFolder = gmailFolder === "STARRED" ? "INBOX" : "STARRED";
+                setGmailEmails([]); // 👈 Clear list to show loading state
+                setGmailLoading(true);
+                setGmailFolder(nextFolder);
+              }}
+              style={{
+                height: "32px",
+                padding: "0 16px",
+                borderRadius: "16px",
+                fontSize: "13px",
+                fontWeight: 500,
+                cursor: "pointer",
+                background: gmailFolder === "STARRED" ? "#e8f0fe" : "#fff",
+                color: gmailFolder === "STARRED" ? "#1a73e8" : "#5f6368",
+                border: gmailFolder === "STARRED" ? "1px solid #1a73e8" : "1px solid #dadce0",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px"
+              }}
+            >
+              <span>{gmailFolder === "STARRED" ? "⬅ Back to Inbox" : "⭐ View Starred"}</span>
+            </button>
+
+        {/* 2. SENT BUTTON */}
+            <button
+              onClick={() => {
+                const nextFolder = gmailFolder === "SENT" ? "INBOX" : "SENT";
+                setGmailFolder(nextFolder);
+                setGmailEmails([]); 
+              }}
+              style={{
+                height: "32px",
+                padding: "0 16px",
+                borderRadius: "16px",
+                fontSize: "13px",
+                fontWeight: 500,
+                cursor: "pointer",
+                background: gmailFolder === "SENT" ? "#e8f0fe" : "#fff",
+                color: gmailFolder === "SENT" ? "#1a73e8" : "#5f6368",
+                border: gmailFolder === "SENT" ? "1px solid #1a73e8" : "1px solid #dadce0",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px"
+              }}
+            >
+              <span>{gmailFolder === "SENT" ? "⬅ Back to Inbox" : "📤 Sent"}</span>
+            </button>
+
+            {/* 3. DRAFTS BUTTON */}
+            <button
+              onClick={() => {
+                const nextFolder = gmailFolder === "DRAFTS" ? "INBOX" : "DRAFTS";
+                setGmailFolder(nextFolder);
+                setGmailEmails([]); 
+              }}
+              style={{
+                height: "32px",
+                padding: "0 16px",
+                borderRadius: "16px",
+                fontSize: "13px",
+                fontWeight: 500,
+                cursor: "pointer",
+                background: gmailFolder === "DRAFTS" ? "#e8f0fe" : "#fff",
+                color: gmailFolder === "DRAFTS" ? "#1a73e8" : "#5f6368",
+                border: gmailFolder === "DRAFTS" ? "1px solid #1a73e8" : "1px solid #dadce0",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px"
+              }}
+            >
+              <span>{gmailFolder === "DRAFTS" ? "⬅ Back to Inbox" : "📝 Drafts"}</span>
+            </button>
+
+            
+
+            {/* 2. SELECTION COUNT AND ACTIONS */}
             {selectedEmailIds.size > 0 && (
               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                 <span style={{ fontSize: "13px", color: "#5f6368" }}>{selectedEmailIds.size} selected</span>
@@ -3834,13 +4005,18 @@ if (currentView.app === "gmail") {
                         const json = await res.json();
                         
                         if (res.ok && json.ok) {
-                          // 1. Remove from current Trash view
-                          setGmailEmails(prev => prev.filter(e => !snapshotIds.includes(e.id)));
+                          // 1. Clear the checkmark selection
                           setSelectedEmailIds(new Set());
+
+                          // 2. Clear the local emails list completely
+                          // This forces the UI to realize it has NO data for the Inbox.
+                          setGmailEmails([]); 
+
+                          // 3. Switch the folder state to INBOX
+                          // Your 'useEffect' watches 'gmailFolder'; this change triggers a re-fetch.
+                          setGmailFolder("INBOX");
                           
-                          // 2. 🔄 RE-SYNC: Force a tiny delay and then clear the list 
-                          // so the next time you click 'Back to Inbox', it fetches fresh.
-                          console.log("Emails restored. Inbox will refresh on next visit.");
+                          console.log("Restored! Syncing fresh Inbox from server...");
                         }
                       } catch (err) { 
                         console.error("Restore failed", err);
@@ -3954,7 +4130,11 @@ if (currentView.app === "gmail") {
                   time: new Date(msg.date).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
                   body: isHtml ? "" : rawBody,
                   bodyHtml: isHtml ? msg.body : "",
-                  attachments: msg.subject.includes("Payslips") ? [{ name: "Payslips.pdf", url: "/pdfs/Payslips.pdf", type: "pdf" }] : [],
+                  attachments: msg.attachments ? msg.attachments.map(a => ({
+                    ...a,
+                    type: a.mimeType.includes("pdf") ? "pdf" : a.mimeType.includes("image") ? "img" : a.mimeType.includes("spreadsheet") || a.mimeType.includes("excel") ? "xls" : "file",
+                    url: `/.netlify/functions/gmail-download?messageId=${msg.id}&attachmentId=${a.id}&filename=${encodeURIComponent(a.name)}&mimeType=${encodeURIComponent(a.mimeType)}`
+                  })) : [],
                   actions: [{ key: "submit_trello", label: "Submit to Trello" }, { key: "update_tracker", label: "Update AC Tracker" }]
                 });
                 setEmailPreview(null);
@@ -3982,15 +4162,52 @@ if (currentView.app === "gmail") {
                 />
               </div>
 
+              {/* ⭐ STAR ICON CONTAINER */}
+              <div 
+                style={{ 
+                  padding: "0 8px", 
+                  display: "flex", 
+                  alignItems: "center", 
+                  cursor: "pointer",
+                  fontSize: "20px",
+                  zIndex: 10, /* Ensures it sits above the row background */
+                  color: msg.isStarred ? "#f2d600" : "#c1c7d0",
+                  transition: "transform 0.1s ease"
+                }}
+                onClick={(e) => handleToggleStar(e, msg.id, msg.isStarred)}
+                onMouseEnter={e => e.currentTarget.style.transform = "scale(1.2)"}
+                onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
+              >
+                {msg.isStarred ? "★" : "☆"}
+              </div>
               {/* Sender Name */}
               <div style={{ width: "200px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: "#202124" }}>
                 {msg.from ? msg.from.split("<")[0].replace(/"/g, '').trim() : "(Unknown)"}
               </div>
 
-              {/* Subject and Snippet */}
-              <div style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                <span style={{ color: "#202124", marginRight: "6px" }}>{msg.subject}</span>
-                <span style={{ color: "#5f6368", fontWeight: 400 }}>- {msg.snippet}</span>
+             {/* Subject, Snippet, and Attachments */}
+              <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  <span style={{ color: "#202124", marginRight: "6px" }}>{msg.subject}</span>
+                  <span style={{ color: "#5f6368", fontWeight: 400 }}>- {msg.snippet}</span>
+                </div>
+                
+                {msg.attachments && msg.attachments.length > 0 && (
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '6px', overflow: 'hidden' }}>
+                    {msg.attachments.map(att => {
+                      const isPdf = att.mimeType.includes('pdf');
+                      const isImg = att.mimeType.includes('image');
+                      const isXls = att.mimeType.includes('excel') || att.mimeType.includes('spreadsheet');
+                      const iconColor = isPdf ? '#ea4335' : isImg ? '#a142f4' : isXls ? '#188038' : '#5f6368';
+                      return (
+                        <div key={att.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 8px', border: '1px solid #dadce0', borderRadius: '100px', fontSize: '11px', background: '#fff', maxWidth: '140px' }}>
+                          <span style={{ color: iconColor, fontWeight: 'bold' }}>{isPdf ? 'PDF' : isImg ? 'IMG' : isXls ? 'XLS' : 'FILE'}</span>
+                          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#5f6368' }}>{att.name}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
 
               
@@ -4004,7 +4221,9 @@ if (currentView.app === "gmail") {
 
 {/* 🔽 COMPOSE EDITOR (Floating over Inbox) 🔽 */}
         {selectedDraftTemplate && !email && (
-          <div style={{
+          <div 
+            ref={draftWindowRef}
+            style={{
             position: "absolute", 
             bottom: "0", 
             right: "24px",
@@ -4020,7 +4239,7 @@ if (currentView.app === "gmail") {
             width: isDraftEnlarged ? "calc(100% - 48px)" : "500px",
             height: isDraftEnlarged ? "calc(100% - 48px)" : "560px", /* Fixed height stops it from floating too high */
             transform: isDraftEnlarged ? "none" : `translate(${draftPos.x}px, ${draftPos.y}px)`,
-            transition: "width 0.1s ease, height 0.1s ease" /* Animate size only, not drag */
+            transition: "width 0.15s ease-out, height 0.15s ease-out" /* Smooth size animations, no transform transitions to prevent drag lag */
           }}>
             {/* Draggable Header */}
             <div 
@@ -4031,7 +4250,12 @@ if (currentView.app === "gmail") {
               <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
                 <button 
                   onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => { e.stopPropagation(); setIsDraftEnlarged(prev => !prev); setDraftPos({x:0, y:0}); }} 
+                  onClick={(e) => { 
+                    e.stopPropagation(); 
+                    setIsDraftEnlarged(prev => !prev); 
+                    setDraftPos({x:0, y:0}); 
+                    if (draftWindowRef.current) draftWindowRef.current.style.transform = "none";
+                  }} 
                   style={{ border: "none", background: "transparent", cursor: "pointer", color: "#5f6368", display: "flex", alignItems: "center" }} 
                   title={isDraftEnlarged ? "Minimize" : "Maximize"}
                 >
@@ -4041,9 +4265,9 @@ if (currentView.app === "gmail") {
                     <svg width="14" height="14" viewBox="0 0 24 24"><path fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
                   )}
                 </button>
-                <button 
+              <button 
                   onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => { e.stopPropagation(); setSelectedDraftTemplate(null); setDraftPos({x:0, y:0}); }} 
+                  onClick={(e) => { e.stopPropagation(); setSelectedDraftTemplate(null); setDraftPos({x:0, y:0}); setDraftAttachments([]); }} 
                   style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: "16px", color: "#5f6368" }}
                 >
                   ✕
@@ -4113,6 +4337,22 @@ if (currentView.app === "gmail") {
               />
             </div>
 
+            {/* ATTACHMENT PREVIEW ROW */}
+            {draftAttachments.length > 0 && (
+              <div style={{ padding: "8px 16px", borderBottom: "1px solid #f1f3f4", display: "flex", gap: "8px", flexWrap: "wrap", background: "#f8f9fa" }}>
+                {draftAttachments.map((file, idx) => (
+                  <div key={idx} style={{ display: "flex", alignItems: "center", gap: "6px", background: "#fff", border: "1px solid #dadce0", borderRadius: "16px", padding: "4px 10px", fontSize: "12px", color: "#3c4043" }}>
+                    <span style={{ maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</span>
+                    <span style={{ color: "#5f6368" }}>{(file.size / 1024 / 1024).toFixed(1)}MB</span>
+                    <button 
+                      onClick={() => setDraftAttachments(prev => prev.filter((_, i) => i !== idx))} 
+                      style={{ border: "none", background: "transparent", cursor: "pointer", padding: "0 2px", color: "#5f6368", display: "flex", alignItems: "center" }}
+                    >✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
         {/* Body Container (Scrolls together with Signature) */}
             <div style={{ flex: 1, overflowY: "auto", background: "#fff", display: "flex", flexDirection: "column" }}>
               <textarea
@@ -4139,28 +4379,109 @@ if (currentView.app === "gmail") {
             </div>
             {/* Footer */}
             <div style={{ padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff" }}>
-              <button
-                className="btn blue"
-                onClick={async () => {
-                  if (!draftTo.trim()) { alert("Please add a recipient email address."); return; }
-                  const subj = document.getElementById("compose-subject")?.value || "New Message";
-                  try {
-                    const res = await fetch("/.netlify/functions/gmail-send-email", {
-                      method: "POST", headers: { "content-type": "application/json" },
-                      body: JSON.stringify({ to: draftTo, subject: subj, body: selectedDraftTemplate.body }),
-                    });
-                    const json = await res.json().catch(() => ({}));
-                    if (!res.ok || json.ok === false) throw new Error(json.error || `HTTP ${res.status}`);
-                    alert(`Email sent successfully to: ${draftTo}`);
-                    setSelectedDraftTemplate(null);
-                    setDraftTo("");
-                  } catch (err) { alert(`Sending failed: ${err?.message || String(err)}`); }
-                }}
-                style={{ background: "#0b57d0", color: "#fff", padding: "8px 24px", borderRadius: "24px", border: "none", fontWeight: 500, cursor: "pointer" }}
-              >
-                Send
-              </button>
-              <button onClick={() => { setSelectedDraftTemplate(null); setDraftTo(""); }} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#5f6368" }}>
+             <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <button
+                  className="btn blue"
+                  onClick={async () => {
+                    if (!draftTo.trim()) {
+                      setEmail((prev) => prev ? { ...prev, systemNote: "Please add at least one recipient email address before sending." } : prev);
+                      return;
+                    }
+                    try {
+                      const base64Attachments = await Promise.all(draftAttachments.map(file => {
+                        return new Promise((resolve) => {
+                          const reader = new FileReader();
+                          reader.onload = () => resolve({
+                            filename: file.name,
+                            mimeType: file.type || "application/octet-stream",
+                            content: reader.result.split(',')[1]
+                          });
+                          reader.readAsDataURL(file);
+                        });
+                      }));
+
+                      const res = await fetch("/.netlify/functions/gmail-send-email", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          to: draftTo,
+                          subject: email?.subject || "New Message",
+                          body: selectedDraftTemplate.body,
+                          attachments: base64Attachments 
+                        }),
+                      });
+                      const json = await res.json().catch(() => ({}));
+                      if (!res.ok || json.ok === false) throw new Error(json.error || `HTTP ${res.status}`);
+                      setEmail((prev) => prev ? { ...prev, systemNote: `Email sent successfully to: ${draftTo}` } : prev);
+                      setSelectedDraftTemplate(null);
+                      setDraftTo("");
+                      setDraftAttachments([]);
+                    } catch (err) {
+                      setEmail((prev) => prev ? { ...prev, systemNote: `Sending failed: ${err?.message || String(err)}` } : prev);
+                    }
+                  }}
+                  style={{ background: "#0b57d0", color: "#fff", padding: "8px 24px", borderRadius: "24px", border: "none", fontWeight: 500, cursor: "pointer" }}
+                >
+                  Send
+                </button>
+
+                <button
+                  title="Save to Drafts"
+                  type="button"
+                  onClick={async () => {
+                    const subj = document.getElementById("compose-subject")?.value || "(No Subject)";
+                    try {
+                      await fetch("/.netlify/functions/gmail-save-draft", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ 
+                          to: draftTo, 
+                          subject: subj, 
+                          body: selectedDraftTemplate?.body || "" 
+                        })
+                      });
+                      window.dispatchEvent(new CustomEvent("notify", { 
+                        detail: { text: "Draft saved to Gmail", alt: "Gmail", icon: gmailIcon } 
+                      }));
+                      setSelectedDraftTemplate(null);
+                      setDraftTo("");
+                      setDraftAttachments([]);
+                    } catch (err) {
+                      console.error("Draft save failed", err);
+                    }
+                  }}
+                  style={{ background: "transparent", border: "none", cursor: "pointer", color: "#5f6368", display: "grid", placeItems: "center", padding: "8px", borderRadius: "50%" }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = "#f1f3f4"}
+                  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></svg>
+                </button>
+
+                <button 
+                  onClick={() => draftFileInputRef.current?.click()} 
+                  title="Attach files"
+                  style={{ background: "transparent", border: "none", cursor: "pointer", color: "#5f6368", display: "grid", placeItems: "center", padding: "8px", borderRadius: "50%" }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = "#f1f3f4"}
+                  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5a2.5 2.5 0 0 1 5 0v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5a2.5 2.5 0 0 0 5 0V5c0-3.31-2.69-6-6-6S3 1.69 3 5v11.5c0 3.86 3.14 7 7 7s7-3.14 7-7V6h-1.5z"/></svg>
+                </button>
+                <input 
+                  type="file" 
+                  multiple 
+                  ref={draftFileInputRef} 
+                  style={{ display: "none" }} 
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []);
+                    const validFiles = files.filter(f => f.size <= 4.5 * 1024 * 1024);
+                    if (validFiles.length < files.length) alert("Some files were skipped because they exceed the 4.5MB limit.");
+                    setDraftAttachments(prev => [...prev, ...validFiles]);
+                    e.target.value = "";
+                  }} 
+                />
+              </div>
+
+              <button onClick={() => { setSelectedDraftTemplate(null); setDraftTo(""); setDraftAttachments([]); }} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#5f6368" }}>
                 <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M15 4V3H9v1H4v2h1v13c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V6h1V4h-5zm2 15H7V6h10v13zM9 8h2v9H9zm4 0h2v9h-2z"/></svg>
               </button>
             </div>
@@ -4189,6 +4510,36 @@ if (currentView.app === "gmail") {
           console.error("Delete failed", err);
         }
       };
+      const handleToggleStar = async (e, msgId, currentStarred) => {
+    if (e) e.stopPropagation(); // 🛡️ Hard stop to prevent opening the email
+    const newStarred = !currentStarred;
+
+    // 1. INSTANT UI UPDATE: Make it yellow immediately
+    setGmailEmails(prev => prev.map(msg => 
+      msg.id === msgId ? { ...msg, isStarred: newStarred } : msg
+    ));
+
+    // 2. BACKEND SYNC
+    try {
+      const res = await fetch("/.netlify/functions/gmail-toggle-star", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId: msgId, starred: newStarred })
+      });
+      const json = await res.json();
+      
+      // If we are currently in the STARRED view and just unstarred an item, remove it from list
+      if (newStarred === false && gmailFolder === "STARRED") {
+        setGmailEmails(prev => prev.filter(msg => msg.id !== msgId));
+      }
+    } catch (err) {
+      console.error("Failed to toggle star:", err);
+      // Revert UI if the network/API failed
+      setGmailEmails(prev => prev.map(msg => 
+        msg.id === msgId ? { ...msg, isStarred: currentStarred } : msg
+      ));
+    }
+  };
 
    const emailPane = (
         <div className="email-pane" style={{ border: "none", boxShadow: "none", padding: "8px 24px", background: "#fff" }}>
@@ -4302,16 +4653,12 @@ if (currentView.app === "gmail") {
                       );
                     }
 
-                    // Fallback for standard text: Split by newlines into paragraphs
-                    return (
-                      <div className="gmail-paragraph-wrapper">
-                        {text.split('\n').map((line, i) => (
-                          <div key={i} style={{ marginBottom: line.trim() ? "14px" : "8px", minHeight: line.trim() ? "auto" : "12px", lineHeight: "1.6" }}>
-                            {line}
-                          </div>
-                        ))}
-                      </div>
-                    );
+                    // Fallback for standard text: Use pre-wrap to respect original formatting
+                  return (
+                    <div style={{ whiteSpace: "pre-wrap", lineHeight: "1.6", fontFamily: "system-ui, -apple-system, sans-serif" }}>
+                      {text}
+                    </div>
+                  );
                   };
 
                   return renderFormattedBody(body);
@@ -4320,11 +4667,40 @@ if (currentView.app === "gmail") {
             )}
           </div>
 
-          {/* Attachments Section */}
-          {att.length > 0 && (
-            <div style={{ marginLeft: "56px", marginTop: "24px" }}>
-              <div style={{ borderTop: "1px solid #f1f3f4", margin: "16px 0", width: "100%" }}></div>
-              <div className="email-attach-grid">
+         {/* Attachments Section */}
+          {att.length > 0 && (
+            <div style={{ marginLeft: "56px", marginTop: "24px" }}>
+              <div style={{ borderTop: "1px solid #f1f3f4", margin: "16px 0", width: "100%" }}></div>
+              
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '16px' }}>
+                <span style={{ fontWeight: 600, fontSize: '14px', color: '#202124' }}>{att.length} attachment{att.length > 1 ? 's' : ''}</span>
+                <span style={{ color: '#5f6368', fontSize: '13px' }}>· Scanned by Gmail ⓘ</span>
+                
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '8px' }}>
+                  <button 
+                    onClick={() => {
+                      att.forEach((a, index) => {
+                        setTimeout(() => {
+                          const link = document.createElement('a');
+                          link.href = a.url;
+                          link.setAttribute('download', a.name);
+                          document.body.appendChild(link);
+                          link.click();
+                          document.body.removeChild(link);
+                        }, index * 600);
+                      });
+                    }}
+                    title="Download all"
+                    style={{ background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#5f6368', padding: '8px', borderRadius: '50%' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#f1f3f4'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                  </button>
+                </div>
+              </div>
+
+              <div className="email-attach-grid">
                 {att.map((f, i) => (
                   <button
                     key={i}
@@ -4353,29 +4729,24 @@ if (currentView.app === "gmail") {
             </div>
           )}
 
-          {/* Footer Actions (Reply, Forward, Smilie) */}
-          <div style={{ marginLeft: "56px", marginTop: "32px", display: "flex", gap: "8px" }}>
-            <button 
-              className="gmail-btn-outline" 
-              onClick={() => handleEmailAction("create_draft")}
-              style={{ borderRadius: "100px", padding: "8px 24px", color: "#3c4043", border: "1px solid #dadce0", display: "flex", alignItems: "center", gap: "8px", background: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: 500 }}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>
-              Reply
-            </button>
-            <button 
-              className="gmail-btn-outline" 
-              onClick={() => handleEmailAction("create_draft")}
-              style={{ borderRadius: "100px", padding: "8px 24px", color: "#3c4043", border: "1px solid #dadce0", display: "flex", alignItems: "center", gap: "8px", background: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: 500 }}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M14 9V5l7 7-7 7v-4.1c-5 0-8.5 1.6-11 5.1 1-5 4-10 11-11z"/></svg>
-              Forward
-            </button>
-            <button
-              style={{ borderRadius: "50%", width: "40px", height: "40px", border: "1px solid #dadce0", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#5f6368" }}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/></svg>
-            </button>
+         {/* Footer Actions (Reply, Forward) */}
+          <div style={{ marginLeft: "56px", marginTop: "32px", display: "flex", gap: "8px" }}>
+            <button 
+              className="gmail-btn-outline" 
+              onClick={() => handleEmailAction("create_draft")}
+              style={{ borderRadius: "100px", padding: "8px 24px", color: "#3c4043", border: "1px solid #dadce0", display: "flex", alignItems: "center", gap: "8px", background: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: 500 }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>
+              Reply
+            </button>
+            <button 
+              className="gmail-btn-outline" 
+              onClick={() => handleEmailAction("create_draft")}
+              style={{ borderRadius: "100px", padding: "8px 24px", color: "#3c4043", border: "1px solid #dadce0", display: "flex", alignItems: "center", gap: "8px", background: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: 500 }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M14 9V5l7 7-7 7v-4.1c-5 0-8.5 1.6-11 5.1 1-5 4-10 11-11z"/></svg>
+              Forward
+            </button>
           </div>
 
           {/* Trello / Tracker Actions (Custom ActuarySpace Buttons) */}
@@ -4447,12 +4818,25 @@ if (currentView.app === "gmail") {
                       setSelectedDraftTemplate(null);
                       setShowDraftPicker(false);
                       setDraftTo("");
+                      setDraftAttachments([]);
                       setEmail((prev) => prev ? { ...prev, systemNote: undefined } : prev);
                     }}
                   >
                     Cancel
                   </button>
- <button
+                  
+                  {/* Paperclip Button for Embedded Draft */}
+                  <button 
+                    onClick={() => draftFileInputRef.current?.click()} 
+                    title="Attach files"
+                    style={{ background: "transparent", border: "1px solid #dadce0", cursor: "pointer", color: "#5f6368", display: "grid", placeItems: "center", padding: "6px", borderRadius: "4px", marginLeft: "4px" }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = "#f1f3f4"}
+                    onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5a2.5 2.5 0 0 1 5 0v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5a2.5 2.5 0 0 0 5 0V5c0-3.31-2.69-6-6-6S3 1.69 3 5v11.5c0 3.86 3.14 7 7 7s7-3.14 7-7V6h-1.5z"/></svg>
+                  </button>
+
+                  <button
                     className="btn blue"
                     onClick={async () => {
                       if (!draftTo.trim()) {
@@ -4460,6 +4844,19 @@ if (currentView.app === "gmail") {
                         return;
                       }
                       try {
+                        // Convert attachments to Base64
+                        const base64Attachments = await Promise.all(draftAttachments.map(file => {
+                          return new Promise((resolve) => {
+                            const reader = new FileReader();
+                            reader.onload = () => resolve({
+                              filename: file.name,
+                              mimeType: file.type || "application/octet-stream",
+                              content: reader.result.split(',')[1]
+                            });
+                            reader.readAsDataURL(file);
+                          });
+                        }));
+
                         const res = await fetch("/.netlify/functions/gmail-send-email", {
                           method: "POST",
                           headers: { "content-type": "application/json" },
@@ -4467,6 +4864,7 @@ if (currentView.app === "gmail") {
                             to: draftTo,
                             subject: email?.subject || "New Message",
                             body: selectedDraftTemplate.body,
+                            attachments: base64Attachments 
                           }),
                         });
                         const json = await res.json().catch(() => ({}));
@@ -4474,6 +4872,7 @@ if (currentView.app === "gmail") {
                         setEmail((prev) => prev ? { ...prev, systemNote: `Email sent successfully to: ${draftTo}` } : prev);
                         setSelectedDraftTemplate(null);
                         setDraftTo("");
+                        setDraftAttachments([]);
                       } catch (err) {
                         setEmail((prev) => prev ? { ...prev, systemNote: `Sending failed: ${err?.message || String(err)}` } : prev);
                       }
@@ -4483,6 +4882,23 @@ if (currentView.app === "gmail") {
                   </button>
                 </div>
               </div>
+              
+              {/* ATTACHMENT PREVIEW ROW (Embedded View) */}
+              {draftAttachments.length > 0 && (
+                <div style={{ padding: "8px 16px", borderBottom: "1px solid #e0e4f0", display: "flex", gap: "8px", flexWrap: "wrap", background: "#f8f9fa" }}>
+                  {draftAttachments.map((file, idx) => (
+                    <div key={idx} style={{ display: "flex", alignItems: "center", gap: "6px", background: "#fff", border: "1px solid #dadce0", borderRadius: "16px", padding: "4px 10px", fontSize: "12px", color: "#3c4043" }}>
+                      <span style={{ maxWidth: "150px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</span>
+                      <span style={{ color: "#5f6368" }}>{(file.size / 1024 / 1024).toFixed(1)}MB</span>
+                      <button 
+                        onClick={() => setDraftAttachments(prev => prev.filter((_, i) => i !== idx))} 
+                        style={{ border: "none", background: "transparent", cursor: "pointer", padding: "0 2px", color: "#5f6368", display: "flex", alignItems: "center" }}
+                      >✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div style={{ maxHeight: "400px", overflowY: "auto", display: "flex", flexDirection: "column" }}>
                 <textarea
                   className="email-draft-textarea"
@@ -4591,28 +5007,29 @@ if (currentView.app === "gmail") {
 
               {/* DROPDOWN MENU */}
               {trelloMenuOpen && (
-                <div style={{ position: 'absolute', right: 0, top: '40px', background: '#282e33', boxShadow: '0 8px 16px rgba(0,0,0,0.4)', borderRadius: '8px', width: '300px', zIndex: 999, border: '1px solid #454f59', padding: showMoveSubmenu ? '0' : '8px 0', fontSize: '14px', color: '#b6c2cf' }}>
+                <div style={{ position: 'absolute', right: 0, top: '40px', background: '#ffffff', boxShadow: '0 8px 16px -4px rgba(9,30,66,0.25), 0 0 0 1px rgba(9,30,66,0.08)', borderRadius: '3px', width: '300px', zIndex: 999, padding: showMoveSubmenu ? '0' : '8px 0', fontSize: '14px', color: '#172b4d' }}>
                   
                   {!showMoveSubmenu ? (
                     <>
-                      <div style={{ padding: '0 12px 8px', borderBottom: '1px solid #454f59', marginBottom: '8px', fontWeight: 600, textAlign: 'center', fontSize: '14px' }}>
+                      <div style={{ padding: '0 12px 8px', borderBottom: '1px solid rgba(9,30,66,0.13)', marginBottom: '8px', fontWeight: 600, textAlign: 'center', fontSize: '14px', color: '#5e6c84' }}>
                         Actions
                       </div>
                       {/* MOVE OPTION */}
                       <div 
-                        style={{ padding: '8px 16px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', color: '#b6c2cf' }}
-                        onMouseEnter={e => e.currentTarget.style.background = '#a6c5e229'}
+                        style={{ padding: '8px 16px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', color: '#172b4d' }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#091e420f'}
                         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                         onClick={(e) => { 
                           e.stopPropagation(); 
                           setMoveTargetList(c.listId); 
                           
-                          // Set default position to current position in list
+                          // ⚡ Set exact current position and clear old searches
                           const currentBucket = trelloBuckets.find(b => b.id === c.listId);
                           const currentPos = currentBucket ? currentBucket.cards.findIndex(x => x.id === c.id) + 1 : 1;
                           setMoveTargetPos(currentPos > 0 ? currentPos : 1);
                           
                           setMoveTab("outbox");
+                          setMoveListSearch(""); 
                           setShowMoveSubmenu(true); 
                         }}
                       >
@@ -4623,14 +5040,14 @@ if (currentView.app === "gmail") {
                       {/* ARCHIVE / RESTORE OPTION */}
                       {c.isArchived ? (
                         <div 
-                          style={{ padding: '8px 16px', cursor: 'pointer', color: '#b6c2cf' }}
-                          onMouseEnter={e => e.currentTarget.style.background = '#a6c5e229'}
+                          style={{ padding: '8px 16px', cursor: 'pointer', color: '#172b4d' }}
+                          onMouseEnter={e => e.currentTarget.style.background = '#091e420f'}
                           onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                           onClick={async (e) => {
                             e.stopPropagation();
                             const cid = c.id;
                             
-                            // Optimistic Update: Instantly change UI to active
+                            // Optimistic Update
                             setTrelloCard(prev => ({ ...prev, isArchived: false, boardList: "Restored" }));
                             setTrelloMenuOpen(false);
 
@@ -4646,14 +5063,14 @@ if (currentView.app === "gmail") {
                         </div>
                       ) : (
                         <div 
-                          style={{ padding: '8px 16px', cursor: 'pointer', color: '#b6c2cf' }}
-                          onMouseEnter={e => e.currentTarget.style.background = '#a6c5e229'}
+                          style={{ padding: '8px 16px', cursor: 'pointer', color: '#172b4d' }}
+                          onMouseEnter={e => e.currentTarget.style.background = '#091e420f'}
                           onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                           onClick={async (e) => {
                             e.stopPropagation();
                             const cid = c.id;
                             
-                            // Optimistic Update: Instantly wipe from screen
+                            // Optimistic Update
                             setTrelloBuckets(prev => prev.map(b => ({ ...b, cards: b.cards.filter(card => card.id !== cid) })));
                             setTrelloMenuOpen(false);
                             setTrelloCard(null);
@@ -4674,26 +5091,26 @@ if (currentView.app === "gmail") {
                     /* SUB-MENU: MOVE CARD UI */
                     <div style={{ padding: '12px' }}>
                       {/* Header */}
-                      <div style={{ display: 'flex', alignItems: 'center', marginBottom: '16px', position: 'relative' }}>
-                        <button onClick={(e) => {e.stopPropagation(); setShowMoveSubmenu(false);}} style={{ position: 'absolute', left: 0, border:'none', background:'none', cursor:'pointer', color:'#9fadbc', fontSize:'18px' }}>‹</button>
-                        <div style={{ flex: 1, textAlign: 'center', fontWeight: 600, color: '#b6c2cf', fontSize: '14px' }}>Move card</div>
-                        <button onClick={(e) => {e.stopPropagation(); setTrelloMenuOpen(false); setShowMoveSubmenu(false);}} style={{ position: 'absolute', right: 0, border:'none', background:'none', cursor:'pointer', color:'#9fadbc', fontSize:'16px' }}>✕</button>
+                      <div style={{ display: 'flex', alignItems: 'center', marginBottom: '16px', position: 'relative', color: '#5e6c84' }}>
+                        <button onClick={(e) => {e.stopPropagation(); setShowMoveSubmenu(false);}} style={{ position: 'absolute', left: 0, border:'none', background:'none', cursor:'pointer', color:'#42526e', fontSize:'18px' }}>‹</button>
+                        <div style={{ flex: 1, textAlign: 'center', fontWeight: 600, fontSize: '14px' }}>Move card</div>
+                        <button onClick={(e) => {e.stopPropagation(); setTrelloMenuOpen(false); setShowMoveSubmenu(false);}} style={{ position: 'absolute', right: 0, border:'none', background:'none', cursor:'pointer', color:'#42526e', fontSize:'16px' }}>✕</button>
                       </div>
                       
                       {/* Tabs */}
-                      <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', borderBottom: '1px solid #454f59' }}>
-                        <div onClick={(e) => {e.stopPropagation(); setMoveTab('inbox'); setMoveTargetList(c.listId);}} style={{ paddingBottom: '8px', cursor: 'pointer', color: moveTab === 'inbox' ? '#579dff' : '#b6c2cf', borderBottom: moveTab === 'inbox' ? '2px solid #579dff' : '2px solid transparent', fontWeight: moveTab === 'inbox' ? 600 : 400 }}>Inbox</div>
-                        <div onClick={(e) => {e.stopPropagation(); setMoveTab('outbox');}} style={{ paddingBottom: '8px', cursor: 'pointer', color: moveTab === 'outbox' ? '#579dff' : '#b6c2cf', borderBottom: moveTab === 'outbox' ? '2px solid #579dff' : '2px solid transparent', fontWeight: moveTab === 'outbox' ? 600 : 400 }}>Outbox</div>
+                      <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', borderBottom: '2px solid #ebecf0' }}>
+                        <div onClick={(e) => {e.stopPropagation(); setMoveTab('inbox'); setMoveTargetList(c.listId);}} style={{ paddingBottom: '8px', cursor: 'pointer', marginBottom: '-2px', color: moveTab === 'inbox' ? '#0052cc' : '#5e6c84', borderBottom: moveTab === 'inbox' ? '2px solid #0052cc' : '2px solid transparent', fontWeight: moveTab === 'inbox' ? 600 : 400 }}>Inbox</div>
+                        <div onClick={(e) => {e.stopPropagation(); setMoveTab('outbox');}} style={{ paddingBottom: '8px', cursor: 'pointer', marginBottom: '-2px', color: moveTab === 'outbox' ? '#0052cc' : '#5e6c84', borderBottom: moveTab === 'outbox' ? '2px solid #0052cc' : '2px solid transparent', fontWeight: moveTab === 'outbox' ? 600 : 400 }}>Board</div>
                       </div>
 
                       {/* Body */}
                       {moveTab === 'inbox' && (
                         <div style={{ marginBottom: '16px' }}>
-                          <label style={{ display:'block', fontSize:'12px', fontWeight:700, color:'#b6c2cf', marginBottom:'4px' }}>Select position</label>
+                          <label style={{ display:'block', fontSize:'12px', fontWeight:700, color:'#5e6c84', marginBottom:'4px' }}>Select position</label>
                           <select 
                              value={moveTargetPos} 
                              onChange={(e) => setMoveTargetPos(Number(e.target.value))} 
-                             style={{ width: '100%', padding: '8px 12px', borderRadius: '4px', border: 'none', background: '#22272b', color: '#b6c2cf', cursor: 'pointer', outline: '1px solid #738496' }} 
+                             style={{ width: '100%', padding: '8px 12px', borderRadius: '3px', border: '2px solid #dfe1e6', background: '#fafbfc', color: '#172b4d', cursor: 'pointer', outline: 'none' }} 
                              onClick={e => e.stopPropagation()}
                           >
                              {Array.from({ length: Math.max(1, trelloBuckets.find(b => b.id === c.listId)?.cards.length || 1) }, (_, i) => (
@@ -4704,45 +5121,102 @@ if (currentView.app === "gmail") {
                       )}
 
                       {moveTab === 'outbox' && (
-                        <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-                          <div style={{ flex: 2 }}>
-                            <label style={{ display:'block', fontSize:'12px', fontWeight:700, color:'#b6c2cf', marginBottom:'4px' }}>List</label>
-                            <select 
-                               value={moveTargetList} 
-                               onChange={(e) => { setMoveTargetList(e.target.value); setMoveTargetPos(1); }} 
-                               style={{ width: '100%', padding: '8px 12px', borderRadius: '4px', border: 'none', background: '#22272b', color: '#b6c2cf', cursor: 'pointer', outline: '1px solid #738496' }} 
-                               onClick={e => e.stopPropagation()}
-                            >
-                               {/* Use allTrelloLists here instead of trelloBuckets! */}
-                               {allTrelloLists.map(b => <option key={b.id} value={b.id}>{b.title}</option>)}
-                            </select>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
+                          {/* 🔍 SEARCH BAR */}
+                          <div>
+                            <input 
+                              type="text" 
+                              placeholder="Search board lists..." 
+                              value={moveListSearch}
+                              onChange={(e) => {
+                                  const val = e.target.value;
+                                  setMoveListSearch(val);
+                                  
+                                  // ⚡ AUTO-SELECT FIX
+                                  const uniqueMap = new Map();
+                                  allTrelloLists.forEach(l => {
+                                      if (!uniqueMap.has(l.title)) uniqueMap.set(l.title, l);
+                                  });
+                                  const unique = Array.from(uniqueMap.values());
+                                  const filtered = unique.filter(l => l.title.toLowerCase().includes(val.toLowerCase()));
+                                  
+                                  if (filtered.length > 0) {
+                                      const firstMatch = filtered[0];
+                                      setMoveTargetList(firstMatch.id);
+                                      
+                                      if (firstMatch.id === c.listId) {
+                                          const cb = trelloBuckets.find(b => b.id === c.listId);
+                                          const cp = cb ? cb.cards.findIndex(x => x.id === c.id) + 1 : 1;
+                                          setMoveTargetPos(cp > 0 ? cp : 1);
+                                      } else {
+                                          setMoveTargetPos(1);
+                                      }
+                                  }
+                              }}
+                              onClick={e => e.stopPropagation()}
+                              style={{ width: '100%', padding: '8px 12px', borderRadius: '3px', border: '2px solid #dfe1e6', background: '#fafbfc', color: '#172b4d', outline: 'none', fontSize: '13px' }}
+                            />
                           </div>
-                          <div style={{ flex: 1 }}>
-                            <label style={{ display:'block', fontSize:'12px', fontWeight:700, color:'#b6c2cf', marginBottom:'4px' }}>Position</label>
-                            <select 
-                               value={moveTargetPos} 
-                               onChange={(e) => setMoveTargetPos(Number(e.target.value))} 
-                               style={{ width: '100%', padding: '8px 12px', borderRadius: '4px', border: 'none', background: '#22272b', color: '#b6c2cf', cursor: 'pointer', outline: '1px solid #738496' }} 
-                               onClick={e => e.stopPropagation()}
-                            >
-                               {(() => {
-                                  const targetBucket = allTrelloLists.find(b => b.id === moveTargetList);
-                                  const currentCount = targetBucket ? targetBucket.cardsLength : 0;
-                                  const isSameList = moveTargetList === c.listId;
-                                  const maxPos = isSameList ? Math.max(1, currentCount) : currentCount + 1;
-                                  return Array.from({ length: maxPos }, (_, i) => (
-                                     <option key={i+1} value={i+1}>{i+1}</option>
-                                  ));
-                               })()}
-                            </select>
+
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <div style={{ flex: 2 }}>
+                              <label style={{ display:'block', fontSize:'12px', fontWeight:700, color:'#5e6c84', marginBottom:'4px' }}>List</label>
+                              <select 
+                                 value={moveTargetList} 
+                                 onChange={(e) => { setMoveTargetList(e.target.value); setMoveTargetPos(1); }} 
+                                 style={{ width: '100%', padding: '8px 12px', borderRadius: '3px', border: '2px solid #dfe1e6', background: '#fafbfc', color: '#172b4d', cursor: 'pointer', outline: 'none' }} 
+                                 onClick={e => e.stopPropagation()}
+                              >
+                                 {(() => {
+                                    // ⚡ 1. Deduplicate by name to remove Trello ghosts
+                                    const uniqueMap = new Map();
+                                    allTrelloLists.forEach(l => {
+                                        if (!uniqueMap.has(l.title)) uniqueMap.set(l.title, l);
+                                    });
+                                    const unique = Array.from(uniqueMap.values());
+                                    
+                                    // ⚡ 2. Filter the visual options by your search text
+                                    const search = (moveListSearch || "").toLowerCase();
+                                    const filtered = unique.filter(l => l.title.toLowerCase().includes(search));
+
+                                    if (filtered.length === 0) return <option value="">No match found</option>;
+                                    return filtered.map(b => <option key={b.id} value={b.id}>{b.title}</option>);
+                                 })()}
+                              </select>
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <label style={{ display:'block', fontSize:'12px', fontWeight:700, color:'#5e6c84', marginBottom:'4px' }}>Position</label>
+                              <select 
+                                 value={moveTargetPos} 
+                                 onChange={(e) => setMoveTargetPos(Number(e.target.value))} 
+                                 style={{ width: '100%', padding: '8px 12px', borderRadius: '3px', border: '2px solid #dfe1e6', background: '#fafbfc', color: '#172b4d', cursor: 'pointer', outline: 'none' }} 
+                                 onClick={e => e.stopPropagation()}
+                              >
+                                 {(() => {
+                                    // ⚡ 0ms LAG FIX: Check local trelloBuckets first for instant count
+                                    const localBucket = trelloBuckets.find(b => b.id === moveTargetList);
+                                    const globalBucket = allTrelloLists.find(b => b.id === moveTargetList);
+                                    
+                                    // Priority: Local State > Global Polled State > 0
+                                    const currentCount = localBucket ? localBucket.cards.length : (globalBucket?.cardsLength || 0);
+                                    
+                                    const isSameList = moveTargetList === c.listId;
+                                    const maxPos = isSameList ? Math.max(1, currentCount) : currentCount + 1;
+                                    
+                                    return Array.from({ length: maxPos }, (_, i) => (
+                                       <option key={i+1} value={i+1}>{i+1}</option>
+                                    ));
+                                 })()}
+                              </select>
+                            </div>
                           </div>
                         </div>
                       )}
 
                       <button 
-                        style={{ width: '100%', padding: '8px', borderRadius: '4px', fontWeight: 600, justifyContent: 'center', background: '#579dff', color: '#1d2125', border: 'none', cursor: 'pointer' }}
-                        onMouseEnter={e => e.currentTarget.style.background = '#85b8ff'}
-                        onMouseLeave={e => e.currentTarget.style.background = '#579dff'}
+                        style={{ width: '100%', padding: '8px', borderRadius: '3px', fontWeight: 600, justifyContent: 'center', background: '#0052cc', color: '#fff', border: 'none', cursor: 'pointer' }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#0065ff'}
+                        onMouseLeave={e => e.currentTarget.style.background = '#0052cc'}
                         onClick={async (e) => {
                           e.stopPropagation();
                           
@@ -5481,7 +5955,7 @@ if (currentView.app === "gmail") {
   }
 
     return <div className="chat-output" />;
-      }, [
+     }, [
         currentView,
 
         // WhatsApp
@@ -5499,18 +5973,23 @@ if (currentView.app === "gmail") {
         gchatMe,
 
         // Email
-        email,
-        emailPreview,
-        showDraftPicker,
-        selectedDraftTemplate,
-        draftTo,
+        email,
+        emailPreview,
+        showDraftPicker,
+        selectedDraftTemplate,
+        draftTo,
+        isDraftEnlarged,
+        draftPos,
+        draftAttachments,
 
-        // Gmail Inbox
-        gmailEmails,
-        gmailLoading,
-        gmailError,
+        // Gmail Inbox
+        gmailEmails,
+        gmailLoading,
+        gmailError,
+        gmailEmails, // 👈 ADD THIS: Tells React to refresh the list when a star is clicked
+        gmailFolder, // 👈 ADD THIS: Tells React to refresh when you switch to "Starred" view
 
-       // Trello
+       // Trello
         trelloCard,
         trelloMenuOpen,
         descEditing,
@@ -5523,6 +6002,8 @@ if (currentView.app === "gmail") {
         trelloBuckets,
         selectedEmailIds,
         searchQuery,
+        moveListSearch, // 👈 FIX: Makes the search bar functional
+        allTrelloLists, // 👈 FIX: Makes the position numbers load instantly
       ]);
 
   return (

@@ -10,8 +10,11 @@ export async function handler(event) {
     "email",
     "profile",
     "https://www.googleapis.com/auth/chat.spaces",
+    "https://www.googleapis.com/auth/chat.spaces.create",
     "https://www.googleapis.com/auth/chat.memberships",
     "https://www.googleapis.com/auth/chat.messages",
+    "https://www.googleapis.com/auth/chat.messages.reactions",
+    "https://www.googleapis.com/auth/chat.users.readstate",
     "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/directory.readonly"
   ];
