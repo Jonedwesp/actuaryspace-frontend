@@ -28,11 +28,13 @@ export function loadServiceAccount() {
   return JSON.parse(plain);
 }// ... KEEP ALL YOUR ORIGINAL loadServiceAccount CODE HERE ...
 
-// ADD THIS AT THE VERY BOTTOM:
 export async function getAccessToken(event) {
-  const cookieHeader = event.headers.cookie || event.headers.Cookie || "";
+  // Check every possible place the cookie could be hiding
+  const cookieHeader = event.headers.cookie || event.headers.Cookie || event.multiValueHeaders?.Cookie?.[0] || "";
+  
+  // Clean up the string to ensure we find the match even with spaces
   const match = cookieHeader.match(/AS_GCHAT_RT=([^;]+)/);
-  const refreshToken = match ? match[1] : null;
+  const refreshToken = match ? match[1].trim() : null;
 
   if (!refreshToken) {
     throw new Error("No Refresh Token found in cookies. Please re-authenticate.");

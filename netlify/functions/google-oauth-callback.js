@@ -1,8 +1,10 @@
 function cookie(name, value, opts = {}) {
-  const { path = "/", httpOnly = true, secure = true, sameSite = "Lax", maxAge } = opts;
-  let out = `${name}=${encodeURIComponent(value)}; Path=${path}; SameSite=${sameSite}`;
+  const { path = "/", httpOnly = true, maxAge } = opts;
+  // We MUST use SameSite=None and Secure for the cookie to be visible 
+  // when testing on localhost while the function is on actuaryspace.co.za
+  let out = `${name}=${encodeURIComponent(value)}; Path=${path}; SameSite=None; Secure`;
+  
   if (httpOnly) out += "; HttpOnly";
-  if (secure) out += "; Secure";
   if (typeof maxAge === "number") out += `; Max-Age=${maxAge}`;
   return out;
 }

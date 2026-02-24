@@ -2041,14 +2041,13 @@ function toggleReaction(messageId, type) {
     });
 
     // 2. Send to Google (Background API Call)
-    // Note: We only support ADDING for now. 
     fetch("/.netlify/functions/gchat-react", {
       method: "POST",
+      credentials: "include", // 👈 MANDATORY: Attaches Siya's cookie
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ messageId, type })
     }).catch(err => console.error("Reaction failed", err));
   }
-
 useEffect(() => {
     const saved = localStorage.getItem("GCHAT_ME");
     if (saved) setGchatMe(saved);
@@ -2090,28 +2089,30 @@ useEffect(() => {
     ));
 
     try {
-      // 2. Backend Sync
       const response = await fetch("/.netlify/functions/gmail-toggle-star", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messageId: msgId, starred: nextStarredState })
       });
 
-      // 🛡️ RESILIENT PARSING: We trust the HTTP status 'ok' from your updated backend
-      const result = await response.json().catch(() => ({ ok: response.ok }));
-
-      if (!response.ok || result.ok === false) {
-        throw new Error(result.error || "Server sync failed");
+      // ⚡ PRIMARY SUCCESS CHECK: If the server says 200 OK, the star is saved.
+      if (!response.ok) {
+        throw new Error("Server rejected request");
       }
 
-      // 3. Remove from view if unstarred inside the Starred folder
+      // 🛡️ Bypasses parsing crashes by ensuring we don't throw on empty/weird bodies
+      const result = await response.json().catch(() => ({ ok: true }));
+
+      if (result.ok === false) {
+        throw new Error("Sync failed");
+      }
+
       if (!nextStarredState && gmailFolder === "STARRED") {
         setGmailEmails(prev => prev.filter(msg => msg.id !== msgId));
       }
-
     } catch (err) {
-      console.error("Starring error:", err);
-      // 4. Revert UI on failure
+      console.error("Starring sync failed:", err);
+      // Revert UI only on real failure
       setGmailEmails(prev => prev.map(msg => 
         msg.id === msgId ? { ...msg, isStarred: currentStarred } : msg
       ));
@@ -2131,9 +2132,10 @@ useEffect(() => {
   const [gmailEmails, setGmailEmails] = useState([]);
   const [gmailLoading, setGmailLoading] = useState(false);
   const [gmailError, setGmailError] = useState("");
-  const [selectedEmailIds, setSelectedEmailIds] = useState(new Set());
-  const [gmailFolder, setGmailFolder] = useState("INBOX"); // Tracks current folder
+ const [selectedEmailIds, setSelectedEmailIds] = useState(new Set());
+  const [gmailFolder, setGmailFolder] = useState("INBOX"); // Tracks current folder
   const [gmailRefreshTrigger, setGmailRefreshTrigger] = useState(0); // 👈 NEW: Hard refresh trigger
+  const [gmailPage, setGmailPage] = useState(1);
 
 
 // NEW: email draft helper state
@@ -2554,7 +2556,7 @@ useEffect(() => {
   useEffect(() => {
     const pollGmailBackground = async () => {
       try {
-        const res = await fetch("/.netlify/functions/gmail-inbox");
+        const res = await fetch("/.netlify/functions/gmail-inbox?limit=50");
         const json = await res.json().catch(() => ({}));
         
         if (!json.ok || !Array.isArray(json.emails)) return;
@@ -2624,8 +2626,8 @@ useEffect(() => {
     // This stops the raw .eml Drive file IDs from spamming the notifications panel.
   }, [setNotifications]);
 
-  // 📧 GMAIL INBOX LOADER
-  useEffect(() => {
+ // 📧 GMAIL INBOX LOADER
+  useEffect(() => {
     if (currentView.app !== "gmail") return;
 
     let cancelled = false;
@@ -2633,7 +2635,8 @@ useEffect(() => {
       setGmailLoading(true);
       setGmailError("");
       try {
-        const res = await fetch(`/.netlify/functions/gmail-inbox?folder=${gmailFolder}`);
+        // Updated to pass current page number to the backend
+        const res = await fetch(`/.netlify/functions/gmail-inbox?folder=${gmailFolder}&limit=50&page=${gmailPage}`);
         const json = await res.json().catch(() => ({}));
 
         if (!res.ok || !json.ok) throw new Error(json.error || `HTTP ${res.status}`);
@@ -2649,8 +2652,8 @@ useEffect(() => {
     }
 
     loadInbox();
-    return () => { cancelled = true; };
-  }, [currentView.app, gmailFolder, gmailRefreshTrigger]); // 👈 Added trigger here
+    return () => { cancelled = true; };
+  }, [currentView.app, gmailFolder, gmailRefreshTrigger, gmailPage]); // 👈 Added gmailPage dependency
 
  
     // When we are not looking at an email, the right-panel client files should be empty
@@ -3175,6 +3178,7 @@ const handleStartChat = async () => {
     try {
       const res = await fetch("/.netlify/functions/gchat-find-gm", {
         method: "POST",
+        credentials: "include", // 👈 MANDATORY: Attaches Siya's cookie
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: targetEmail.trim() })
       });
@@ -3182,10 +3186,8 @@ const handleStartChat = async () => {
       const json = await res.json().catch(() => ({}));
       
       if (json.ok && json.space) {
-        // Correct internal naming (Google uses 'name', App expects 'id')
         const newSpace = { ...json.space, id: json.space.name };
 
-        // Ensure sidebar has the name immediately
         setGchatDmNames(prev => ({ ...prev, [newSpace.id]: targetEmail.trim() }));
 
         setGchatSpaces(prev => {
@@ -3193,7 +3195,6 @@ const handleStartChat = async () => {
           return exists ? prev : [newSpace, ...prev];
         });
 
-        // Switch view and select the session
         setCurrentView({ app: "gchat", contact: null });
         setGchatSelectedSpace(newSpace);
         
@@ -3232,7 +3233,7 @@ const handleStartChat = async () => {
     return;
   }
 
-  // Google Chat Logic
+ // Google Chat Logic
   if (currentView.app === "gchat" && gchatSelectedSpace) {
     try {
       let json = {};
@@ -3249,6 +3250,7 @@ const handleStartChat = async () => {
               
               const res = await fetch("/.netlify/functions/gchat-upload", {
                 method: "POST",
+                credentials: "include", // 👈 MANDATORY
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                   space: gchatSelectedSpace.id,
@@ -3264,11 +3266,11 @@ const handleStartChat = async () => {
               if (!res.ok || !json.ok) {
                 console.error("Upload failed:", json);
                 alert(`Upload failed: ${json.error || "Unknown error"}`);
-                reject(); // Stop execution
+                reject(); 
                 return;
               }
               
-              resolve(); // Success!
+              resolve(); 
             } catch (e) {
               console.error("Reader/Fetch error:", e);
               reject();
@@ -3276,13 +3278,13 @@ const handleStartChat = async () => {
           };
         });
 
-        // ✅ ONLY Clear preview if upload succeeded
         setPendingUpload(null);
 
       } else {
         // --- TEXT ONLY FLOW ---
         const res = await fetch("/.netlify/functions/gchat-send", {
           method: "POST",
+          credentials: "include", // 👈 MANDATORY
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             space: gchatSelectedSpace.id,
@@ -3292,7 +3294,6 @@ const handleStartChat = async () => {
         json = await res.json().catch(() => ({}));
       }
 
-      // Success handling
       if (json.ok && json.message) {
         const me = json.message?.sender?.name;
         if (me && !gchatMe) {
@@ -3300,7 +3301,7 @@ const handleStartChat = async () => {
           localStorage.setItem("GCHAT_ME", me);
         }
         setGchatMessages((prev) => dedupeMergeMessages(prev, [json.message]));
-        setInputValue(""); // Clear text box only on success
+        setInputValue(""); 
       }
 
     } catch (err) {
@@ -3320,26 +3321,36 @@ const handleStartChat = async () => {
 };
 
 /* middle renderer */
-  const middleContent = useMemo(() => {
+  const middleContent = useMemo(() => {
     // SAFE FILTER LOGIC
-    const q = (searchQuery || "").toLowerCase();
+    let rawQ = (searchQuery || "").toLowerCase().trim();
+    let searchTerms = [];
+    
+    if (rawQ.startsWith('"') && rawQ.endsWith('"') && rawQ.length > 1) {
+      searchTerms = [rawQ.slice(1, -1)]; // Exact phrase match
+    } else {
+      searchTerms = rawQ.split(/\s+/).filter(Boolean); // Multi-word ANY match
+    }
     
     const filteredEmails = (gmailEmails || []).filter(e => {
+      if (searchTerms.length === 0) return true;
       const subject = (e.subject || "").toLowerCase();
       const from = (e.from || "").toLowerCase();
       const snippet = (e.snippet || "").toLowerCase();
-      return subject.includes(q) || from.includes(q) || snippet.includes(q);
+      const combined = `${subject} ${from} ${snippet}`;
+      return searchTerms.every(term => combined.includes(term));
     });
 
     const filteredGchatSpaces = (gchatSpaces || []).filter(s => {
+      if (searchTerms.length === 0) return true;
       const learnedName = gchatDmNames[s.id] || "";
       const title = (s.type === "DIRECT_MESSAGE" 
         ? (learnedName || s.displayName || "Direct Message") 
         : (s.displayName || "Unnamed")).toLowerCase();
-      return title.includes(q);
+      return searchTerms.every(term => title.includes(term));
     });
 
-    if (currentView.app === "whatsapp" && currentView.contact) {
+    if (currentView.app === "whatsapp" && currentView.contact) {
       const msgs = waChats[currentView.contact] || [];
       return (
         <div className="wa-chat">
@@ -3872,58 +3883,61 @@ if (currentView.app === "gmail") {
     };
 
     return (
-      <div style={{ position: "relative", display: "flex", flexDirection: "column", height: "100%", background: "#fff", borderRadius: "12px", border: "1px solid #e6e6e6", overflow: "hidden" }}>
-        {/* Header Bar */}
-        <div style={{ padding: "8px 16px", borderBottom: "1px solid #eee", background: "#f8f9fa", display: "flex", alignItems: "center", minHeight: "48px", gap: "12px" }}>
-          
-        <button 
-            className="btn blue" 
-            onClick={() => {
-              setEmail(null);
-           setEmailPreview(null);
-              setSelectedDraftTemplate({ ...DRAFT_TEMPLATES.find(t => t.id === "new_blank") });
-              setDraftTo("");
-              setDraftAttachments([]);
-            }}
-            style={{ borderRadius: "20px", padding: "10px 20px", fontSize: "14px", fontWeight: 500, display: "flex", alignItems: "center", gap: "8px" }}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
-            Compose
-          </button>
-          
-          <div style={{ display: "flex", alignItems: "center", padding: "0 4px" }}>
-            <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} style={{ cursor: "pointer", width: "18px", height: "18px" }} />
-          </div>
+            <div style={{ position: "relative", display: "flex", flexDirection: "column", height: "100%", background: "#fff", borderRadius: "12px", border: "1px solid #e6e6e6", overflow: "hidden" }}>
+              
+              {/* NEW: SEARCH BAR (Above Compose) */}
+              <div style={{ padding: "12px 16px", background: "#fff", borderBottom: "1px solid #eee" }}>
+                <div style={{ position: "relative", width: "100%" }}>
+                  <input
+                    type="text"
+                    placeholder="Search in mail..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px 10px 38px",
+                      borderRadius: "24px",
+                      border: "1px solid #dadce0",
+                      fontSize: "15px",
+                      outline: "none",
+                      background: "#f1f3f4"
+                    }}
+                  />
+                  <svg style={{ position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)", color: "#5f6368" }} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                </div>
+              </div>
 
-          <div style={{ fontWeight: 600, fontSize: "14px", color: "#202124", display: "flex", alignItems: "center", gap: "8px" }}>
-            <img src={gmailIcon} alt="Gmail" style={{ width: 18, height: 18 }} />
-            {gmailFolder === "TRASH" ? "Trash" : "Inbox"}
-          </div>
+              {/* Header Bar */}
+              <div style={{ padding: "8px 16px", borderBottom: "1px solid #eee", background: "#f8f9fa", display: "flex", alignItems: "center", minHeight: "48px", gap: "12px" }}>
+                
+              <button 
+                  className="btn blue" 
+                  onClick={() => {
+                    setEmail(null);
+                 setEmailPreview(null);
+                    setSelectedDraftTemplate({ ...DRAFT_TEMPLATES.find(t => t.id === "new_blank") });
+                    setDraftTo("");
+                    setDraftAttachments([]);
+                  }}
+                  style={{ borderRadius: "20px", padding: "10px 20px", fontSize: "14px", fontWeight: 500, display: "flex", alignItems: "center", gap: "8px" }}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+                  Compose
+                </button>
+                
+                <div style={{ display: "flex", alignItems: "center", padding: "0 4px" }}>
+                  <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} style={{ cursor: "pointer", width: "18px", height: "18px" }} />
+                </div>
 
-          {/* SEARCH BAR (Moved inside Gmail Header) */}
-          <div style={{ flex: 1, margin: "0 20px", position: "relative" }}>
-            <input
-              type="text"
-              placeholder="Search in mail..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "8px 12px 8px 35px",
-                borderRadius: "8px",
-                border: "1px solid #dadce0",
-                fontSize: "14px",
-                outline: "none",
-                background: "#f1f3f4"
-              }}
-            />
-            <svg style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: "#5f6368" }} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-          </div>
+                <div style={{ fontWeight: 600, fontSize: "14px", color: "#202124", display: "flex", alignItems: "center", gap: "8px" }}>
+                  <img src={gmailIcon} alt="Gmail" style={{ width: 18, height: 18 }} />
+                  {gmailFolder === "TRASH" ? "Trash" : "Inbox"}
+                </div>
 
-          {/* Spacer */}
-          <div style={{ flex: 0 }}></div>
+                {/* Spacer replaces the old search bar position */}
+                <div style={{ flex: 1 }}></div>
 
-    <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             {/* 1. STARRED BUTTON */}
             <button
               onClick={() => {
@@ -4059,7 +4073,7 @@ if (currentView.app === "gmail") {
                     Restore to Inbox
                   </button>
                 )}
-                <button 
+               <button 
                   onClick={handleDeleteSelected} 
                   style={{ background: "#fff", border: "1px solid #dadce0", borderRadius: "4px", padding: "6px 12px", cursor: "pointer", fontSize: "13px", color: "#d93025", fontWeight: 500 }}
                 >
@@ -4068,12 +4082,40 @@ if (currentView.app === "gmail") {
               </div>
             )}
 
+            {/* 🔢 GMAIL PAGINATION (1000 email limit) */}
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "#5f6368", fontSize: "12px", marginLeft: "auto", marginRight: "12px" }}>
+              <span>{`${(gmailPage - 1) * 50 + 1}–${Math.min(gmailPage * 50, 1000)} of 1,000`}</span>
+              <div style={{ display: "flex", gap: "2px" }}>
+                <button 
+                  onClick={() => { setGmailEmails([]); setGmailPage(p => Math.max(1, p - 1)); }}
+                  disabled={gmailPage === 1}
+                  title="Newer"
+                  style={{ background: "transparent", border: "none", cursor: gmailPage === 1 ? "default" : "pointer", color: gmailPage === 1 ? "#c1c7d0" : "#5f6368", padding: "4px", display: "grid", placeItems: "center", borderRadius: "50%" }}
+                  onMouseEnter={e => gmailPage !== 1 && (e.currentTarget.style.background = "#eee")}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+                </button>
+                <button 
+                  onClick={() => { setGmailEmails([]); setGmailPage(p => Math.min(20, p + 1)); }}
+                  disabled={gmailPage === 20}
+                  title="Older"
+                  style={{ background: "transparent", border: "none", cursor: gmailPage === 20 ? "default" : "pointer", color: gmailPage === 20 ? "#c1c7d0" : "#5f6368", padding: "4px", display: "grid", placeItems: "center", borderRadius: "50%" }}
+                  onMouseEnter={e => gmailPage !== 20 && (e.currentTarget.style.background = "#eee")}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+                </button>
+              </div>
+            </div>
+
             {/* 2. TRASH PILL BUTTON - Positioned Far Right */}
             <button
               onClick={() => {
                 // If we are in Trash, go to Inbox. If in Inbox, go to Trash.
                 const nextFolder = gmailFolder === "TRASH" ? "INBOX" : "TRASH";
                 setGmailFolder(nextFolder);
+                setGmailPage(1); // Reset to first page when changing folders
                 setGmailEmails([]); // Clear current list to trigger loader
                 setSelectedEmailIds(new Set()); // Reset selection
               }}
@@ -4157,6 +4199,7 @@ if (currentView.app === "gmail") {
 
                 setEmail({
                   id: msg.id, subject: msg.subject, fromName, fromEmail,
+                  date: msg.date,
                   time: new Date(msg.date).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
                   body: isHtml ? "" : rawBody,
                   bodyHtml: isHtml ? msg.body : "",
@@ -4243,7 +4286,16 @@ if (currentView.app === "gmail") {
               
 {/* Date */}
               <div style={{ width: "80px", textAlign: "right", fontSize: "12px", color: msg.isUnread ? "#1a73e8" : "#5f6368" }}>
-                {msg.date ? new Date(msg.date).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : ""}
+                {msg.date ? (() => {
+                  const d = new Date(msg.date);
+                  const now = new Date();
+                  const isToday = d.getDate() === now.getDate() && 
+                                  d.getMonth() === now.getMonth() && 
+                                  d.getFullYear() === now.getFullYear();
+                  return isToday 
+                    ? d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+                    : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+                })() : ""}
               </div>
             </div>
           ))}
@@ -4578,19 +4630,30 @@ if (currentView.app === "gmail") {
       msg.id === msgId ? { ...msg, isStarred: newStarred } : msg
     ));
 
-    // 2. BACKEND SYNC
     try {
-      const res = await fetch("/.netlify/functions/gmail-toggle-star", {
+      // 2. Backend Sync
+      const response = await fetch("/.netlify/functions/gmail-toggle-star", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messageId: msgId, starred: newStarred })
+        body: JSON.stringify({ messageId: msgId, starred: nextStarredState })
       });
-      const json = await res.json();
-      
-      // If we are currently in the STARRED view and just unstarred an item, remove it from list
-      if (newStarred === false && gmailFolder === "STARRED") {
+
+      // ⚡ STATUS-FIRST CHECK: If the server says 200 OK, the star IS saved.
+      if (!response.ok) {
+        throw new Error("Network response was not ok");
+      }
+
+      // 🛡️ Silent catch for JSON parsing to prevent the error popup on success
+      const result = await response.json().catch(() => ({ ok: true }));
+
+      if (result.ok === false) {
+        throw new Error(result.error || "Sync failed");
+      }
+
+      if (!nextStarredState && gmailFolder === "STARRED") {
         setGmailEmails(prev => prev.filter(msg => msg.id !== msgId));
       }
+
     } catch (err) {
       console.error("Failed to toggle star:", err);
       // Revert UI if the network/API failed
@@ -4644,9 +4707,9 @@ if (currentView.app === "gmail") {
                   <span style={{ fontWeight: 600, color: "#202124", fontSize: "14px" }}>{email.fromName}</span>
                   <span style={{ color: "#5f6368", fontSize: "12px" }}>{email.fromEmail}</span>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "12px", color: "#5f6368", fontSize: "12px", flexShrink: 0 }}>
-                  <span>{email.time}</span>
-                  <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+               <div style={{ display: "flex", alignItems: "center", gap: "12px", color: "#5f6368", fontSize: "12px", flexShrink: 0 }}>
+                  <span>{email.time} ({timeAgo(email.date)})</span>
+                  <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
                   <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>
                   <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
                 </div>
@@ -4822,7 +4885,8 @@ if (currentView.app === "gmail") {
                         ? `${email.fromName} <${cleanFromEmail}>` 
                         : `<${cleanFromEmail || email.fromName}>`;
                     
-                    const fwdHeader = `\n\n---------- Forwarded message ---------\nFrom: ${fromLine}\nDate: ${email.time}\nSubject: ${email.subject}\nTo: Yolandie <yolandie@actuaryspace.co.za>\n\n`;
+                    // Fixed the hardcoded Yolandie string to correctly show Siya as the original recipient
+                    const fwdHeader = `\n\n---------- Forwarded message ---------\nFrom: ${fromLine}\nDate: ${email.time}\nSubject: ${email.subject}\nTo: Siyabonga Nono <siyabonga@actuaryconsulting.co.za>\n\n`;
                     const fwdBody = email.body || email.snippet || "";
                     
                     setSelectedDraftTemplate({...replyTpl, body: fwdHeader + fwdBody, isForward: true});
@@ -5318,7 +5382,12 @@ if (currentView.app === "gmail") {
                                   allTrelloLists.forEach(l => {
                                       if (!uniqueMap.has(l.title)) uniqueMap.set(l.title, l);
                                   });
-                                  const unique = Array.from(uniqueMap.values());
+                                  let unique = Array.from(uniqueMap.values());
+                                  
+                                  // ⚡ Remove junk lists after "Submitted August 2025"
+                                  const cutoffIndex = unique.findIndex(l => l.title.toLowerCase().trim() === "submitted august 2025");
+                                  if (cutoffIndex !== -1) unique = unique.slice(0, cutoffIndex + 1);
+
                                   const filtered = unique.filter(l => l.title.toLowerCase().includes(val.toLowerCase()));
                                   
                                   if (filtered.length > 0) {
@@ -5354,8 +5423,12 @@ if (currentView.app === "gmail") {
                                     allTrelloLists.forEach(l => {
                                         if (!uniqueMap.has(l.title)) uniqueMap.set(l.title, l);
                                     });
-                                    const unique = Array.from(uniqueMap.values());
+                                    let unique = Array.from(uniqueMap.values());
                                     
+                                    // ⚡ 1.5 Cut off junk lists after "Submitted August 2025"
+                                    const cutoffIndex = unique.findIndex(l => l.title.toLowerCase().trim() === "submitted august 2025");
+                                    if (cutoffIndex !== -1) unique = unique.slice(0, cutoffIndex + 1);
+
                                     // ⚡ 2. Filter the visual options by your search text
                                     const search = (moveListSearch || "").toLowerCase();
                                     const filtered = unique.filter(l => l.title.toLowerCase().includes(search));
@@ -6483,30 +6556,30 @@ function LiveTimer({ startTime, duration }) {
 
 // Helper to turn raw Trello action data into human readable text
 const formatTrelloAction = (action) => {
-  const actor = action.memberCreator.fullName;
-  const data = action.data || {};
+  const actor = action.memberCreator?.fullName || "Someone";
+  const data = action.data;
   const type = action.type;
 
   switch (type) {
     case "commentCard":
-      return { text: `${actor} commented`, comment: data.text };
+      return { text: `${actor} commented`, comment: data.text, type: "comment" };
     case "updateCard":
       if (data.listBefore && data.listAfter) {
-        return { text: `${actor} moved this card from ${data.listBefore.name} to ${data.listAfter.name}` };
+        return { text: `${actor} moved this card from ${data.listBefore.name} to ${data.listAfter.name}`, type: "system" };
       }
-      if (data.old && data.old.closed === false && data.card.closed === true) {
-        return { text: `${actor} archived this card` };
+      if (data.old && data.old.closed === false && data.card?.closed === true) {
+        return { text: `${actor} archived this card`, type: "system" };
       }
-      if (data.old && data.old.closed === true && data.card.closed === false) {
-        return { text: `${actor} sent this card to the board` };
+      if (data.old && data.old.closed === true && data.card?.closed === false) {
+        return { text: `${actor} sent this card to the board`, type: "system" };
       }
       return null; 
     case "createCard":
     case "copyCard":
        if(data.list) {
-          return { text: `${actor} added this card to ${data.list.name}` };
+          return { text: `${actor} added this card to ${data.list.name}`, type: "creation" };
        }
-       return { text: `${actor} created this card` };
+       return { text: `${actor} created this card`, type: "creation" };
     default:
       return null;
   }
@@ -6528,36 +6601,47 @@ const timeAgo = (dateParam) => {
   return `${days} day${days > 1 ? 's' : ''} ago`;
 };
 
-
-
 // ---------------- NEW ACTIVITY COMPONENT ----------------
 const ActivityPane = React.memo(function ActivityPane({ cardId, currentUserAvatarUrl }) {
- const [actions, setActions] = useState([]);
+  const [actions, setActions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [commentInput, setCommentInput] = useState("");
   const [isFocused, setIsFocused] = useState(false);
-  const [isSaving, setIsSaving] = useState(false); // 👈 NEW: Prevents double-clicking
+  const [isSaving, setIsSaving] = useState(false);
+  const [showDetails, setShowDetails] = useState(true); // 👈 NEW: Toggle State
 
-  // 👇 NEW: The function that sends the comment to Trello
+  // Fetch actions whenever the opened card changes
+  useEffect(() => {
+    if (!cardId) return;
+    setLoading(true);
+    fetch(`/.netlify/functions/trello-actions?cardId=${cardId}`)
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+           const formatted = data.map(a => ({ ...a, formatted: formatTrelloAction(a) })).filter(a => a.formatted).slice(0, 20);
+           setActions(formatted);
+        }
+      })
+      .catch(err => console.error("Failed to load activity", err))
+      .finally(() => setLoading(false));
+  }, [cardId]);
+
   const handleSaveComment = async () => {
     if (!commentInput.trim() || isSaving) return;
     setIsSaving(true);
     const textToSave = commentInput.trim();
 
-    // 1. Optimistic Update (Show it on screen instantly to feel fast)
     const optimisticAction = {
       id: "opt-" + Date.now(),
       date: new Date().toISOString(),
       memberCreator: { fullName: "You", avatarHash: null }, 
-      formatted: { text: `You commented`, comment: textToSave }
+      formatted: { text: `You commented`, comment: textToSave, type: "comment" } // Added type here
     };
     setActions(prev => [optimisticAction, ...prev]);
     
-    // Clear the input box immediately
     setCommentInput("");
     setIsFocused(false);
 
-    // 2. Background Sync to Trello
     try {
       const res = await fetch("/.netlify/functions/trello-add-comment", {
         method: "POST",
@@ -6569,7 +6653,6 @@ const ActivityPane = React.memo(function ActivityPane({ cardId, currentUserAvata
     } catch(err) {
       console.error("Comment save error:", err);
       alert("Failed to save comment to Trello.");
-      // Rollback the UI if it failed
       setActions(prev => prev.filter(a => a.id !== optimisticAction.id));
       setCommentInput(textToSave);
       setIsFocused(true);
@@ -6578,36 +6661,19 @@ const ActivityPane = React.memo(function ActivityPane({ cardId, currentUserAvata
     }
   };
 
-  // Fetch actions whenever the opened card changes
-  useEffect(() => {
-    if (!cardId) return;
-    setLoading(true);
-    fetch(`/.netlify/functions/trello-actions?cardId=${cardId}`)
-      .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) {
-           // Filter out actions we can't translate yet and slice to last 20 for performance
-           const formatted = data.map(a => ({ ...a, formatted: formatTrelloAction(a) })).filter(a => a.formatted).slice(0, 20);
-           setActions(formatted);
-        }
-      })
-      .catch(err => console.error("Failed to load activity", err))
-      .finally(() => setLoading(false));
-  }, [cardId]);
-
   // Trello aesthetic styles
   const styles = {
-    container: { marginTop: '24px', color: '#172b4d' },
+    container: { marginTop: '0px', color: '#172b4d' }, // 👈 CHANGED: 0px pushes it up
     header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
     headerTitle: { fontSize: '16px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' },
     hideBtn: { background: '#091e420f', border: 'none', padding: '6px 12px', borderRadius: '3px', fontWeight: '500', cursor: 'pointer', color: '#172b4d' },
     commentSection: { display: 'flex', gap: '12px', marginBottom: '24px' },
-    avatar: { width: '32px', height: '32px', borderRadius: '50%', backgroundColor: '#dfe1e6', backgroundSize: 'cover' },
+    avatar: { width: '32px', height: '32px', borderRadius: '50%', backgroundColor: '#dfe1e6', backgroundSize: 'cover', flexShrink: 0 },
     inputWrapper: { flexGrow: 1 },
     commentInput: { 
         width: '100%', borderRadius: '3px', border: isFocused ? '2px solid #0079bf' : '1px solid #dfe1e6', 
         padding: '8px 12px', fontSize: '14px', transition: 'all 0.2s', outline: 'none', minHeight: isFocused ? '80px' : 'auto', resize: 'none',
-        boxShadow: isFocused ? '0 0 0 2px #ffffff, 0 0 0 4px #0079bf' : 'none'
+        boxShadow: isFocused ? '0 0 0 2px #ffffff, 0 0 0 4px #0079bf' : 'none', fontFamily: "inherit"
     },
     controls: { marginTop: '8px', display: isFocused ? 'flex' : 'none', gap: '8px' },
     saveBtn: { background: '#0079bf', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '3px', fontWeight: '500', cursor: 'pointer' },
@@ -6615,24 +6681,36 @@ const ActivityPane = React.memo(function ActivityPane({ cardId, currentUserAvata
     activityList: { display: 'flex', flexDirection: 'column', gap: '16px' },
     actItem: { display: 'flex', gap: '12px', fontSize: '14px' },
     actContent: { display: 'flex', flexDirection: 'column' },
-    actText: { fontWeight: '500' },
-    actMeta: { fontSize: '12px', color: '#5e6c84' },
-    commentBubble: { background: 'white', padding: '8px 12px', borderRadius: '3px', border: '1px solid #dfe1e6', marginTop: '4px', boxShadow: '0 1px 1px #091e4240' }
+    actText: { fontWeight: '400', color: '#172b4d' },
+    actMeta: { fontSize: '12px', color: '#5e6c84', marginTop: '2px' },
+    commentBubble: { background: 'white', padding: '8px 12px', borderRadius: '3px', border: '1px solid #dfe1e6', marginTop: '6px', boxShadow: '0 1px 1px #091e4240', color: '#172b4d' }
   };
 
-  // Helper to get avatar URL from Trello hash
   const getAvatar = (hash) => hash ? `https://trello-avatars.s3.amazonaws.com/${hash}/50.png` : null;
+
+  // 👈 NEW: Filter logic for Hide/Show details
+  const visibleActions = actions.filter(act => {
+    if (showDetails) return true;
+    // When hidden, only show Comments and "Added to list" (Creation) events
+    return act.formatted.type === "comment" || act.formatted.type === "creation";
+  });
 
   return (
     <div style={styles.container}>
       {/* HEADER */}
       <div style={styles.header}>
         <div style={styles.headerTitle}>
-           {/* Simple Icon representation */}
            <svg width="24" height="24" viewBox="0 0 24 24" fill="#42526e"><path d="M19 3H5C3.89543 3 3 3.89543 3 5V19C3 20.1046 3.89543 21 5 21H19C20.1046 21 21 20.1046 21 19V5C21 3.89543 20.1046 3 19 3ZM11 17H7V15H11V17ZM17 13H7V11H17V13ZM17 9H7V7H17V9Z"></path></svg>
            Comments and activity
         </div>
-        <button style={styles.hideBtn}>Hide details</button>
+        <button 
+           style={styles.hideBtn} 
+           onClick={() => setShowDetails(!showDetails)}
+           onMouseEnter={e => e.currentTarget.style.background = '#091e4214'}
+           onMouseLeave={e => e.currentTarget.style.background = '#091e420f'}
+        >
+           {showDetails ? "Hide details" : "Show details"}
+        </button>
       </div>
 
       {/* COMMENT INPUT */}
@@ -6645,7 +6723,6 @@ const ActivityPane = React.memo(function ActivityPane({ cardId, currentUserAvata
                 value={commentInput}
                 onChange={(e) => setCommentInput(e.target.value)}
                 onFocus={() => setIsFocused(true)}
-                // onBlur={() => setIsFocused(false)} // Optional: uncomment if you want it to close on click away
              />
              <div style={styles.controls}>
                  <button 
@@ -6663,17 +6740,19 @@ const ActivityPane = React.memo(function ActivityPane({ cardId, currentUserAvata
       {/* ACTIVITY STREAM */}
       <div style={styles.activityList}>
         {loading && <div style={{color: '#5e6c84', fontStyle: 'italic'}}>Loading activity...</div>}
-        {!loading && actions.map(act => (
+        {!loading && visibleActions.map(act => (
           <div key={act.id} style={styles.actItem}>
             <div style={{...styles.avatar, backgroundImage: `url(${getAvatar(act.memberCreator?.avatarHash)})`}}></div>
             <div style={styles.actContent}>
                <div>
-                  <span style={styles.actText}>{act.formatted.text}</span>
+                  <span style={styles.actText}>
+                    <strong style={{fontWeight: 600}}>{act.formatted.text.split(' ')[0]}</strong> 
+                    {' ' + act.formatted.text.split(' ').slice(1).join(' ')}
+                  </span>
                </div>
                <div style={styles.actMeta}>
                   {timeAgo(act.date)}
                </div>
-               {/* Render comment bubble if it was a comment action */}
                {act.formatted.comment && (
                    <div style={styles.commentBubble}>{act.formatted.comment}</div>
                )}

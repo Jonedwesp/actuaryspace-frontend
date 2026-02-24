@@ -75,22 +75,32 @@ exports.handler = async function (event) {
       }
     );
 
-    // ⚡ THE CRITICAL FIX: If status is 200-299, it IS a success regardless of body
+    // 🛡️ GUARANTEED JSON RESPONSE
+    const responseHeaders = { 
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+    };
+
+    // 🛡️ GUARANTEED CLEAN JSON RESPONSE
+    // 🛡️ FIXED RESPONSE LOGIC
     if (modifyRes.ok) {
       return {
         statusCode: 200,
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*" 
+        },
         body: JSON.stringify({ ok: true }),
       };
-    } else {
-      // If NOT ok, then we care about the error message
-      const errBody = await modifyRes.json().catch(() => ({ error: "Unknown API error" }));
-      return {
-        statusCode: modifyRes.status || 500,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ok: false, error: errBody }),
-      };
     }
+
+    // Since our request() helper already parsed the JSON, 
+    // we just access the error details directly if they exist.
+    return {
+      statusCode: modifyRes.status || 500,
+      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      body: JSON.stringify({ ok: false, error: "Gmail API Error" }),
+    };
   } catch (err) {
     console.error("Star Toggle Crash:", err.message);
     return {
