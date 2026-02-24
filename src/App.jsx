@@ -6437,9 +6437,6 @@ const timeAgo = (dateParam) => {
 
 // ---------------- NEW ACTIVITY COMPONENT ----------------
 const ActivityPane = React.memo(function ActivityPane({ cardId, currentUserAvatarUrl }) {
-
-// ---------------- NEW ACTIVITY COMPONENT ----------------
-const ActivityPane = React.memo(function ActivityPane({ cardId, currentUserAvatarUrl }) {
   const [actions, setActions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [commentInput, setCommentInput] = useState("");
