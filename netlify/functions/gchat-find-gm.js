@@ -68,7 +68,7 @@ export async function handler(event) {
     }
 
     // 4. Get Google Token
-    const token = await getAccessToken(event);
+    const token = await getAccessToken();
 
     // 5. Setup the space using native fetch
     const response = await fetch(`https://chat.googleapis.com/v1/spaces:setup`, {
@@ -98,3 +98,4 @@ export async function handler(event) {
     };
   }
 }
+

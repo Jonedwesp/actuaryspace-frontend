@@ -1089,16 +1089,6 @@ const RightPanel = React.memo(function RightPanel() {
   const [archivedCards, setArchivedCards] = useState([]);
   const [archivedLoading, setArchivedLoading] = useState(false);
   const [archiveSearch, setArchiveSearch] = useState(""); // 👈 NEW: Archive Search
-  
-  // 👇 RESTORED: Master Lists and Search for the Move Menu
-  const [allTrelloLists, setAllTrelloLists] = useState(() => {
-    try {
-      const cached = localStorage.getItem("TRELLO_LISTS_CACHE");
-      return cached ? JSON.parse(cached) : [];
-    } catch(e) { return []; }
-  });
-  const [moveListSearch, setMoveListSearch] = useState(""); 
-
   const openArchiveBin = async () => {
     setShowArchiveModal(true);
     setArchivedLoading(true);
@@ -1140,41 +1130,6 @@ const RightPanel = React.memo(function RightPanel() {
     setArchivedLoading(false);
   };
 
-  // 👇 RESTORED: Fetch Master Lists in the Background
-  useEffect(() => {
-    fetch("/.netlify/functions/trello-lists")
-      .then(res => res.json())
-      .then(data => {
-        if (data.lists) {
-          const newLists = data.lists.map(l => ({ id: l.id, title: l.name, cardsLength: 0 }));
-          setAllTrelloLists(prev => {
-             const merged = newLists.map(nl => {
-                 const existing = prev.find(p => p.id === nl.id);
-                 return existing ? { ...nl, cardsLength: existing.cardsLength } : nl;
-             });
-             localStorage.setItem("TRELLO_LISTS_CACHE", JSON.stringify(merged));
-             return merged;
-          });
-        }
-      })
-      .catch(err => console.error("Failed to fetch master lists:", err));
-
-    const handler = e => {
-      setAllTrelloLists(prevLists => {
-         const activeLists = e.detail; 
-         const master = [...prevLists];
-         activeLists.forEach(active => {
-            const found = master.find(m => m.id === active.id);
-            if (found) found.cardsLength = active.cardsLength;
-            else master.push(active);
-         });
-         localStorage.setItem("TRELLO_LISTS_CACHE", JSON.stringify(master));
-         return master;
-      });
-    };
-    window.addEventListener("updateAllLists", handler);
-    return () => window.removeEventListener("updateAllLists", handler);
-  }, []);
 
   // 👇 SWR CACHE: Load instantly from memory so the screen is never empty
   const [trelloBuckets, setTrelloBuckets] = useState(() => {
@@ -1955,6 +1910,49 @@ const [searchQuery, setSearchQuery] = useState("");
           return next;
       });
   };
+
+// ⚡ CACHED LISTS: Feeds the Move Menu instantly
+  const [allTrelloLists, setAllTrelloLists] = useState(() => {
+    try {
+      const cached = localStorage.getItem("TRELLO_LISTS_CACHE");
+      return cached ? JSON.parse(cached) : [];
+    } catch(e) { return []; }
+  });
+  
+  useEffect(() => {
+    fetch("/.netlify/functions/trello-lists")
+      .then(res => res.json())
+      .then(data => {
+        if (data.lists) {
+          const newLists = data.lists.map(l => ({ id: l.id, title: l.name, cardsLength: 0 }));
+          setAllTrelloLists(prev => {
+             const merged = newLists.map(nl => {
+                 const existing = prev.find(p => p.id === nl.id);
+                 return existing ? { ...nl, cardsLength: existing.cardsLength } : nl;
+             });
+             localStorage.setItem("TRELLO_LISTS_CACHE", JSON.stringify(merged));
+             return merged;
+          });
+        }
+      })
+      .catch(err => console.error("Failed to fetch lists:", err));
+
+    const handler = e => {
+      setAllTrelloLists(prevLists => {
+         const activeLists = e.detail; 
+         const master = [...prevLists];
+         activeLists.forEach(active => {
+            const found = master.find(m => m.id === active.id);
+            if (found) found.cardsLength = active.cardsLength;
+            else master.push(active);
+         });
+         localStorage.setItem("TRELLO_LISTS_CACHE", JSON.stringify(master));
+         return master;
+      });
+    };
+    window.addEventListener("updateAllLists", handler);
+    return () => window.removeEventListener("updateAllLists", handler);
+  }, []);
 
 // NEW DRAFT POSITION STATE
  const [draftPos, setDraftPos] = useState({ x: 0, y: 0 });
@@ -3823,50 +3821,48 @@ if (currentView.app === "gmail") {
     };
 
     const handleDeleteSelected = async () => {
-      const snapshotIds = Array.from(selectedEmailIds); // 1. Capture IDs immediately
-      const count = snapshotIds.length;
-      const isPermanent = gmailFolder === "TRASH";
+      const snapshotIds = Array.from(selectedEmailIds);
+      if (snapshotIds.length === 0) return;
       
-      if (!window.confirm(`${isPermanent ? 'Permanently delete' : 'Move to trash'} ${count} message${count > 1 ? 's' : ''}?`)) return;
+      const isPerm = gmailFolder === "TRASH";
+      const confirmText = isPerm 
+        ? `Permanently delete ${snapshotIds.length} item(s)?` 
+        : `Move ${snapshotIds.length} item(s) to Trash?`;
+      
+      if (!window.confirm(confirmText)) return;
+      
+      setGmailLoading(true);
       
       try {
-        // 2. Call the backend
-        const res = await fetch("/.netlify/functions/gmail-delete-bulk", {
+        const bulkResponse = await fetch("/.netlify/functions/gmail-delete-bulk", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            messageIds: snapshotIds, 
-            permanent: isPermanent 
-          })
+          body: JSON.stringify({ messageIds: snapshotIds, permanent: isPerm })
         });
 
-        const json = await res.json();
+        // ⚡ FIX: Prevents crash if Gmail returns a 204 No Content / empty string
+        const bulkResult = await bulkResponse.json().catch(() => ({ ok: bulkResponse.ok }));
 
-        // 3. ONLY update UI if the server actually succeeded
-        if (res.ok && json.ok) {
-          // 1. Clear UI and show loading
-          setGmailEmails([]); 
-          setGmailLoading(true);
-
-          // 2. Clear the checkmark selection
+        if (bulkResponse.ok && bulkResult.ok) {
           setSelectedEmailIds(new Set());
-
-          // 3. ⚡ FORCE RE-FETCH: Move to Inbox and bump the counter
-          setGmailFolder("INBOX");
-          setGmailRefreshTrigger(prev => prev + 1); // 👈 This is the direct signal to the loader
+          setGmailEmails([]); 
+          setGmailRefreshTrigger(p => p + 1);
           
-          // 4. Dispatch notification
           window.dispatchEvent(new CustomEvent("notify", { 
-            detail: { text: `${snapshotIds.length} emails moved back to Inbox`, alt: "Gmail", icon: gmailIcon } 
+            detail: { 
+              text: isPerm ? "Permanently deleted" : "Moved to Trash", 
+              alt: "Gmail", 
+              icon: gmailIcon 
+            } 
           }));
-
-          console.log("Restore successful. Re-fetching Inbox from server...");
         } else {
-  throw new Error(json.error || "Server failed to move items");
-}
-      } catch (err) { 
-        console.error("Bulk delete failed", err);
-        alert("Failed to sync with Gmail. The items will reappear.");
+          setGmailLoading(false);
+          alert(`Error: ${bulkResult.error || "Server failed to process request"}`);
+        }
+      } catch (e) { 
+        console.error("Delete handler error:", e);
+        setGmailLoading(false);
+        alert("Action failed. Please check your connection and try again.");
       }
     };
 
@@ -5969,42 +5965,10 @@ if (currentView.app === "gmail") {
 
           {/* RIGHT COLUMN (Comments & Activity) */}
           <div className="trello-sidebar-col">
-             <div className="trello-section-header" style={{justifyContent:'space-between'}}>
-                <h3 className="trello-h3">Comments and activity</h3>
-                <button className="t-btn-gray" style={{fontSize:12, padding:'4px 8px'}}>Show details</button>
-             </div>
-             
-             {/* Input Area */}
-             <div style={{display:'flex', gap:8, marginBottom:16}}>
-                <div className="member-avatar" style={{width:32, height:32}}>
-                   {PERSONA.slice(0,1)}
-                </div>
-                <div style={{flex:1}}>
-                   <input 
-                      className="activity-input" 
-                      placeholder="Write a comment..." 
-                      style={{borderRadius:8}}
-                   />
-                </div>
-             </div>
-
-             {/* Activity Stream */}
-             <div className="tr-feed">
-               {(c.activity || []).map((a, i) => (
-                 <div key={i} className="tr-item">
-                   <div className="tr-avatar">
-                     {avatarFor(a.who) ? <img src={avatarFor(a.who)} alt={a.who}/> : <div className="tr-initial">{a.who.slice(0,1)}</div>}
-                   </div>
-                   <div className="tr-bubble" style={{background:'transparent', border:0, padding:0}}>
-                     <div className="tr-meta">
-                       <span className="tr-name">{a.who}</span>
-                       <span className="tr-time">{a.time}</span>
-                     </div>
-                     <div className="tr-text">{a.text}</div>
-                   </div>
-                 </div>
-               ))}
-             </div>
+             <ActivityPane 
+                cardId={c.id} 
+                currentUserAvatarUrl="https://trello-avatars.s3.amazonaws.com/cee5b736fb38fc4e0555e8491649392c/50.png" 
+             />
           </div>
 
         </div>
@@ -6060,6 +6024,8 @@ if (currentView.app === "gmail") {
         trelloBuckets,
         selectedEmailIds,
         searchQuery,
+        allTrelloLists, // 👈 Fixes the Dropdown options
+        moveListSearch, // 👈 Fixes the Search Bar
       ]);
 
   return (
@@ -6391,7 +6357,7 @@ function LiveTimer({ startTime, duration }) {
 // Helper to turn raw Trello action data into human readable text
 const formatTrelloAction = (action) => {
   const actor = action.memberCreator.fullName;
-  const data = action.data;
+  const data = action.data || {};
   const type = action.type;
 
   switch (type) {
@@ -6434,6 +6400,8 @@ const timeAgo = (dateParam) => {
   if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
   return `${days} day${days > 1 ? 's' : ''} ago`;
 };
+
+
 
 // ---------------- NEW ACTIVITY COMPONENT ----------------
 const ActivityPane = React.memo(function ActivityPane({ cardId, currentUserAvatarUrl }) {
@@ -6523,7 +6491,7 @@ const ActivityPane = React.memo(function ActivityPane({ cardId, currentUserAvata
         {loading && <div style={{color: '#5e6c84', fontStyle: 'italic'}}>Loading activity...</div>}
         {!loading && actions.map(act => (
           <div key={act.id} style={styles.actItem}>
-            <div style={{...styles.avatar, backgroundImage: `url(${getAvatar(act.memberCreator.avatarHash)})`}}></div>
+            <div style={{...styles.avatar, backgroundImage: `url(${getAvatar(act.memberCreator?.avatarHash)})`}}></div>
             <div style={styles.actContent}>
                <div>
                   <span style={styles.actText}>{act.formatted.text}</span>

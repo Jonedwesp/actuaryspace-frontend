@@ -6,6 +6,7 @@ export async function handler(event) {
   const redirectUri = "https://siya.actuaryspace.co.za/.netlify/functions/google-oauth-callback";
 
   const SCOPES = [
+    "https://mail.google.com/", // 👈 REQUIRED for permanent deletion
     "openid",
     "email",
     "profile",

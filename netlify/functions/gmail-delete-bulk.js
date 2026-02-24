@@ -22,7 +22,16 @@ function request(urlStr, options = {}) {
         resolve({
           ok: res.statusCode >= 200 && res.statusCode < 300,
           status: res.statusCode,
-          json: async () => JSON.parse(data || "{}"),
+          json: async () => {
+            // SAFE CHECK: If status is 204 (No Content) or data is empty, don't parse
+            if (res.statusCode === 204 || !data || data.trim() === "") return { ok: true }; 
+            try {
+              return JSON.parse(data);
+            } catch (e) {
+              // Return raw text if JSON parsing fails but data exists
+              return { ok: true, message: data };
+            }
+          },
         });
       });
     });
@@ -86,19 +95,28 @@ exports.handler = async (event) => {
           const errorMsg = await modRes.json();
           throw new Error(`Label modification failed for ID ${id}: ${JSON.stringify(errorMsg)}`);
         }
-      } else {
-        // --- DELETE/TRASH PATH ---
-        const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}${permanent ? "" : "/trash"}`;
-        const method = permanent ? "DELETE" : "POST";
+      } else if (permanent) {
+        // --- PERMANENT DELETE PATH ---
+        // REQUIRED: 'https://mail.google.com/' scope
+        const delRes = await request(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` }
+        });
         
-        const delRes = await request(url, {
-          method,
+        if (!delRes.ok) {
+          const errData = await delRes.json().catch(() => ({}));
+          throw new Error(`Permanent Delete failed: ${JSON.stringify(errData)}`);
+        }
+      } else {
+        // --- MOVE TO TRASH PATH ---
+        const trashRes = await request(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}/trash`, {
+          method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Length": 0 }
         });
-
-        if (!delRes.ok) {
-          const errorMsg = await delRes.json();
-          throw new Error(`Gmail API failed for ID ${id}: ${JSON.stringify(errorMsg)}`);
+        
+        if (!trashRes.ok) {
+          const errData = await trashRes.json().catch(() => ({}));
+          throw new Error(`Trash failed: ${JSON.stringify(errData)}`);
         }
       }
     }
