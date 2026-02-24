@@ -1,6 +1,4 @@
-// netlify/functions/gchat-react.js
-import dotenv from "dotenv";
-dotenv.config();
+import { getAccessToken } from "./_google-creds.js";
 
 const EMOJI_UNICODE = {
   "like": "👍",
@@ -12,7 +10,8 @@ export async function handler(event) {
   try {
     if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
 
-    const { messageId, type } = JSON.parse(event.body); // type = "like" | "heart"
+    const body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
+    const { messageId, type } = body; 
     
     if (!messageId || !type) {
       return json(400, { ok: false, error: "Missing messageId or type" });
@@ -21,26 +20,10 @@ export async function handler(event) {
     const emojiChar = EMOJI_UNICODE[type];
     if (!emojiChar) return json(400, { ok: false, error: "Invalid reaction type" });
 
-    const RT = process.env.AS_GCHAT_RT;
-    const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-    const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-
-    // 1. Auth
-    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
-        refresh_token: RT,
-        grant_type: "refresh_token",
-      }),
-    });
-    const tokenJson = await tokenRes.json();
-    const accessToken = tokenJson.access_token;
+    // 1. Auth - This now uses the helper to find Siya's session in the cookies
+    const accessToken = await getAccessToken(event);
 
     // 2. Add Reaction
-    // API: POST /v1/{name=spaces/*/messages/*}/reactions
     const url = `https://chat.googleapis.com/v1/${messageId}/reactions`;
     
     const res = await fetch(url, {
@@ -56,8 +39,6 @@ export async function handler(event) {
 
     const data = await res.json();
     
-    // 409 Conflict means "You already reacted with this emoji"
-    // We treat this as success because the UI state is already correct.
     if (res.status === 409) {
       return json(200, { ok: true, status: "already_exists" });
     }
@@ -69,7 +50,8 @@ export async function handler(event) {
     return json(200, { ok: true, data });
 
   } catch (err) {
-    return json(500, { ok: false, error: String(err) });
+    console.error("GCHAT-REACT ERROR:", err.message);
+    return json(500, { ok: false, error: err.message });
   }
 }
 

@@ -55,12 +55,13 @@ exports.handler = async function (event) {
     const tokenData = await tokenRes.json();
     const token = tokenData.access_token;
 
-    // 2. Modify Labels (STARRED is a system label)
-    const modifyBody = JSON.stringify({
+    // 2. Define the Payload
+    const modifyPayload = JSON.stringify({
       addLabelIds: starred ? ["STARRED"] : [],
-      removeLabelIds: starred ? [] : ["STARRED"],
+      removeLabelIds: !starred ? ["STARRED"] : [],
     });
 
+    // 3. Send Request to Gmail
     const modifyRes = await request(
       `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/modify`,
       {
@@ -68,21 +69,33 @@ exports.handler = async function (event) {
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
-          "Content-Length": Buffer.byteLength(modifyBody),
+          "Content-Length": Buffer.byteLength(modifyPayload),
         },
-        body: modifyBody,
+        body: modifyPayload,
       }
     );
 
-    if (!modifyRes.ok) throw new Error("Gmail Modify API failed");
-
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ ok: true }),
-    };
+    // ⚡ THE CRITICAL FIX: If status is 200-299, it IS a success regardless of body
+    if (modifyRes.ok) {
+      return {
+        statusCode: 200,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ok: true }),
+      };
+    } else {
+      // If NOT ok, then we care about the error message
+      const errBody = await modifyRes.json().catch(() => ({ error: "Unknown API error" }));
+      return {
+        statusCode: modifyRes.status || 500,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ok: false, error: errBody }),
+      };
+    }
   } catch (err) {
+    console.error("Star Toggle Crash:", err.message);
     return {
       statusCode: 500,
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ok: false, error: err.message }),
     };
   }

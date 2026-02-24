@@ -26,4 +26,29 @@ export function loadServiceAccount() {
 
   const plain = Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
   return JSON.parse(plain);
+}// ... KEEP ALL YOUR ORIGINAL loadServiceAccount CODE HERE ...
+
+// ADD THIS AT THE VERY BOTTOM:
+export async function getAccessToken(event) {
+  const cookieHeader = event.headers.cookie || event.headers.Cookie || "";
+  const match = cookieHeader.match(/AS_GCHAT_RT=([^;]+)/);
+  const refreshToken = match ? match[1] : null;
+
+  if (!refreshToken) {
+    throw new Error("No Refresh Token found in cookies. Please re-authenticate.");
+  }
+
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: "255077263612-j39k16rqh685nn7sd4oh1qkn5f7eb1ls.apps.googleusercontent.com",
+      client_secret: "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",
+      refresh_token: decodeURIComponent(refreshToken),
+      grant_type: "refresh_token",
+    }),
+  });
+
+  const data = await response.json();
+  return data.access_token;
 }

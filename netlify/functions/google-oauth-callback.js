@@ -14,7 +14,7 @@ export async function handler(event) {
 
   const clientId = "255077263612-j39k16rqh685nn7sd4oh1qkn5f7eb1ls.apps.googleusercontent.com"; 
   const clientSecret = "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"; 
-  const redirectUri = process.env.GOOGLE_OAUTH_REDIRECT;
+  const redirectUri = "https://siya.actuaryspace.co.za/.netlify/functions/google-oauth-callback";
 
   const tokenUrl = "https://oauth2.googleapis.com/token";
   const body = new URLSearchParams({
