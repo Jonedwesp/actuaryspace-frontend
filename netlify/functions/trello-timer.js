@@ -1,19 +1,3 @@
-const https = require("https");
-
-const trelloRequest = (url, method, body) => new Promise((resolve, reject) => {
-  const req = https.request(url, {
-    method: method,
-    headers: { "Content-Type": "application/json" }
-  }, (res) => {
-    let data = "";
-    res.on("data", c => data += c);
-    res.on("end", () => resolve({ status: res.statusCode, data: JSON.parse(data || "{}") }));
-  });
-  req.on("error", reject);
-  if (body) req.write(JSON.stringify(body));
-  req.end();
-});
-
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method Not Allowed" };
 
@@ -26,16 +10,18 @@ exports.handler = async (event) => {
     const cardRes = await trelloRequest(`https://api.trello.com/1/cards/${cardId}?fields=idBoard&key=${key}&token=${token}`, "GET");
     const boardId = cardRes.data.idBoard;
 
-    // 2. Find Custom Fields (Supports both your old Timer and new WorkFlow Timer)
+    // 2. Find Custom Fields (Explicitly prioritize "WorkFlow" fields)
     const cfRes = await trelloRequest(`https://api.trello.com/1/boards/${boardId}/customFields?key=${key}&token=${token}`, "GET");
-    const startField = cfRes.data.find(f => f.name.includes("TimerStart"));
-const durationField = cfRes.data.find(f => f.name.includes("Duration"));
+    
+    // We strictly look for the WorkFlow versions first
+    const startField = cfRes.data.find(f => f.name === "WorkTimerStart") || cfRes.data.find(f => f.name === "TimerStart");
+    const durationField = cfRes.data.find(f => f.name === "WorkDuration") || cfRes.data.find(f => f.name === "Duration");
 
     if (!startField || !durationField) {
-      return { statusCode: 400, body: JSON.stringify({ error: "Missing timer custom fields on Trello board." }) };
+      return { statusCode: 400, body: JSON.stringify({ error: "Required timer fields not found on this board." }) };
     }
 
-    // 3. Get Current Values from Card (Safely handles both Text and Number types)
+    // 3. Get Current Values from Card
     const cardCFRes = await trelloRequest(`https://api.trello.com/1/cards/${cardId}/customFieldItems?key=${key}&token=${token}`, "GET");
     
     const startItem = cardCFRes.data.find(f => f.idCustomField === startField.id);
@@ -55,28 +41,23 @@ const durationField = cfRes.data.find(f => f.name.includes("Duration"));
       const elapsedMinutes = (now - currentStart) / 1000 / 60;
       const newTotal = (currentDuration + Math.max(0, elapsedMinutes)).toFixed(2);
 
-      // Smart Payload formatting
       const durPayload = durationField.type === "number" ? { value: { number: newTotal } } : { value: { text: String(newTotal) } };
-      const startPayload = { value: "" }; // Clears the field cleanly
+      const startPayload = { value: "" }; 
 
       await trelloRequest(`https://api.trello.com/1/cards/${cardId}/customField/${durationField.id}/item?key=${key}&token=${token}`, "PUT", durPayload);
-      await trelloRequest(`https://api.trello.com/1/cards/${cardId}/customField/${startField.id}/item?key=${key}&token=${token}`, "PUT", startPayload);
+      await trelloRequest(`https://api.trello.com/1/customField/${startField.id}/item/card/${cardId}`, "PUT", startPayload); // Updated endpoint for clearing
       
-      return { statusCode: 200, body: JSON.stringify({ active: false, total: newTotal }) };
+      return { statusCode: 200, body: JSON.stringify({ ok: true, active: false, total: newTotal }) };
     } 
     
     // --- START TIMER ---
     else if (action === "start") {
-      if (currentStart) return { statusCode: 200, body: JSON.stringify({ message: "Timer already running" }) };
-
       const nowStr = Date.now().toString();
-      
-      // Smart Payload formatting
       const startPayload = startField.type === "number" ? { value: { number: nowStr } } : { value: { text: nowStr } };
 
       await trelloRequest(`https://api.trello.com/1/cards/${cardId}/customField/${startField.id}/item?key=${key}&token=${token}`, "PUT", startPayload);
       
-      return { statusCode: 200, body: JSON.stringify({ active: true, start: nowStr }) };
+      return { statusCode: 200, body: JSON.stringify({ ok: true, active: true, start: nowStr }) };
     }
 
   } catch (err) {

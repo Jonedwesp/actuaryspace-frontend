@@ -62,11 +62,15 @@ exports.handler = async function (event, context) {
     const folder = event.queryStringParameters?.folder || "INBOX";
     
   // 2. Map folder names to Gmail search queries
-let query = "in:inbox"; // Default
-if (folder === "TRASH") query = "in:trash";
-if (folder === "STARRED") query = "is:starred";
-if (folder === "SENT") query = "in:sent";
-if (folder === "DRAFTS") query = "in:draft"; // Explicitly target drafts
+    let query = "in:inbox";
+    if (folder === "TRASH") query = "is:trash";
+    if (folder === "STARRED") query = "is:starred";
+    if (folder === "SENT") query = "in:sent";
+    
+    // Precision filtering for Siya's created drafts only
+    if (folder === "DRAFTS") {
+        query = "label:DRAFT -in:inbox"; 
+    }
 
     const listRes = await request(
       `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=15`,

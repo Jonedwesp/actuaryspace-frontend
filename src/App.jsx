@@ -1089,6 +1089,15 @@ const RightPanel = React.memo(function RightPanel() {
   const [archivedCards, setArchivedCards] = useState([]);
   const [archivedLoading, setArchivedLoading] = useState(false);
   const [archiveSearch, setArchiveSearch] = useState(""); // 👈 NEW: Archive Search
+  
+  // 👇 RESTORED: Master Lists and Search for the Move Menu
+  const [allTrelloLists, setAllTrelloLists] = useState(() => {
+    try {
+      const cached = localStorage.getItem("TRELLO_LISTS_CACHE");
+      return cached ? JSON.parse(cached) : [];
+    } catch(e) { return []; }
+  });
+  const [moveListSearch, setMoveListSearch] = useState(""); 
 
   const openArchiveBin = async () => {
     setShowArchiveModal(true);
@@ -1131,8 +1140,43 @@ const RightPanel = React.memo(function RightPanel() {
     setArchivedLoading(false);
   };
 
-  // ... (inside the return statement below) ...
- // 👇 SWR CACHE: Load instantly from memory so the screen is never empty
+  // 👇 RESTORED: Fetch Master Lists in the Background
+  useEffect(() => {
+    fetch("/.netlify/functions/trello-lists")
+      .then(res => res.json())
+      .then(data => {
+        if (data.lists) {
+          const newLists = data.lists.map(l => ({ id: l.id, title: l.name, cardsLength: 0 }));
+          setAllTrelloLists(prev => {
+             const merged = newLists.map(nl => {
+                 const existing = prev.find(p => p.id === nl.id);
+                 return existing ? { ...nl, cardsLength: existing.cardsLength } : nl;
+             });
+             localStorage.setItem("TRELLO_LISTS_CACHE", JSON.stringify(merged));
+             return merged;
+          });
+        }
+      })
+      .catch(err => console.error("Failed to fetch master lists:", err));
+
+    const handler = e => {
+      setAllTrelloLists(prevLists => {
+         const activeLists = e.detail; 
+         const master = [...prevLists];
+         activeLists.forEach(active => {
+            const found = master.find(m => m.id === active.id);
+            if (found) found.cardsLength = active.cardsLength;
+            else master.push(active);
+         });
+         localStorage.setItem("TRELLO_LISTS_CACHE", JSON.stringify(master));
+         return master;
+      });
+    };
+    window.addEventListener("updateAllLists", handler);
+    return () => window.removeEventListener("updateAllLists", handler);
+  }, []);
+
+  // 👇 SWR CACHE: Load instantly from memory so the screen is never empty
   const [trelloBuckets, setTrelloBuckets] = useState(() => {
     try {
       const cached = localStorage.getItem("TRELLO_CACHE");
@@ -1432,8 +1476,11 @@ const RightPanel = React.memo(function RightPanel() {
               customFields: (() => {
                  let safeCF = {};
                  for (let k in (c.customFields || {})) {
-                    if (k.includes("TimerStart")) safeCF.WorkTimerStart = c.customFields[k];
-                    else if (k.includes("Duration")) safeCF.WorkDuration = c.customFields[k];
+                    // ⚡ STRICT MAPPING: Prevents the two clocks from overwriting each other
+                    if (k === "WorkTimerStart") safeCF.WorkTimerStart = c.customFields[k];
+                    else if (k === "WorkDuration") safeCF.WorkDuration = c.customFields[k];
+                    else if (k === "TimerStart") safeCF.TimerStart = c.customFields[k];
+                    else if (k === "Duration") safeCF.Duration = c.customFields[k];
                     else safeCF[k] = c.customFields[k];
                  }
                  return safeCF;
@@ -1908,8 +1955,6 @@ const [searchQuery, setSearchQuery] = useState("");
           return next;
       });
   };
-  
-  const [allTrelloLists, setAllTrelloLists] = useState([]); // Tracks ALL board lists
 
 // NEW DRAFT POSITION STATE
  const [draftPos, setDraftPos] = useState({ x: 0, y: 0 });
@@ -1951,33 +1996,6 @@ const [searchQuery, setSearchQuery] = useState("");
    document.addEventListener("mouseup", onMouseUp);
  };
 
-  useEffect(() => {
-    // 1. Initial Master List Fetch (Gets empty lists too!)
-    fetch("/.netlify/functions/trello-lists")
-      .then(res => res.json())
-      .then(data => {
-        if (data.lists) {
-          setAllTrelloLists(data.lists.map(l => ({ id: l.id, title: l.name, cardsLength: 0 })));
-        }
-      })
-      .catch(err => console.error("Failed to fetch master lists:", err));
-
-    // 2. Keep the position counts accurate when polling happens
-    const handler = e => {
-      setAllTrelloLists(prevLists => {
-         const activeLists = e.detail; 
-         const master = [...prevLists];
-         activeLists.forEach(active => {
-            const found = master.find(m => m.id === active.id);
-            if (found) found.cardsLength = active.cardsLength;
-            else master.push(active);
-         });
-         return master;
-      });
-    };
-    window.addEventListener("updateAllLists", handler);
-    return () => window.removeEventListener("updateAllLists", handler);
-  }, []);
   // Add this near your other state variables
   const [timerNow, setTimerNow] = useState(Date.now());
   // 👇 NEW: States for the "Add Time" popup
@@ -3825,27 +3843,24 @@ if (currentView.app === "gmail") {
         const json = await res.json();
 
         // 3. ONLY update UI if the server actually succeeded
-        if (res.ok && json.ok) {
-          // 1. 🛡️ Force immediate loading state
+        if (res.ok && json.ok) {
+          // 1. Clear UI and show loading
           setGmailEmails([]); 
           setGmailLoading(true);
 
           // 2. Clear the checkmark selection
           setSelectedEmailIds(new Set());
 
-          // 3. Switch folder state to force the useEffect to re-fetch "Server Truth"
-          // We set it to null briefly then to INBOX to ensure the dependency change triggers
-          setGmailFolder(""); 
-          setTimeout(() => {
-            setGmailFolder("INBOX");
-            
-            // 4. Dispatch a system notification so the user knows it worked
-            window.dispatchEvent(new CustomEvent("notify", { 
-              detail: { text: `${snapshotIds.length} emails moved back to Inbox`, alt: "Gmail", icon: gmailIcon } 
-            }));
-          }, 10);
+          // 3. ⚡ FORCE RE-FETCH: Move to Inbox and bump the counter
+          setGmailFolder("INBOX");
+          setGmailRefreshTrigger(prev => prev + 1); // 👈 This is the direct signal to the loader
           
-          console.log("Restore successful. Re-syncing Inbox from Gmail API...");
+          // 4. Dispatch notification
+          window.dispatchEvent(new CustomEvent("notify", { 
+            detail: { text: `${snapshotIds.length} emails moved back to Inbox`, alt: "Gmail", icon: gmailIcon } 
+          }));
+
+          console.log("Restore successful. Re-fetching Inbox from server...");
         } else {
   throw new Error(json.error || "Server failed to move items");
 }
@@ -3991,36 +4006,51 @@ if (currentView.app === "gmail") {
               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                 <span style={{ fontSize: "13px", color: "#5f6368" }}>{selectedEmailIds.size} selected</span>
                 
-                {/* 🔄 ADDED: RESTORE BUTTON (Only visible in Trash view) */}
+                {/* 🔄 FINAL RESTORE BUTTON FIX */}
                 {gmailFolder === "TRASH" && (
                   <button 
                     onClick={async () => {
                       const snapshotIds = Array.from(selectedEmailIds);
+                      if (snapshotIds.length === 0) return;
+
+                      setGmailLoading(true);
+                      // Don't clear emails yet, keep them visible so user sees progress
+                      
                       try {
-                        const res = await fetch("/.netlify/functions/gmail-delete-bulk?action=restore", {
+                        const response = await fetch("/.netlify/functions/gmail-delete-bulk?action=restore", {
                           method: "POST",
                           headers: { "Content-Type": "application/json" },
                           body: JSON.stringify({ messageIds: snapshotIds })
                         });
-                        const json = await res.json();
                         
-                        if (res.ok && json.ok) {
-                          // 1. Clear the checkmark selection
+                        const result = await response.json().catch(() => ({ ok: false }));
+                        
+                        if (response.ok && result.ok) {
                           setSelectedEmailIds(new Set());
+                          setGmailEmails([]); // Clear now that server confirmed
 
-                          // 2. Clear the local emails list completely
-                          // This forces the UI to realize it has NO data for the Inbox.
-                          setGmailEmails([]); 
-
-                          // 3. Switch the folder state to INBOX
-                          // Your 'useEffect' watches 'gmailFolder'; this change triggers a re-fetch.
-                          setGmailFolder("INBOX");
-                          
-                          console.log("Restored! Syncing fresh Inbox from server...");
+                          // ⚡ Sync indexing delay
+                          setTimeout(() => {
+                            setGmailFolder("INBOX");
+                            setGmailRefreshTrigger(prev => prev + 1);
+                            
+                            window.dispatchEvent(new CustomEvent("notify", { 
+                              detail: { 
+                                text: `${snapshotIds.length} emails restored to Inbox`, 
+                                alt: "Gmail", 
+                                icon: gmailIcon 
+                              } 
+                            }));
+                          }, 1500);
+                        } else {
+                          console.error("Server error:", result);
+                          setGmailLoading(false);
+                          alert(`Restore Error: ${result.error || "Unknown server error"}`);
                         }
                       } catch (err) { 
-                        console.error("Restore failed", err);
-                        alert("Failed to restore emails."); 
+                        console.error("Network/App error:", err);
+                        setGmailLoading(false);
+                        alert("System Error: Could not reach the restore server."); 
                       }
                     }}
                     style={{ background: "#fff", border: "1px solid #dadce0", borderRadius: "4px", padding: "6px 12px", cursor: "pointer", fontSize: "13px", color: "#1a73e8", fontWeight: 500 }}
@@ -4028,7 +4058,6 @@ if (currentView.app === "gmail") {
                     Restore to Inbox
                   </button>
                 )}
-
                 <button 
                   onClick={handleDeleteSelected} 
                   style={{ background: "#fff", border: "1px solid #dadce0", borderRadius: "4px", padding: "6px 12px", cursor: "pointer", fontSize: "13px", color: "#d93025", fontWeight: 500 }}
@@ -4377,16 +4406,18 @@ if (currentView.app === "gmail") {
               />
               <EmailSignature />
             </div>
-            {/* Footer */}
+        {/* Footer */}
             <div style={{ padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff" }}>
-             <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                 <button
                   className="btn blue"
-                  onClick={async () => {
+                  onClick={async (e) => {
+                    const btn = e.currentTarget;
                     if (!draftTo.trim()) {
-                      setEmail((prev) => prev ? { ...prev, systemNote: "Please add at least one recipient email address before sending." } : prev);
+                      setEmail((prev) => prev ? { ...prev, systemNote: "Please add a recipient address." } : prev);
                       return;
                     }
+                    btn.disabled = true;
                     try {
                       const base64Attachments = await Promise.all(draftAttachments.map(file => {
                         return new Promise((resolve) => {
@@ -4405,54 +4436,81 @@ if (currentView.app === "gmail") {
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
                           to: draftTo,
-                          subject: email?.subject || "New Message",
+                          subject: document.getElementById("compose-subject")?.value || "New Message",
                           body: selectedDraftTemplate.body,
                           attachments: base64Attachments 
                         }),
                       });
                       const json = await res.json().catch(() => ({}));
                       if (!res.ok || json.ok === false) throw new Error(json.error || `HTTP ${res.status}`);
-                      setEmail((prev) => prev ? { ...prev, systemNote: `Email sent successfully to: ${draftTo}` } : prev);
+                      
+                      window.dispatchEvent(new CustomEvent("notify", { detail: { text: `Email sent to: ${draftTo}`, alt: "Gmail", icon: gmailIcon } }));
                       setSelectedDraftTemplate(null);
                       setDraftTo("");
                       setDraftAttachments([]);
                     } catch (err) {
-                      setEmail((prev) => prev ? { ...prev, systemNote: `Sending failed: ${err?.message || String(err)}` } : prev);
+                      setEmail((prev) => prev ? { ...prev, systemNote: `Error: ${err.message}` } : prev);
+                      btn.disabled = false;
                     }
                   }}
                   style={{ background: "#0b57d0", color: "#fff", padding: "8px 24px", borderRadius: "24px", border: "none", fontWeight: 500, cursor: "pointer" }}
                 >
                   Send
                 </button>
-
+{/* 💾 SAVE AS DRAFT BUTTON */}
                 <button
                   title="Save to Drafts"
                   type="button"
-                  onClick={async () => {
-                    const subj = document.getElementById("compose-subject")?.value || "(No Subject)";
+                  onClick={async (e) => {
+                    const btn = e.currentTarget;
+                    const subjElement = document.getElementById("compose-subject");
+                    const currentSubject = subjElement ? subjElement.value : "(No Subject)";
+                    
+                    btn.disabled = true;
                     try {
-                      await fetch("/.netlify/functions/gmail-save-draft", {
+                      const res = await fetch("/.netlify/functions/gmail-save-draft", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ 
                           to: draftTo, 
-                          subject: subj, 
+                          subject: currentSubject, 
                           body: selectedDraftTemplate?.body || "" 
                         })
                       });
-                      window.dispatchEvent(new CustomEvent("notify", { 
-                        detail: { text: "Draft saved to Gmail", alt: "Gmail", icon: gmailIcon } 
-                      }));
-                      setSelectedDraftTemplate(null);
-                      setDraftTo("");
-                      setDraftAttachments([]);
+                      
+                      let json;
+                      try {
+                        json = await res.json();
+                      } catch (parseErr) {
+                        json = { ok: false, error: "Response was not valid JSON" };
+                      }
+
+                      if (res.ok && json.ok) {
+                        window.dispatchEvent(new CustomEvent("notify", { 
+                          detail: { text: "Draft saved successfully", alt: "Gmail", icon: gmailIcon } 
+                        }));
+
+                        if (gmailFolder === "DRAFTS") {
+                          setGmailEmails([]); 
+                          setGmailRefreshTrigger(prev => prev + 1);
+                        }
+
+                        setSelectedDraftTemplate(null);
+                        setDraftTo("");
+                        setDraftAttachments([]);
+                      } else {
+                        alert("Error: " + (json.error || "Save failed"));
+                        btn.disabled = false;
+                      }
                     } catch (err) {
-                      console.error("Draft save failed", err);
+                      console.error("Save Draft Error:", err);
+                      alert("Network error: Could not reach the draft server.");
+                      btn.disabled = false;
                     }
                   }}
                   style={{ background: "transparent", border: "none", cursor: "pointer", color: "#5f6368", display: "grid", placeItems: "center", padding: "8px", borderRadius: "50%" }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = "#f1f3f4"}
-                  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                  onMouseEnter={(ev) => ev.currentTarget.style.background = "#f1f3f4"}
+                  onMouseLeave={(ev) => ev.currentTarget.style.background = "transparent"}
                 >
                   <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></svg>
                 </button>
@@ -4461,8 +4519,8 @@ if (currentView.app === "gmail") {
                   onClick={() => draftFileInputRef.current?.click()} 
                   title="Attach files"
                   style={{ background: "transparent", border: "none", cursor: "pointer", color: "#5f6368", display: "grid", placeItems: "center", padding: "8px", borderRadius: "50%" }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = "#f1f3f4"}
-                  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                  onMouseEnter={(ev) => ev.currentTarget.style.background = "#f1f3f4"}
+                  onMouseLeave={(ev) => ev.currentTarget.style.background = "transparent"}
                 >
                   <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5a2.5 2.5 0 0 1 5 0v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5a2.5 2.5 0 0 0 5 0V5c0-3.31-2.69-6-6-6S3 1.69 3 5v11.5c0 3.86 3.14 7 7 7s7-3.14 7-7V6h-1.5z"/></svg>
                 </button>
@@ -6002,8 +6060,6 @@ if (currentView.app === "gmail") {
         trelloBuckets,
         selectedEmailIds,
         searchQuery,
-        moveListSearch, // 👈 FIX: Makes the search bar functional
-        allTrelloLists, // 👈 FIX: Makes the position numbers load instantly
       ]);
 
   return (
@@ -6331,3 +6387,161 @@ function LiveTimer({ startTime, duration }) {
 
   return <span>⏱ {displayTime}</span>;
 }
+
+// Helper to turn raw Trello action data into human readable text
+const formatTrelloAction = (action) => {
+  const actor = action.memberCreator.fullName;
+  const data = action.data;
+  const type = action.type;
+
+  switch (type) {
+    case "commentCard":
+      return { text: `${actor} commented`, comment: data.text };
+    case "updateCard":
+      if (data.listBefore && data.listAfter) {
+        return { text: `${actor} moved this card from ${data.listBefore.name} to ${data.listAfter.name}` };
+      }
+      if (data.old && data.old.closed === false && data.card.closed === true) {
+        return { text: `${actor} archived this card` };
+      }
+      if (data.old && data.old.closed === true && data.card.closed === false) {
+        return { text: `${actor} sent this card to the board` };
+      }
+      return null; 
+    case "createCard":
+    case "copyCard":
+       if(data.list) {
+          return { text: `${actor} added this card to ${data.list.name}` };
+       }
+       return { text: `${actor} created this card` };
+    default:
+      return null;
+  }
+};
+
+// Helper for relative time (e.g., "17 minutes ago")
+const timeAgo = (dateParam) => {
+  if (!dateParam) return null;
+  const date = typeof dateParam === 'object' ? dateParam : new Date(dateParam);
+  const today = new Date();
+  const seconds = Math.round((today - date) / 1000);
+  const minutes = Math.round(seconds / 60);
+  const hours = Math.round(minutes / 60);
+  const days = Math.round(hours / 24);
+
+  if (seconds < 60) return 'just now';
+  if (minutes < 60) return `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
+  if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+  return `${days} day${days > 1 ? 's' : ''} ago`;
+};
+
+// ---------------- NEW ACTIVITY COMPONENT ----------------
+const ActivityPane = React.memo(function ActivityPane({ cardId, currentUserAvatarUrl }) {
+
+// ---------------- NEW ACTIVITY COMPONENT ----------------
+const ActivityPane = React.memo(function ActivityPane({ cardId, currentUserAvatarUrl }) {
+  const [actions, setActions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [commentInput, setCommentInput] = useState("");
+  const [isFocused, setIsFocused] = useState(false);
+
+  // Fetch actions whenever the opened card changes
+  useEffect(() => {
+    if (!cardId) return;
+    setLoading(true);
+    fetch(`/.netlify/functions/trello-actions?cardId=${cardId}`)
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+           // Filter out actions we can't translate yet and slice to last 20 for performance
+           const formatted = data.map(a => ({ ...a, formatted: formatTrelloAction(a) })).filter(a => a.formatted).slice(0, 20);
+           setActions(formatted);
+        }
+      })
+      .catch(err => console.error("Failed to load activity", err))
+      .finally(() => setLoading(false));
+  }, [cardId]);
+
+  // Trello aesthetic styles
+  const styles = {
+    container: { marginTop: '24px', color: '#172b4d' },
+    header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' },
+    headerTitle: { fontSize: '16px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '8px' },
+    hideBtn: { background: '#091e420f', border: 'none', padding: '6px 12px', borderRadius: '3px', fontWeight: '500', cursor: 'pointer', color: '#172b4d' },
+    commentSection: { display: 'flex', gap: '12px', marginBottom: '24px' },
+    avatar: { width: '32px', height: '32px', borderRadius: '50%', backgroundColor: '#dfe1e6', backgroundSize: 'cover' },
+    inputWrapper: { flexGrow: 1 },
+    commentInput: { 
+        width: '100%', borderRadius: '3px', border: isFocused ? '2px solid #0079bf' : '1px solid #dfe1e6', 
+        padding: '8px 12px', fontSize: '14px', transition: 'all 0.2s', outline: 'none', minHeight: isFocused ? '80px' : 'auto', resize: 'none',
+        boxShadow: isFocused ? '0 0 0 2px #ffffff, 0 0 0 4px #0079bf' : 'none'
+    },
+    controls: { marginTop: '8px', display: isFocused ? 'flex' : 'none', gap: '8px' },
+    saveBtn: { background: '#0079bf', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '3px', fontWeight: '500', cursor: 'pointer' },
+    discardBtn: { background: 'transparent', color: '#42526e', border: 'none', padding: '6px 12px', borderRadius: '3px', fontWeight: '500', cursor: 'pointer' },
+    activityList: { display: 'flex', flexDirection: 'column', gap: '16px' },
+    actItem: { display: 'flex', gap: '12px', fontSize: '14px' },
+    actContent: { display: 'flex', flexDirection: 'column' },
+    actText: { fontWeight: '500' },
+    actMeta: { fontSize: '12px', color: '#5e6c84' },
+    commentBubble: { background: 'white', padding: '8px 12px', borderRadius: '3px', border: '1px solid #dfe1e6', marginTop: '4px', boxShadow: '0 1px 1px #091e4240' }
+  };
+
+  // Helper to get avatar URL from Trello hash
+  const getAvatar = (hash) => hash ? `https://trello-avatars.s3.amazonaws.com/${hash}/50.png` : null;
+
+  return (
+    <div style={styles.container}>
+      {/* HEADER */}
+      <div style={styles.header}>
+        <div style={styles.headerTitle}>
+           {/* Simple Icon representation */}
+           <svg width="24" height="24" viewBox="0 0 24 24" fill="#42526e"><path d="M19 3H5C3.89543 3 3 3.89543 3 5V19C3 20.1046 3.89543 21 5 21H19C20.1046 21 21 20.1046 21 19V5C21 3.89543 20.1046 3 19 3ZM11 17H7V15H11V17ZM17 13H7V11H17V13ZM17 9H7V7H17V9Z"></path></svg>
+           Comments and activity
+        </div>
+        <button style={styles.hideBtn}>Hide details</button>
+      </div>
+
+      {/* COMMENT INPUT */}
+      <div style={styles.commentSection}>
+        <div style={{...styles.avatar, backgroundImage: `url(${currentUserAvatarUrl})`}}></div>
+        <div style={styles.inputWrapper}>
+             <textarea 
+                style={styles.commentInput} 
+                placeholder="Write a comment..."
+                value={commentInput}
+                onChange={(e) => setCommentInput(e.target.value)}
+                onFocus={() => setIsFocused(true)}
+                // onBlur={() => setIsFocused(false)} // Optional: uncomment if you want it to close on click away
+             />
+             <div style={styles.controls}>
+                 <button style={styles.saveBtn} disabled={!commentInput.trim()}>Save</button>
+                 <button style={styles.discardBtn} onClick={() => { setIsFocused(false); setCommentInput(""); }}>Discard</button>
+             </div>
+        </div>
+      </div>
+
+      {/* ACTIVITY STREAM */}
+      <div style={styles.activityList}>
+        {loading && <div style={{color: '#5e6c84', fontStyle: 'italic'}}>Loading activity...</div>}
+        {!loading && actions.map(act => (
+          <div key={act.id} style={styles.actItem}>
+            <div style={{...styles.avatar, backgroundImage: `url(${getAvatar(act.memberCreator.avatarHash)})`}}></div>
+            <div style={styles.actContent}>
+               <div>
+                  <span style={styles.actText}>{act.formatted.text}</span>
+               </div>
+               <div style={styles.actMeta}>
+                  {timeAgo(act.date)}
+               </div>
+               {/* Render comment bubble if it was a comment action */}
+               {act.formatted.comment && (
+                   <div style={styles.commentBubble}>{act.formatted.comment}</div>
+               )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+});

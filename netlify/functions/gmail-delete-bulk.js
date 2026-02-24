@@ -59,31 +59,47 @@ exports.handler = async (event) => {
     const token = tokenData.access_token;
 
     // 2. Loop through and execute Gmail commands
-    // 2. Loop through and execute Gmail commands
     for (const id of messageIds) {
-      let url = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}`;
-      let method = permanent ? "DELETE" : "POST";
-
-      // 🔄 ADDED LOGIC: Handle "Untrash" (Restore)
-      // 🔄 RESTORE LOGIC
       if (event.queryStringParameters?.action === "restore") {
-        url += "/untrash"; // Gmail moves it back to its previous location (usually Inbox)
-        method = "POST";
-      } else if (!permanent) {
-        url += "/trash"; 
-      }
-      
-      const res = await request(url, {
-        method,
-        headers: { 
-          Authorization: `Bearer ${token}`,
-          "Content-Length": 0 
-        }
-      });
+        // --- RESTORE PATH ---
+        // Step A: Remove from Trash
+        await request(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}/untrash`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Length": 0 }
+        });
 
-      if (!res.ok) {
-        const errorMsg = await res.json();
-        throw new Error(`Gmail API failed for ID ${id}: ${JSON.stringify(errorMsg)}`);
+        // Step B: Force back to Inbox
+        const modifyUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}/modify`;
+        const modifyPayload = JSON.stringify({ addLabelIds: ["INBOX"] });
+        
+        const modRes = await request(modifyUrl, {
+          method: "POST",
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            "Content-Length": Buffer.byteLength(modifyPayload)
+          },
+          body: modifyPayload
+        });
+
+        if (!modRes.ok) {
+          const errorMsg = await modRes.json();
+          throw new Error(`Label modification failed for ID ${id}: ${JSON.stringify(errorMsg)}`);
+        }
+      } else {
+        // --- DELETE/TRASH PATH ---
+        const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}${permanent ? "" : "/trash"}`;
+        const method = permanent ? "DELETE" : "POST";
+        
+        const delRes = await request(url, {
+          method,
+          headers: { Authorization: `Bearer ${token}`, "Content-Length": 0 }
+        });
+
+        if (!delRes.ok) {
+          const errorMsg = await delRes.json();
+          throw new Error(`Gmail API failed for ID ${id}: ${JSON.stringify(errorMsg)}`);
+        }
       }
     }
 
