@@ -44,7 +44,8 @@ function request(urlStr, options = {}) {
 
 exports.handler = async (event) => {
   try {
-    const { messageIds, permanent } = JSON.parse(event.body);
+    // Single declaration including the new restore flag
+    const { messageIds, permanent, restore } = JSON.parse(event.body);
 
     // 1. Get a fresh Access Token using Siya's Refresh Token
     const bodyStr = new URLSearchParams({
@@ -69,7 +70,8 @@ exports.handler = async (event) => {
 
     // 2. Loop through and execute Gmail commands
     for (const id of messageIds) {
-      if (event.queryStringParameters?.action === "restore") {
+      // FIX: Use the 'restore' variable extracted from JSON.parse(event.body)
+      if (restore) {
         // --- RESTORE PATH ---
         // Step A: Remove from Trash
         await request(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}/untrash`, {

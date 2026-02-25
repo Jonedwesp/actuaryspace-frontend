@@ -2,6 +2,7 @@
   "name": "actuaryspace-frontend",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "dependencies": {
     "@slack/web-api": "^7.13.0",
     "@testing-library/dom": "^10.4.1",

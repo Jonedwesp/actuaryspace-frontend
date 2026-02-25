@@ -1,8 +1,10 @@
 function cookie(name, value, opts = {}) {
   const { path = "/", httpOnly = true, maxAge } = opts;
-  // We MUST use SameSite=None and Secure for the cookie to be visible 
-  // when testing on localhost while the function is on actuaryspace.co.za
-  let out = `${name}=${encodeURIComponent(value)}; Path=${path}; SameSite=None; Secure`;
+  
+  // 🛡️ REINFORCED CROSS-DOMAIN SECURITY
+  // SameSite=None and Secure are MANDATORY for localhost to talk to your live functions.
+  // We add 'Partitioned' to comply with the latest Chrome "Privacy Sandbox" rules.
+  let out = `${name}=${encodeURIComponent(value)}; Path=${path}; SameSite=None; Secure; Partitioned`;
   
   if (httpOnly) out += "; HttpOnly";
   if (typeof maxAge === "number") out += `; Max-Age=${maxAge}`;

@@ -665,16 +665,21 @@ html, body {
   opacity: .95;
 }
 
-/* Gmail notification chip (subtle) */
-.notification.gmail { position: relative; }
-.notification.gmail .notif-chip {
+/* Notification chips */
+.notification { position: relative; }
+.notification .notif-chip {
   margin-left: auto;
-  background: #1677ff;
   color: #fff;
   font-size: .65rem;
   font-weight: 700;
-  padding: .12rem .4rem;
+  padding: .2rem .5rem;
   border-radius: 999px;
+}
+.notification.gmail .notif-chip {
+  background: #1677ff; /* Gmail blue */
+}
+.notification.trello .notif-chip {
+  background: #0079bf; /* Trello blue */
 }
 
 /* ---------- Email view ---------- */

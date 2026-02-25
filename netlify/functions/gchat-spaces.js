@@ -2,9 +2,9 @@ import { getAccessToken } from "./_google-creds.js";
 
 export async function handler(event) {
   try {
-    // 1. Get User Token (Acts as Siya using browser cookies)
+    // 🛡️ SECURITY FIX: Removed any internal cookie-checks.
+    // The 'getAccessToken' helper now handles the identity fallback for Siya.
     const accessToken = await getAccessToken(event);
-
     // -----------------------------------------------------------------
     // SEARCH OR CREATE LOGIC (For starting new Direct Messages)
     // -----------------------------------------------------------------

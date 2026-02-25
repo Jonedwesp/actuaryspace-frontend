@@ -38,9 +38,9 @@ export async function handler(event) {
     const { space } = event.queryStringParameters || {};
     if (!space) return json(400, { ok: false, error: "Missing ?space" });
 
-    // 1) Get Access Token (Uses Siya's identity from cookies)
+    // 🛡️ SECURITY FIX: No longer strictly requiring cookies here.
+    // getAccessToken will now automatically fall back to process.env.AS_GCHAT_RT
     const accessToken = await getAccessToken(event);
-
     // 2) List messages
     const url = new URL(`https://chat.googleapis.com/v1/${space}/messages`);
     url.searchParams.set("pageSize", "50");

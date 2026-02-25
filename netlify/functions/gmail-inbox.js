@@ -161,17 +161,18 @@ exports.handler = async function (event, context) {
            decodedBody = decodedBody.replace(regex, imgSrc);
         });
 
-        return {
-          id: msg.id,
-          snippet: msgData.snippet || "",
-          body: decodedBody || msgData.snippet || "", 
-          subject: getH("Subject") || "(No Subject)",
-          from: getH("From") || "(Unknown)",
-          date: getH("Date") || "",
-          isUnread: msgData.labelIds?.includes("UNREAD") || false,
-          isStarred: msgData.labelIds?.includes("STARRED") || false,
-          attachments: typeMap.attachments
-        };
+     return {
+          id: msg.id,
+          snippet: msgData.snippet || "",
+          body: decodedBody || msgData.snippet || "", 
+          subject: getH("Subject") || "(No Subject)",
+          from: getH("From") || "(Unknown)",
+          to: getH("To") || "",
+          date: getH("Date") || "",
+          isUnread: msgData.labelIds?.includes("UNREAD") || false,
+          isStarred: msgData.labelIds?.includes("STARRED") || false,
+          attachments: typeMap.attachments
+        };
       })
     );
 
