@@ -2,17 +2,20 @@ import { getAccessToken } from "./_google-creds.js";
 
 export async function handler(event) {
   try {
-    // 🛡️ SECURITY FIX: Removed any internal cookie-checks.
-    // The 'getAccessToken' helper now handles the identity fallback for Siya.
+    // 🛡️ IDENTITY FIX: Uses the Hard-Link token if cookies are missing
     const accessToken = await getAccessToken(event);
+
     // -----------------------------------------------------------------
     // SEARCH OR CREATE LOGIC (For starting new Direct Messages)
     // -----------------------------------------------------------------
     if (event.httpMethod === "POST") {
       const body = JSON.parse(event.body || "{}");
-      const targetEmail = body.email;
+      let targetEmail = body.email;
 
       if (!targetEmail) return json(400, { ok: false, error: "Email required" });
+
+      // 🛡️ EMAIL HARDENING: Remove accidental spaces and ensure lowercase
+      targetEmail = targetEmail.trim().toLowerCase();
 
       const setupUrl = "https://chat.googleapis.com/v1/spaces:setup";
       const setupRes = await fetch(setupUrl, {
@@ -22,7 +25,7 @@ export async function handler(event) {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          space: { spaceType: "DIRECT_MESSAGE", singleUserBotDm: false },
+          space: { spaceType: "DIRECT_MESSAGE" },
           memberships: [{
             member: { 
               name: `users/${targetEmail}`, 
@@ -33,7 +36,16 @@ export async function handler(event) {
       });
 
       const setupData = await setupRes.json();
-      if (!setupRes.ok) return json(502, { ok: false, where: "setup", data: setupData });
+      
+      if (!setupRes.ok) {
+        // 🛡️ ENHANCED LOGGING: Jonathan can now see the EXACT reason for "User not found"
+        console.error("GCHAT SETUP FAIL:", {
+          status: setupRes.status,
+          target: targetEmail,
+          details: setupData
+        });
+        return json(setupRes.status, { ok: false, error: setupData.error?.message || "User not found" });
+      }
 
       return json(200, { ok: true, space: setupData });
     }

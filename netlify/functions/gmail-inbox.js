@@ -1,5 +1,6 @@
 // netlify/functions/gmail-inbox.js
-const https = require("https");
+import https from "https";
+import { Buffer } from "buffer";
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -33,7 +34,7 @@ function request(urlStr, options = {}) {
   });
 }
 
-exports.handler = async function (event, context) {
+export const handler = async function (event, context) {
   try {
     const bodyStr = new URLSearchParams({
       client_id: GOOGLE_CLIENT_ID,
@@ -83,22 +84,41 @@ exports.handler = async function (event, context) {
       console.warn("Failed to fetch exact label count", e);
     }
 
-    // 4. Fetch the message list
-    const listRes = await request(
-      `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=${limit}`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    const listData = await listRes.json();
-    
-    if (!listRes.ok) {
-      const errorMsg = listData.error?.message || JSON.stringify(listData);
-      if (listRes.status === 403) {
-        throw new Error(`Insufficient Permissions: Siya must re-authorize using the link provided to grant Gmail access.`);
-      }
-      throw new Error(`Gmail List Error: ${errorMsg}`);
-    }
+    // 4. Fetch the message list using a sequential pageToken loop
+    const targetPage = parseInt(event.queryStringParameters?.page || "1", 10);
+    let currentPage = 1;
+    let pageToken = "";
+    let listData = null;
+    let listRes = null;
 
-    const messages = listData.messages || [];
+    while (currentPage <= targetPage) {
+      let url = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=${limit}`;
+      if (pageToken) url += `&pageToken=${pageToken}`;
+
+      listRes = await request(url, { headers: { Authorization: `Bearer ${token}` } });
+      listData = await listRes.json();
+      
+      if (!listRes.ok) {
+        const errorMsg = listData.error?.message || JSON.stringify(listData);
+        if (listRes.status === 403) {
+          throw new Error(`Insufficient Permissions: Siya must re-authorize using the link provided to grant Gmail access.`);
+        }
+        throw new Error(`Gmail List Error: ${errorMsg}`);
+      }
+
+      // If we've reached the requested page, stop looping
+      if (currentPage === targetPage) break;
+
+      // Otherwise, grab the token for the next page
+      pageToken = listData.nextPageToken;
+      
+      // If there is no next page, we've hit the end of the inbox early
+      if (!pageToken) break; 
+      
+      currentPage++;
+    }
+
+    const messages = listData.messages || [];
     if (messages.length === 0) return { statusCode: 200, body: JSON.stringify({ ok: true, emails: [], total: exactTotal }) };
 
     // Fallback to estimate ONLY if the label API failed

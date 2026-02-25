@@ -54,8 +54,17 @@ export async function handler(event) {
     return json(200, { ok: true, data });
 
   } catch (err) {
+    // 🛡️ IDENTITY LOGGING: This helps us see if the token is failing in Jonathan's terminal
     console.error("GCHAT-REACT ERROR:", err.message);
-    return json(500, { ok: false, error: err.message });
+    
+    // If getAccessToken throws "No Refresh Token", we must send a 401
+    const isAuthError = err.message.includes("No Refresh Token");
+    
+    return json(isAuthError ? 401 : 500, { 
+      ok: false, 
+      error: err.message,
+      authAvailable: !!process.env.AS_GCHAT_RT // Confirms the Siya token is present
+    });
   }
 }
 
