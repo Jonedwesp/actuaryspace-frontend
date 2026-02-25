@@ -1349,13 +1349,18 @@ const RightPanel = React.memo(function RightPanel() {
     let isMounted = true;
     let pollTimer = null;
 
+    // Listen for moves/archives from the Middle Panel
+    const handlePause = () => { lastMoveTime.current = Date.now(); };
+    window.addEventListener("pauseTrelloPolling", handlePause);
+
     async function fetchTrello(force = false) {
       if (!isMounted) return;
 
       // 1. SAFETY CHECKS
       if (document.hidden && !force) return; 
       if (dragging && !force) return;
-      if (Date.now() - lastMoveTime.current < 2000 && !force) return;
+      // Extended to 10 seconds to stop rubber-banding
+      if (Date.now() - lastMoveTime.current < 10000 && !force) return;
 
       // 2. RATE LIMITING (The "Mutex")
       const now = Date.now();
@@ -1379,7 +1384,8 @@ const RightPanel = React.memo(function RightPanel() {
         let json = await res.json();
         
         // Double check move time
-        if (Date.now() - lastMoveTime.current < 2000 && !force) return;
+        // Extended to 10 seconds
+        if (Date.now() - lastMoveTime.current < 10000 && !force) return;
         if (!isMounted) return;
 
         // --- YOUR ORIGINAL DATA PROCESSING LOGIC ---
@@ -1501,6 +1507,7 @@ const RightPanel = React.memo(function RightPanel() {
     return () => {
         isMounted = false; 
         clearInterval(pollTimer);
+        window.removeEventListener("pauseTrelloPolling", handlePause);
     };
   }, [dragging]);
 
@@ -1648,6 +1655,7 @@ const RightPanel = React.memo(function RightPanel() {
                          title="Recover"
                          onClick={async (e) => {
                             e.stopPropagation();
+                            window.dispatchEvent(new Event("pauseTrelloPolling"));
                             setArchivedCards(prev => prev.filter(x => x.id !== c.id));
                             fetch("/.netlify/functions/trello-restore", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cardId: c.id }) });
                          }}
@@ -1850,8 +1858,102 @@ const EmailSignature = () => (
     <div style={{ fontSize: "10px", color: "#9aa0a6", lineHeight: "1.5", textAlign: "justify", borderTop: "1px solid #f1f3f4", paddingTop: "12px" }}>
       The information contained in this email is confidential and may be subject to legal privilege. The content of this email, which may include one or more attachments, is strictly confidential, and is intended solely for the use of the named recipient/s. If you are not the intended recipient, you cannot use, copy, distribute, disclose or retain the email or any part of its contents or take any action in reliance on it. If you have received this email in error, please email the sender by replying to this message and to permanently delete it and all attachments from your computer. All reasonable precautions have been taken to ensure that no viruses are present in this email and the company cannot accept responsibility for any loss or damage arising from the use of this email or attachments.
     </div>
-  </div>
+ </div>
 );
+
+const EmailMetadata = ({ email }) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div style={{ position: "relative", marginTop: "2px" }}>
+      <div 
+        style={{ 
+          fontSize: "12px", 
+          color: "#5f6368", 
+          display: "inline-flex", 
+          alignItems: "center", 
+          gap: "4px", 
+          cursor: "pointer", 
+          padding: "2px 4px", 
+          marginLeft: "-4px", 
+          borderRadius: "4px",
+          position: "relative", 
+          zIndex: isOpen ? 95 : "auto" 
+        }}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsOpen(prev => !prev);
+        }}
+        onMouseEnter={e => e.currentTarget.style.background = "#f1f3f4"}
+        onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+      >
+        to me <span style={{ fontSize: "10px" }}>{isOpen ? "▲" : "▼"}</span>
+      </div>
+
+      {isOpen && (
+        <>
+          {/* Invisible backdrop to close the menu when clicking outside */}
+          <div 
+            style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} 
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setIsOpen(false);
+            }}
+          />
+          
+          <div style={{
+            position: "absolute",
+            top: "100%",
+            left: "0",
+            marginTop: "4px",
+            background: "white",
+            border: "1px solid #dadce0",
+            borderRadius: "8px",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+            padding: "16px",
+            zIndex: 100,
+            minWidth: "480px",
+            fontSize: "13px",
+            color: "#202124",
+            display: "flex",
+            flexDirection: "column",
+            cursor: "default"
+          }}
+          onClick={e => e.stopPropagation()} // Prevent clicks inside from closing it
+          >
+            <div style={{ display: "grid", gridTemplateColumns: "75px 1fr", gap: "8px 12px", alignItems: "baseline" }}>
+              <span style={{ color: "#5f6368", textAlign: "right" }}>from:</span>
+              <span><strong>{email.fromName}</strong> {email.fromEmail}</span>
+              
+              <span style={{ color: "#5f6368", textAlign: "right" }}>to:</span>
+              <span>{email.to ? email.to.join(", ") : "Siyabonga Nono <siyabonga@actuaryconsulting.co.za>"}</span>
+              
+              <span style={{ color: "#5f6368", textAlign: "right" }}>date:</span>
+              <span>{email.date ? new Date(email.date).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : email.time}</span>
+              
+              <span style={{ color: "#5f6368", textAlign: "right" }}>subject:</span>
+              <span>{email.subject}</span>
+
+              <span style={{ color: "#5f6368", textAlign: "right" }}>mailed-by:</span>
+              <span>actuaryconsulting.co.za</span>
+
+              <span style={{ color: "#5f6368", textAlign: "right" }}>signed-by:</span>
+              <span>actuaryconsulting.co.za</span>
+              
+              <span style={{ color: "#5f6368", textAlign: "right" }}>security:</span>
+              <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <svg width="14" height="14" viewBox="0 0 24 24"><path fill="#5f6368" d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM9 6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9V6zm9 14H6V10h12v10zm-6-3c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2z"/></svg>
+                Standard encryption (TLS)
+              </span>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
 
 /* ---------- app ---------- */
 export default function App() {
@@ -2091,52 +2193,54 @@ useEffect(() => {
     try {
       const response = await fetch("/.netlify/functions/gmail-toggle-star", {
         method: "POST",
+        credentials: "include", // 👈 ESSENTIAL: Sends auth cookies to backend
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messageId: msgId, starred: nextStarredState })
       });
 
-      // ⚡ PRIMARY SUCCESS CHECK: If the server says 200 OK, the star is saved.
       if (!response.ok) {
-        throw new Error("Server rejected request");
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Server rejected request");
       }
 
-      // 🛡️ Bypasses parsing crashes by ensuring we don't throw on empty/weird bodies
       const result = await response.json().catch(() => ({ ok: true }));
 
       if (result.ok === false) {
-        throw new Error("Sync failed");
+        throw new Error(result.error || "Sync failed");
       }
 
+      // If we are in the Starred folder and we unstar something, remove it from view
       if (!nextStarredState && gmailFolder === "STARRED") {
         setGmailEmails(prev => prev.filter(msg => msg.id !== msgId));
       }
     } catch (err) {
       console.error("Starring sync failed:", err);
-      // Revert UI only on real failure
+      // Revert UI to previous state on failure
       setGmailEmails(prev => prev.map(msg => 
         msg.id === msgId ? { ...msg, isStarred: currentStarred } : msg
       ));
-      alert("Gmail could not save this star. Please check your connection.");
+      alert(`Gmail could not save this star: ${err.message}`);
     }
   };
   /* WhatsApp */
   const [waChats, setWaChats] = useState(() => buildSeedChats());
   const waBodyRef = useRef(null);
 
-  /* Email */
- /* Email */
-  const [emailIdx, setEmailIdx] = useState(0);
-  const [email, setEmail] = useState(EMAIL_THREADS[0]);
-  const [emailPreview, setEmailPreview] = useState(null);
-  /* Gmail Inbox State */
+
+/* Email */
+  const [emailIdx, setEmailIdx] = useState(0);
+  const [email, setEmail] = useState(EMAIL_THREADS[0]);
+  const [emailPreview, setEmailPreview] = useState(null);
+  const [showEmailDetails, setShowEmailDetails] = useState(false); // 👈 NEW: Toggles the "to me" dropdown
+  /* Gmail Inbox State */
   const [gmailEmails, setGmailEmails] = useState([]);
   const [gmailLoading, setGmailLoading] = useState(false);
   const [gmailError, setGmailError] = useState("");
  const [selectedEmailIds, setSelectedEmailIds] = useState(new Set());
-  const [gmailFolder, setGmailFolder] = useState("INBOX"); // Tracks current folder
+const [gmailFolder, setGmailFolder] = useState("INBOX"); // Tracks current folder
   const [gmailRefreshTrigger, setGmailRefreshTrigger] = useState(0); // 👈 NEW: Hard refresh trigger
   const [gmailPage, setGmailPage] = useState(1);
-
+  const [gmailTotal, setGmailTotal] = useState(0); // Tracks total exact emails
 
 // NEW: email draft helper state
  const [showDraftPicker, setShowDraftPicker] = useState(false);
@@ -2178,22 +2282,31 @@ useEffect(() => {
   useEffect(() => {
     const onNotify = (e) => {
       // 👇 CHANGED: Destructure icon, alt, spaceId too
-      const { text, cardId, icon, alt, spaceId, driveEmail } = e.detail || {};
+      const { text, cardId, icon, alt, spaceId, driveEmail, gmailData, timestamp } = e.detail || {};
       
       if (!text) return;
 
       const unique = `${cardId || spaceId || "noid"}-${nextIdRef.current++}`;
       
+      // 👇 FIX: Use the actual email/message timestamp instead of the current polling time
+      let eventDate = new Date();
+      if (gmailData && gmailData.date) {
+         eventDate = new Date(gmailData.date);
+      } else if (timestamp) {
+         eventDate = new Date(timestamp);
+      }
+
       const item = {
         id: `nt-${unique}`,
         // 👇 CHANGED: Use passed values or fallback to Trello defaults
         alt: alt || "Trello",
         icon: icon || trelloIcon,
         text,
-        time: formatUKTimeWithSeconds(new Date()),
+        time: formatUKTimeWithSeconds(eventDate),
         cardId,
         spaceId,     // For Google Chat
         driveEmail,  // For Gmail
+        gmailData,   // Add this so clicking the notification opens the email correctly
       };
       
       setNotifications((prev) => [item, ...prev].slice(0, 200));
@@ -2204,14 +2317,22 @@ useEffect(() => {
   }, []);
 
   // 1. GLOBAL IDENTITY LOADER (Runs once on mount, regardless of view)
-  useEffect(() => {
+useEffect(() => {
     async function fetchWhoAmI() {
-      // Try local storage first to be fast
       const stored = localStorage.getItem("GCHAT_ME");
       if (stored) setGchatMe(stored);
 
       try {
-        const res = await fetch("/.netlify/functions/gchat-whoami");
+        const res = await fetch("/.netlify/functions/gchat-whoami", {
+          credentials: "include" 
+        });
+
+        // 🛡️ If the response is 401 or 500, we don't try to parse it as a valid user
+        if (!res.ok) {
+          if (res.status === 401) console.log("User is not authenticated yet.");
+          return; 
+        }
+
         const json = await res.json().catch(() => ({}));
         const myId = json.name || json.user?.name || json.resourceName;
 
@@ -2221,7 +2342,7 @@ useEffect(() => {
           localStorage.setItem("GCHAT_ME", myId);
         }
       } catch (err) {
-        console.error("Failed to identify current user:", err);
+        console.warn("Silent Auth Check:", err.message);
       }
     }
     fetchWhoAmI();
@@ -2238,7 +2359,11 @@ useEffect(() => {
         setGchatLoading(true);
         setGchatError("");
 
-        const res = await fetch("/.netlify/functions/gchat-spaces");
+        // 🛡️ Added credentials: "include" so the sidebar can load using your cookie
+        const res = await fetch("/.netlify/functions/gchat-spaces", {
+          credentials: "include"
+        });
+        
         const json = await res.json().catch(() => ({}));
 
         if (!res.ok || json.ok !== true) {
@@ -2246,7 +2371,6 @@ useEffect(() => {
         }
 
         if (!cancelled) {
-          // This populates the list so the next useEffect can name them
           setGchatSpaces(Array.isArray(json.spaces) ? json.spaces : []);
           setGchatSelectedSpace(null);
           setGchatMessages([]);
@@ -2349,15 +2473,18 @@ useEffect(() => {
 
   let cancelled = false;
 
-  async function fetchLatestAndMerge() {
+ async function fetchLatestAndMerge() {
     try {
       setGchatMsgError("");
 
+      // 🛡️ Added credentials: "include" so the poll can see Siya's Master Key (cookie)
       const res = await fetch(
         `/.netlify/functions/gchat-messages?space=${encodeURIComponent(
           gchatSelectedSpace.id
-        )}`
+        )}`, 
+        { credentials: "include" }
       );
+      
       const json = await res.json().catch(() => ({}));
 
       if (!res.ok || json.ok !== true) {
@@ -2369,17 +2496,13 @@ useEffect(() => {
       const incomingRaw = Array.isArray(json.messages) ? json.messages : [];
       const incoming = incomingRaw.map((m) => normalizeGChatMessage(m));
 
-        if (!cancelled) {
-        // 👇 CLEANED: Just update the UI, no notifications here
+      if (!cancelled) {
         setGchatMessages((prev) => dedupeMergeMessages(prev, incoming));
 
-        // 👇 NEW: Sync Reactions from History (Server -> Website)
         setReactions((prev) => {
           const next = { ...prev };
           incoming.forEach((msg) => {
-            // If the message has reactions from the server, store them
             if (msg.reactions && Array.isArray(msg.reactions)) {
-              // We overwrite local state with server truth
               next[msg.id || msg.name] = msg.reactions;
             }
           });
@@ -2390,7 +2513,6 @@ useEffect(() => {
       if (!cancelled) setGchatMsgError(String(err?.message || err));
     }
   }
-
   // reset thread for the newly selected space + do initial load
   setGchatMessages([]);
   setGchatMsgLoading(true);
@@ -2420,7 +2542,8 @@ useEffect(() => {
       // Auto-Discovery (Keep this, it's good)
       if (!targetSpaceId) {
         try {
-          const res = await fetch("/.netlify/functions/gchat-spaces");
+          // 🛡️ Added credentials: "include" so background discovery can see Siya's cookie
+          const res = await fetch("/.netlify/functions/gchat-spaces", { credentials: "include" });
           const json = await res.json().catch(() => ({}));
           if (json.ok && json.spaces?.length > 0) {
             targetSpaceId = json.spaces[0].name;
@@ -2441,13 +2564,14 @@ useEffect(() => {
       }
 
       try {
+        // 🛡️ Added credentials: "include" so the background alert knows it is Siya asking for messages
         const res = await fetch(
-          `/.netlify/functions/gchat-messages?space=${encodeURIComponent(targetSpaceId)}`
+          `/.netlify/functions/gchat-messages?space=${encodeURIComponent(targetSpaceId)}`,
+          { credentials: "include" }
         );
         const json = await res.json().catch(() => ({}));
         
         if (!json.ok || !Array.isArray(json.messages) || json.messages.length === 0) return;
-
         const msgs = json.messages.map(normalizeGChatMessage);
         const latestMsg = msgs[msgs.length - 1]; // The newest message on server
         const latestId = latestMsg.name || latestMsg.id;
@@ -2561,11 +2685,13 @@ useEffect(() => {
         
         if (!json.ok || !Array.isArray(json.emails)) return;
 
-        // 1. FIRST RUN: Memorize inbox AND trigger notifications for UNREAD emails
+       // 1. FIRST RUN: Memorize inbox AND trigger notifications for UNREAD emails
         if (seenGmailIdsRef.current === null) {
           seenGmailIdsRef.current = new Set(json.emails.map(e => e.id));
           
-          json.emails.forEach(email => {
+          // Reverse the array so the absolute newest emails are processed LAST, 
+          // placing them at the very top of the notification stack.
+          [...json.emails].reverse().forEach(email => {
             if (email.isUnread) {
               const cleanFrom = email.from ? email.from.split("<")[0].replace(/"/g, '').trim() : "Someone";
               const cleanSubject = email.subject || "(No Subject)";
@@ -2583,7 +2709,8 @@ useEffect(() => {
         }
 
         // 2. SUBSEQUENT RUNS: Check for new emails
-        json.emails.forEach(email => {
+        // Reverse here as well to ensure batch arrivals stack chronologically
+        [...json.emails].reverse().forEach(email => {
           if (!seenGmailIdsRef.current.has(email.id)) {
             // Add to seen list so it doesn't trigger twice
             seenGmailIdsRef.current.add(email.id);
@@ -2639,10 +2766,11 @@ useEffect(() => {
         const res = await fetch(`/.netlify/functions/gmail-inbox?folder=${gmailFolder}&limit=50&page=${gmailPage}`);
         const json = await res.json().catch(() => ({}));
 
-        if (!res.ok || !json.ok) throw new Error(json.error || `HTTP ${res.status}`);
+       if (!res.ok || !json.ok) throw new Error(json.error || `HTTP ${res.status}`);
 
         if (!cancelled) {
           setGmailEmails(json.emails || []);
+          setGmailTotal(json.total || 0);
         }
       } catch (err) {
         if (!cancelled) setGmailError(String(err.message || err));
@@ -2876,12 +3004,57 @@ useEffect(() => {
       return;
     }
 
-    // 📧 Real Gmail Inbox Handler
-    if (n.alt === "Gmail" && n.gmailData) {
-      setCurrentView({ app: "gmail", contact: null });
-      dismissNotification(n);
-      return;
-    }
+   // UPDATED SNIPPET
+    // 📧 Real Gmail Inbox Handler
+    if (n.alt === "Gmail" && n.gmailData) {
+      const msg = n.gmailData;
+      
+      // 1. Mark as read immediately in the UI
+      setGmailEmails(prev => prev.map(e => e.id === msg.id ? { ...e, isUnread: false } : e));
+      
+      // 2. Parse the sender info
+      const fromParts = msg.from ? msg.from.split("<") : ["Unknown", ""];
+      const fromName = fromParts[0].replace(/"/g, '').trim();
+      const fromEmail = fromParts[1] ? "<" + fromParts[1] : "";
+      
+      // 3. Handle HTML vs Plain Text parsing
+      const isHtml = /<(html|body|div|p|br|b|strong|i|em|a|span|table|style)[^>]*>/i.test(msg.body || "");
+      let rawBody = msg.body || msg.snippet || "";
+      
+      if (!isHtml && rawBody.split('\n').length < 4) {
+        rawBody = rawBody
+          .replace(/(---------- Forwarded message ---------)/gi, '\n\n$1\n')
+          .replace(/(From:|Date:|Subject:|To:|Cc:)/g, '\n$1')
+          .replace(/(Dear\s+[A-Za-z]+|Hi\s+[A-Za-z]+|Good\s+day)/gi, '\n\n$1\n\n')
+          .replace(/(Kind\s+Regards|Regards|Sincerely|Thank\s+you)/gi, '\n\n$1\n')
+          .replace(/(On\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^:]+wrote:)/gi, '\n\n$1\n')
+          .replace(/(>\s*>)/g, '>>')
+          .replace(/(>\s+)/g, '\n$1')
+          .replace(/(\s\d+\.)/g, '\n$1')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim();
+      }
+
+      // 4. Set the email state and switch the view
+      setEmail({
+        id: msg.id, subject: msg.subject, fromName, fromEmail,
+        date: msg.date,
+        time: new Date(msg.date).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
+        body: isHtml ? "" : rawBody,
+        bodyHtml: isHtml ? msg.body : "",
+        attachments: msg.attachments ? msg.attachments.map(a => ({
+          ...a,
+          type: a.mimeType.includes("pdf") ? "pdf" : a.mimeType.includes("image") ? "img" : a.mimeType.includes("spreadsheet") || a.mimeType.includes("excel") ? "xls" : "file",
+          url: `/.netlify/functions/gmail-download?messageId=${msg.id}&attachmentId=${a.id}&filename=${encodeURIComponent(a.name)}&mimeType=${encodeURIComponent(a.mimeType)}`
+        })) : [],
+        actions: [{ key: "submit_trello", label: "Submit to Trello" }, { key: "update_tracker", label: "Update AC Tracker" }]
+      });
+      
+      setEmailPreview(null);
+      setCurrentView({ app: "email", contact: null }); // Switch to individual email view
+      dismissNotification(n); // This handles the backend 'mark as read' ping automatically
+      return;
+    }
 
   // 📨 Gmail-style notifications from Data Centre (Drive)
   if (n.alt === "Gmail" && n.driveEmail) {
@@ -3829,14 +4002,14 @@ const handleStartChat = async () => {
 }
 
 if (currentView.app === "gmail") {
-    const allSelected = (filteredEmails || []).length > 0 && selectedEmailIds.size === filteredEmails.length;
+    const allSelected = (filteredEmails || []).length > 0 && selectedEmailIds.size === filteredEmails.length;
 
-    const toggleSelectAll = () => {
-      if (allSelected) setSelectedEmailIds(new Set());
-      else setSelectedEmailIds(new Set(filteredEmails.map(e => e.id)));
-    };
+    const toggleSelectAll = () => {
+      if (allSelected) setSelectedEmailIds(new Set());
+      else setSelectedEmailIds(new Set(filteredEmails.map(e => e.id)));
+    };
 
-    const handleDeleteSelected = async () => {
+    const handleDeleteSelected = async () => {
       const snapshotIds = Array.from(selectedEmailIds);
       if (snapshotIds.length === 0) return;
       
@@ -3856,7 +4029,6 @@ if (currentView.app === "gmail") {
           body: JSON.stringify({ messageIds: snapshotIds, permanent: isPerm })
         });
 
-        // ⚡ FIX: Prevents crash if Gmail returns a 204 No Content / empty string
         const bulkResult = await bulkResponse.json().catch(() => ({ ok: bulkResponse.ok }));
 
         if (bulkResponse.ok && bulkResult.ok) {
@@ -3882,12 +4054,40 @@ if (currentView.app === "gmail") {
       }
     };
 
-    return (
+    return (
             <div style={{ position: "relative", display: "flex", flexDirection: "column", height: "100%", background: "#fff", borderRadius: "12px", border: "1px solid #e6e6e6", overflow: "hidden" }}>
               
-              {/* NEW: SEARCH BAR (Above Compose) */}
-              <div style={{ padding: "12px 16px", background: "#fff", borderBottom: "1px solid #eee" }}>
-                <div style={{ position: "relative", width: "100%" }}>
+              {/* 🟢 TOP ROW: COMPOSE + SEARCH BAR */}
+              <div style={{ padding: "12px 16px", background: "#fff", borderBottom: "1px solid #eee", display: "flex", alignItems: "center", gap: "16px" }}>
+                <button 
+                  className="btn blue" 
+                  onClick={() => {
+                    setEmail(null);
+                    setEmailPreview(null);
+                    setSelectedDraftTemplate({ ...DRAFT_TEMPLATES.find(t => t.id === "new_blank") });
+                    setDraftTo("");
+                    setDraftAttachments([]);
+                  }}
+                  style={{ 
+                    borderRadius: "16px", 
+                    padding: "10px 24px", 
+                    fontSize: "14px", 
+                    fontWeight: 500, 
+                    display: "flex", 
+                    alignItems: "center", 
+                    gap: "12px",
+                    background: "#c2e7ff", 
+                    color: "#001d35",
+                    border: "none",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.12)",
+                    flexShrink: 0
+                  }}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+                  Compose
+                </button>
+
+                <div style={{ position: "relative", flex: 1 }}>
                   <input
                     type="text"
                     placeholder="Search in mail..."
@@ -3895,250 +4095,102 @@ if (currentView.app === "gmail") {
                     onChange={(e) => setSearchQuery(e.target.value)}
                     style={{
                       width: "100%",
-                      padding: "10px 12px 10px 38px",
+                      padding: "10px 12px 10px 44px",
                       borderRadius: "24px",
-                      border: "1px solid #dadce0",
+                      border: "none",
                       fontSize: "15px",
                       outline: "none",
                       background: "#f1f3f4"
                     }}
                   />
-                  <svg style={{ position: "absolute", left: "14px", top: "50%", transform: "translateY(-50%)", color: "#5f6368" }} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                  <svg style={{ position: "absolute", left: "16px", top: "50%", transform: "translateY(-50%)", color: "#5f6368" }} width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
                 </div>
               </div>
 
-              {/* Header Bar */}
-              <div style={{ padding: "8px 16px", borderBottom: "1px solid #eee", background: "#f8f9fa", display: "flex", alignItems: "center", minHeight: "48px", gap: "12px" }}>
+              {/* 🟢 SECOND ROW: SELECT ALL + NAV PILLS + PAGINATION */}
+              <div style={{ padding: "8px 16px", borderBottom: "1px solid #eee", background: "#fff", display: "flex", alignItems: "center", minHeight: "48px", gap: "16px" }}>
                 
-              <button 
-                  className="btn blue" 
-                  onClick={() => {
-                    setEmail(null);
-                 setEmailPreview(null);
-                    setSelectedDraftTemplate({ ...DRAFT_TEMPLATES.find(t => t.id === "new_blank") });
-                    setDraftTo("");
-                    setDraftAttachments([]);
-                  }}
-                  style={{ borderRadius: "20px", padding: "10px 20px", fontSize: "14px", fontWeight: 500, display: "flex", alignItems: "center", gap: "8px" }}
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
-                  Compose
-                </button>
-                
-                <div style={{ display: "flex", alignItems: "center", padding: "0 4px" }}>
+                {/* 1. Select All Box (Width fixed at 40px to align with list checkboxes) */}
+                <div style={{ display: "flex", alignItems: "center", width: "40px", justifyContent: "center", flexShrink: 0 }}>
                   <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} style={{ cursor: "pointer", width: "18px", height: "18px" }} />
                 </div>
 
-                <div style={{ fontWeight: 600, fontSize: "14px", color: "#202124", display: "flex", alignItems: "center", gap: "8px" }}>
-                  <img src={gmailIcon} alt="Gmail" style={{ width: 18, height: 18 }} />
-                  {gmailFolder === "TRASH" ? "Trash" : "Inbox"}
+                {/* 2. Navigation Pills Group */}
+                <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                  {/* INBOX */}
+                  <button
+                    onClick={() => { setGmailFolder("INBOX"); setGmailPage(1); setGmailEmails([]); setSelectedEmailIds(new Set()); }}
+                    style={{ height: "32px", padding: "0 16px", borderRadius: "100px", fontSize: "14px", fontWeight: 500, cursor: "pointer", background: gmailFolder === "INBOX" ? "#c2e7ff" : "transparent", color: gmailFolder === "INBOX" ? "#001d35" : "#444746", border: "none", display: "flex", alignItems: "center", gap: "10px" }}
+                  >
+                    {gmailFolder === "INBOX" ? <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5v-3h3.56c.69 1.19 1.97 2 3.44 2s2.75-.81 3.44-2H19v3zm0-5h-4.99c0 1.1-.9 2-2 2s-2-.9-2-2H5V5h14v9z"/></svg> : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 12h-6l-2 3h-4l-2-3H2"></path><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path></svg>}
+                    <span>Inbox</span>
+                  </button>
+
+                  {/* STARRED */}
+                  <button
+                    onClick={() => { setGmailFolder("STARRED"); setGmailPage(1); setGmailEmails([]); setSelectedEmailIds(new Set()); }}
+                    style={{ height: "32px", padding: "0 16px", borderRadius: "100px", fontSize: "14px", fontWeight: 500, cursor: "pointer", background: gmailFolder === "STARRED" ? "#c2e7ff" : "transparent", color: gmailFolder === "STARRED" ? "#001d35" : "#444746", border: "none", display: "flex", alignItems: "center", gap: "10px" }}
+                  >
+                    {gmailFolder === "STARRED" ? <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg> : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>}
+                    <span>Starred</span>
+                  </button>
+
+                  {/* SENT */}
+                  <button
+                    onClick={() => { setGmailFolder("SENT"); setGmailPage(1); setGmailEmails([]); setSelectedEmailIds(new Set()); }}
+                    style={{ height: "32px", padding: "0 16px", borderRadius: "100px", fontSize: "14px", fontWeight: 500, cursor: "pointer", background: gmailFolder === "SENT" ? "#c2e7ff" : "transparent", color: gmailFolder === "SENT" ? "#001d35" : "#444746", border: "none", display: "flex", alignItems: "center", gap: "10px" }}
+                  >
+                    {gmailFolder === "SENT" ? <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg> : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>}
+                    <span>Sent</span>
+                  </button>
+
+                  {/* DRAFTS */}
+                  <button
+                    onClick={() => { setGmailFolder("DRAFTS"); setGmailPage(1); setGmailEmails([]); setSelectedEmailIds(new Set()); }}
+                    style={{ height: "32px", padding: "0 16px", borderRadius: "100px", fontSize: "14px", fontWeight: 500, cursor: "pointer", background: gmailFolder === "DRAFTS" ? "#c2e7ff" : "transparent", color: gmailFolder === "DRAFTS" ? "#001d35" : "#444746", border: "none", display: "flex", alignItems: "center", gap: "10px" }}
+                  >
+                    {gmailFolder === "DRAFTS" ? <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg> : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>}
+                    <span>Drafts</span>
+                  </button>
+
+                  {/* TRASH */}
+                  <button
+                    onClick={() => { setGmailFolder("TRASH"); setGmailPage(1); setGmailEmails([]); setSelectedEmailIds(new Set()); }}
+                    style={{ height: "32px", padding: "0 16px", borderRadius: "100px", fontSize: "14px", fontWeight: 500, cursor: "pointer", background: gmailFolder === "TRASH" ? "#c2e7ff" : "transparent", color: gmailFolder === "TRASH" ? "#001d35" : "#444746", border: "none", display: "flex", alignItems: "center", gap: "10px" }}
+                  >
+                    {gmailFolder === "TRASH" ? <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg> : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>}
+                    <span>Trash</span>
+                  </button>
                 </div>
 
-                {/* Spacer replaces the old search bar position */}
-                <div style={{ flex: 1 }}></div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            {/* 1. STARRED BUTTON */}
-            <button
-              onClick={() => {
-                const nextFolder = gmailFolder === "STARRED" ? "INBOX" : "STARRED";
-                setGmailEmails([]); // 👈 Clear list to show loading state
-                setGmailLoading(true);
-                setGmailFolder(nextFolder);
-              }}
-              style={{
-                height: "32px",
-                padding: "0 16px",
-                borderRadius: "16px",
-                fontSize: "13px",
-                fontWeight: 500,
-                cursor: "pointer",
-                background: gmailFolder === "STARRED" ? "#e8f0fe" : "#fff",
-                color: gmailFolder === "STARRED" ? "#1a73e8" : "#5f6368",
-                border: gmailFolder === "STARRED" ? "1px solid #1a73e8" : "1px solid #dadce0",
-                display: "flex",
-                alignItems: "center",
-                gap: "6px"
-              }}
-            >
-              <span>{gmailFolder === "STARRED" ? "⬅ Back to Inbox" : "⭐ View Starred"}</span>
-            </button>
-
-        {/* 2. SENT BUTTON */}
-            <button
-              onClick={() => {
-                const nextFolder = gmailFolder === "SENT" ? "INBOX" : "SENT";
-                setGmailFolder(nextFolder);
-                setGmailEmails([]); 
-              }}
-              style={{
-                height: "32px",
-                padding: "0 16px",
-                borderRadius: "16px",
-                fontSize: "13px",
-                fontWeight: 500,
-                cursor: "pointer",
-                background: gmailFolder === "SENT" ? "#e8f0fe" : "#fff",
-                color: gmailFolder === "SENT" ? "#1a73e8" : "#5f6368",
-                border: gmailFolder === "SENT" ? "1px solid #1a73e8" : "1px solid #dadce0",
-                display: "flex",
-                alignItems: "center",
-                gap: "6px"
-              }}
-            >
-              <span>{gmailFolder === "SENT" ? "⬅ Back to Inbox" : "📤 Sent"}</span>
-            </button>
-
-            {/* 3. DRAFTS BUTTON */}
-            <button
-              onClick={() => {
-                const nextFolder = gmailFolder === "DRAFTS" ? "INBOX" : "DRAFTS";
-                setGmailFolder(nextFolder);
-                setGmailEmails([]); 
-              }}
-              style={{
-                height: "32px",
-                padding: "0 16px",
-                borderRadius: "16px",
-                fontSize: "13px",
-                fontWeight: 500,
-                cursor: "pointer",
-                background: gmailFolder === "DRAFTS" ? "#e8f0fe" : "#fff",
-                color: gmailFolder === "DRAFTS" ? "#1a73e8" : "#5f6368",
-                border: gmailFolder === "DRAFTS" ? "1px solid #1a73e8" : "1px solid #dadce0",
-                display: "flex",
-                alignItems: "center",
-                gap: "6px"
-              }}
-            >
-              <span>{gmailFolder === "DRAFTS" ? "⬅ Back to Inbox" : "📝 Drafts"}</span>
-            </button>
-
-            
-
-            {/* 2. SELECTION COUNT AND ACTIONS */}
-            {selectedEmailIds.size > 0 && (
-              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                <span style={{ fontSize: "13px", color: "#5f6368" }}>{selectedEmailIds.size} selected</span>
-                
-                {/* 🔄 FINAL RESTORE BUTTON FIX */}
-                {gmailFolder === "TRASH" && (
-                  <button 
-                    onClick={async () => {
-                      const snapshotIds = Array.from(selectedEmailIds);
-                      if (snapshotIds.length === 0) return;
-
-                      setGmailLoading(true);
-                      // Don't clear emails yet, keep them visible so user sees progress
-                      
-                      try {
-                        const response = await fetch("/.netlify/functions/gmail-delete-bulk?action=restore", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ messageIds: snapshotIds })
-                        });
-                        
-                        const result = await response.json().catch(() => ({ ok: false }));
-                        
-                        if (response.ok && result.ok) {
-                          setSelectedEmailIds(new Set());
-                          setGmailEmails([]); // Clear now that server confirmed
-
-                          // ⚡ Sync indexing delay
-                          setTimeout(() => {
-                            setGmailFolder("INBOX");
-                            setGmailRefreshTrigger(prev => prev + 1);
-                            
-                            window.dispatchEvent(new CustomEvent("notify", { 
-                              detail: { 
-                                text: `${snapshotIds.length} emails restored to Inbox`, 
-                                alt: "Gmail", 
-                                icon: gmailIcon 
-                              } 
-                            }));
-                          }, 1500);
-                        } else {
-                          console.error("Server error:", result);
-                          setGmailLoading(false);
-                          alert(`Restore Error: ${result.error || "Unknown server error"}`);
-                        }
-                      } catch (err) { 
-                        console.error("Network/App error:", err);
-                        setGmailLoading(false);
-                        alert("System Error: Could not reach the restore server."); 
-                      }
-                    }}
-                    style={{ background: "#fff", border: "1px solid #dadce0", borderRadius: "4px", padding: "6px 12px", cursor: "pointer", fontSize: "13px", color: "#1a73e8", fontWeight: 500 }}
-                  >
-                    Restore to Inbox
-                  </button>
+                {/* 3. Bulk Action Buttons (Only show when selected) */}
+                {selectedEmailIds.size > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", borderLeft: "1px solid #dadce0", paddingLeft: "16px" }}>
+                    <button 
+                      onClick={handleDeleteSelected} 
+                      title={gmailFolder === "TRASH" ? "Delete permanently" : "Move to Trash"}
+                      style={{ background: "transparent", border: "none", cursor: "pointer", color: "#5f6368", padding: "6px", borderRadius: "50%", display: "grid", placeItems: "center" }}
+                      onMouseEnter={e => e.currentTarget.style.background = "#f1f3f4"}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                    >
+                      <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                    </button>
+                  </div>
                 )}
-               <button 
-                  onClick={handleDeleteSelected} 
-                  style={{ background: "#fff", border: "1px solid #dadce0", borderRadius: "4px", padding: "6px 12px", cursor: "pointer", fontSize: "13px", color: "#d93025", fontWeight: 500 }}
-                >
-                  {gmailFolder === "TRASH" ? "Delete Permanently" : "🗑 Delete"}
-                </button>
-              </div>
-            )}
 
-            {/* 🔢 GMAIL PAGINATION (1000 email limit) */}
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "#5f6368", fontSize: "12px", marginLeft: "auto", marginRight: "12px" }}>
-              <span>{`${(gmailPage - 1) * 50 + 1}–${Math.min(gmailPage * 50, 1000)} of 1,000`}</span>
-              <div style={{ display: "flex", gap: "2px" }}>
-                <button 
-                  onClick={() => { setGmailEmails([]); setGmailPage(p => Math.max(1, p - 1)); }}
-                  disabled={gmailPage === 1}
-                  title="Newer"
-                  style={{ background: "transparent", border: "none", cursor: gmailPage === 1 ? "default" : "pointer", color: gmailPage === 1 ? "#c1c7d0" : "#5f6368", padding: "4px", display: "grid", placeItems: "center", borderRadius: "50%" }}
-                  onMouseEnter={e => gmailPage !== 1 && (e.currentTarget.style.background = "#eee")}
-                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
-                </button>
-                <button 
-                  onClick={() => { setGmailEmails([]); setGmailPage(p => Math.min(20, p + 1)); }}
-                  disabled={gmailPage === 20}
-                  title="Older"
-                  style={{ background: "transparent", border: "none", cursor: gmailPage === 20 ? "default" : "pointer", color: gmailPage === 20 ? "#c1c7d0" : "#5f6368", padding: "4px", display: "grid", placeItems: "center", borderRadius: "50%" }}
-                  onMouseEnter={e => gmailPage !== 20 && (e.currentTarget.style.background = "#eee")}
-                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
-                </button>
+                {/* 4. Pagination (Pinned to right) */}
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "#5f6368", fontSize: "13px", marginLeft: "auto", marginRight: "4px" }}>
+                  <span>{`${gmailTotal > 0 ? (gmailPage - 1) * 50 + 1 : 0}–${Math.min(gmailPage * 50, gmailTotal)} of ${gmailTotal.toLocaleString()}`}</span>
+                  <div style={{ display: "flex" }}>
+                    <button onClick={() => { setGmailEmails([]); setGmailPage(p => Math.max(1, p - 1)); }} disabled={gmailPage === 1} style={{ background: "transparent", border: "none", cursor: gmailPage === 1 ? "default" : "pointer", color: gmailPage === 1 ? "#c1c7d0" : "#5f6368", padding: "4px", borderRadius: "50%" }} onMouseEnter={e => gmailPage !== 1 && (e.currentTarget.style.background = "#eee")} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+                    </button>
+                    <button onClick={() => { setGmailEmails([]); setGmailPage(p => p + 1); }} disabled={gmailPage * 50 >= gmailTotal} style={{ background: "transparent", border: "none", cursor: gmailPage * 50 >= gmailTotal ? "default" : "pointer", color: gmailPage * 50 >= gmailTotal ? "#c1c7d0" : "#5f6368", padding: "4px", borderRadius: "50%" }} onMouseEnter={e => gmailPage * 50 < gmailTotal && (e.currentTarget.style.background = "#eee")} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
-
-            {/* 2. TRASH PILL BUTTON - Positioned Far Right */}
-            <button
-              onClick={() => {
-                // If we are in Trash, go to Inbox. If in Inbox, go to Trash.
-                const nextFolder = gmailFolder === "TRASH" ? "INBOX" : "TRASH";
-                setGmailFolder(nextFolder);
-                setGmailPage(1); // Reset to first page when changing folders
-                setGmailEmails([]); // Clear current list to trigger loader
-                setSelectedEmailIds(new Set()); // Reset selection
-              }}
-              style={{ 
-                height: "32px", 
-                padding: "0 16px", 
-                borderRadius: "16px", 
-                fontSize: "13px", 
-                fontWeight: 500,
-                cursor: "pointer",
-                background: gmailFolder === "TRASH" ? "#fce8e6" : "#fff",
-                color: gmailFolder === "TRASH" ? "#d93025" : "#5f6368",
-                border: gmailFolder === "TRASH" ? "1px solid #d93025" : "1px solid #dadce0",
-                display: "flex",
-                alignItems: "center",
-                gap: "6px"
-              }}
-            >
-              {/* This text toggles correctly based on current state */}
-              <span>{gmailFolder === "TRASH" ? "⬅ Back to Inbox" : "🗑 View Trash"}</span>
-            </button>
-          </div>
-        </div>
 
      {/* Body */}
         <div style={{ flex: 1, overflowY: "auto", padding: "0" }}>
@@ -4197,7 +4249,7 @@ if (currentView.app === "gmail") {
                     .trim();
                 }
 
-                setEmail({
+               setEmail({
                   id: msg.id, subject: msg.subject, fromName, fromEmail,
                   date: msg.date,
                   time: new Date(msg.date).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
@@ -4211,6 +4263,7 @@ if (currentView.app === "gmail") {
                   actions: [{ key: "submit_trello", label: "Submit to Trello" }, { key: "update_tracker", label: "Update AC Tracker" }]
                 });
                 setEmailPreview(null);
+                setShowEmailDetails(false); // 👈 Closes the dropdown for the next email
                 setCurrentView({ app: "email", contact: null });
               }}
             >
@@ -4265,20 +4318,32 @@ if (currentView.app === "gmail") {
                   <span style={{ color: "#5f6368", fontWeight: 400 }}>- {msg.snippet}</span>
                 </div>
                 
-                {msg.attachments && msg.attachments.length > 0 && (
-                  <div style={{ display: 'flex', gap: '8px', marginTop: '6px', overflow: 'hidden' }}>
-                    {msg.attachments.map(att => {
+              {msg.attachments && msg.attachments.length > 0 && (
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '6px', overflow: 'hidden', alignItems: 'center' }}>
+                    {msg.attachments.slice(0, 3).map(att => {
                       const isPdf = att.mimeType.includes('pdf');
                       const isImg = att.mimeType.includes('image');
                       const isXls = att.mimeType.includes('excel') || att.mimeType.includes('spreadsheet');
-                      const iconColor = isPdf ? '#ea4335' : isImg ? '#a142f4' : isXls ? '#188038' : '#5f6368';
+                      const isWord = att.mimeType.includes('word') || att.mimeType.includes('document');
+                      
+                      const iconColor = isPdf ? '#ea4335' : isImg ? '#a142f4' : isXls ? '#188038' : isWord ? '#1a73e8' : '#5f6368';
+                      const iconBg = isPdf ? '#fce8e6' : isImg ? '#f3e8fd' : isXls ? '#e6f4ea' : isWord ? '#e8f0fe' : '#f1f3f4';
+                      const iconText = isPdf ? 'PDF' : isImg ? 'IMG' : isXls ? 'XLS' : isWord ? 'W' : 'FILE';
+                      
                       return (
-                        <div key={att.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 8px', border: '1px solid #dadce0', borderRadius: '100px', fontSize: '11px', background: '#fff', maxWidth: '140px' }}>
-                          <span style={{ color: iconColor, fontWeight: 'bold' }}>{isPdf ? 'PDF' : isImg ? 'IMG' : isXls ? 'XLS' : 'FILE'}</span>
-                          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#5f6368' }}>{att.name}</span>
+                        <div key={att.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 10px', border: '1px solid #dadce0', borderRadius: '100px', fontSize: '12px', background: '#fff', maxWidth: '180px' }}>
+                          <div style={{ background: iconBg, color: iconColor, borderRadius: '4px', padding: '2px 4px', fontSize: '9px', fontWeight: 'bold', display: 'grid', placeItems: 'center', minWidth: '22px' }}>
+                            {iconText}
+                          </div>
+                          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#3c4043', fontWeight: 500 }}>{att.name}</span>
                         </div>
                       )
                     })}
+                    {msg.attachments.length > 3 && (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px 10px', border: '1px solid #dadce0', borderRadius: '100px', fontSize: '12px', background: '#fff', color: '#5f6368', fontWeight: 500 }}>
+                        +{msg.attachments.length - 3}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -4634,6 +4699,7 @@ if (currentView.app === "gmail") {
       // 2. Backend Sync
       const response = await fetch("/.netlify/functions/gmail-toggle-star", {
         method: "POST",
+        credentials: "include", // 👈 THIS MUST BE PRESENT
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messageId: msgId, starred: nextStarredState })
       });
@@ -4665,21 +4731,35 @@ if (currentView.app === "gmail") {
 
    const emailPane = (
         <div className="email-pane" style={{ border: "none", boxShadow: "none", padding: "8px 24px", background: "#fff" }}>
-          {/* Top Gmail Action Bar */}
-          <div className="gmail-action-bar" style={{ padding: "8px 0", borderBottom: "none" }}>
-            <div className="gmail-action-icon" onClick={() => setCurrentView({ app: "gmail", contact: null })} title="Back to inbox">
-              <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
-            </div>
-            <div className="gmail-action-icon" title="Archive">
-              <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM6.24 5h11.52l.83 1H5.41l.83-1zM5 19V8h14v11H5zm11-5.5l-4 4-4-4 1.41-1.41L11 13.67V10h2v3.67l1.59-1.58L16 13.5z"/></svg>
-            </div>
-            <div className="gmail-action-icon" onClick={() => handleDeleteEmail(email.id)} title="Delete">
-              <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
-            </div>
-            <div className="gmail-action-icon" title="Mark as unread">
-              <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8l8 5 8-5v10zm-8-7L4 6h16l-8 5z"/></svg>
-            </div>
-          </div>
+       {/* Top Gmail Action Bar */}
+          <div className="gmail-action-bar" style={{ padding: "8px 0", borderBottom: "none" }}>
+            <div className="gmail-action-icon" onClick={() => setCurrentView({ app: "gmail", contact: null })} title="Back to inbox">
+              <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+            </div>
+            <div className="gmail-action-icon" onClick={() => handleDeleteEmail(email.id)} title="Delete">
+              <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+            </div>
+          <div className="gmail-action-icon" title="Mark as unread" onClick={async () => {
+              // 1. Optimistic UI update
+              setGmailEmails(prev => prev.map(e => e.id === email.id ? { ...e, isUnread: true } : e));
+              
+              // 2. Return to inbox immediately for smooth UX
+              setCurrentView({ app: "gmail", contact: null });
+
+              // 3. Sync with backend
+              try {
+                await fetch("/.netlify/functions/gmail-mark-unread", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ messageId: email.id })
+                });
+              } catch (err) {
+                console.error("Failed to mark unread", err);
+              }
+            }}>
+              <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8l8 5 8-5v10zm-8-7L4 6h16l-8 5z"/></svg>
+            </div>
+          </div>
 
           {/* Subject Line Row */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 0 8px 56px" }}>
@@ -4702,22 +4782,105 @@ if (currentView.app === "gmail") {
               {email.fromName ? email.fromName.charAt(0).toUpperCase() : "U"}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                <div style={{ display: "flex", alignItems: "baseline", gap: "6px", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
-                  <span style={{ fontWeight: 600, color: "#202124", fontSize: "14px" }}>{email.fromName}</span>
-                  <span style={{ color: "#5f6368", fontSize: "12px" }}>{email.fromEmail}</span>
-                </div>
-               <div style={{ display: "flex", alignItems: "center", gap: "12px", color: "#5f6368", fontSize: "12px", flexShrink: 0 }}>
-                  <span>{email.time} ({timeAgo(email.date)})</span>
-                  <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
-                  <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>
-                  <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
-                </div>
-              </div>
-              <div style={{ fontSize: "12px", color: "#5f6368", marginTop: "2px", display: "flex", alignItems: "center", gap: "4px" }}>
-                to me <span style={{ fontSize: "10px" }}>▼</span>
-              </div>
-            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: "6px", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
+                      <span style={{ fontWeight: 600, color: "#202124", fontSize: "14px" }}>{email.fromName}</span>
+                      <span style={{ color: "#5f6368", fontSize: "12px" }}>{email.fromEmail}</span>
+                    </div>
+                   <div style={{ display: "flex", alignItems: "center", gap: "12px", color: "#5f6368", fontSize: "12px", flexShrink: 0 }}>
+                      <span>{email.time} ({timeAgo(email.date)})</span>
+                      <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+                      <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>
+                      <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+                    </div>
+                  </div>
+                  
+                {/* 🔽 INTERACTIVE "TO ME" POPOVER */}
+                  <div style={{ position: "relative", marginTop: "2px" }}>
+                    <div 
+                      style={{ 
+                        fontSize: "12px", 
+                        color: "#5f6368", 
+                        display: "inline-flex", 
+                        alignItems: "center", 
+                        gap: "4px", 
+                        cursor: "pointer", 
+                        padding: "2px 4px", 
+                        marginLeft: "-4px", 
+                        borderRadius: "4px",
+                        position: "relative", // 👈 Ensures z-index works
+                        zIndex: showEmailDetails ? 95 : "auto" // 👈 Keeps button above the invisible backdrop
+                      }}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setShowEmailDetails(prev => !prev);
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = "#f1f3f4"}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                    >
+                      to me <span style={{ fontSize: "10px" }}>{showEmailDetails ? "▲" : "▼"}</span>
+                    </div>
+
+                    {showEmailDetails && (
+                      <>
+                        {/* Invisible backdrop to close the menu when clicking outside */}
+                        <div 
+                          style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} 
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setShowEmailDetails(false);
+                          }}
+                        />
+                        
+                        <div style={{
+                          position: "absolute",
+                          top: "100%",
+                          left: "0",
+                          marginTop: "4px",
+                          background: "white",
+                          border: "1px solid #dadce0",
+                          borderRadius: "8px",
+                          boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                          padding: "16px",
+                          zIndex: 100,
+                          minWidth: "480px",
+                          fontSize: "13px",
+                          color: "#202124",
+                          display: "flex",
+                          flexDirection: "column"
+                        }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "75px 1fr", gap: "8px 12px", alignItems: "baseline" }}>
+                            <span style={{ color: "#5f6368", textAlign: "right" }}>from:</span>
+                            <span><strong>{email.fromName}</strong> {email.fromEmail}</span>
+                            
+                            <span style={{ color: "#5f6368", textAlign: "right" }}>to:</span>
+                            <span>{email.to ? email.to.join(", ") : "Siyabonga Nono <siyabonga@actuaryconsulting.co.za>"}</span>
+                            
+                            <span style={{ color: "#5f6368", textAlign: "right" }}>date:</span>
+                            <span>{email.date ? new Date(email.date).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : email.time}</span>
+                            
+                            <span style={{ color: "#5f6368", textAlign: "right" }}>subject:</span>
+                            <span>{email.subject}</span>
+
+                            <span style={{ color: "#5f6368", textAlign: "right" }}>mailed-by:</span>
+                            <span>actuaryconsulting.co.za</span>
+
+                            <span style={{ color: "#5f6368", textAlign: "right" }}>signed-by:</span>
+                            <span>actuaryconsulting.co.za</span>
+                            
+                            <span style={{ color: "#5f6368", textAlign: "right" }}>security:</span>
+                            <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                              <svg width="14" height="14" viewBox="0 0 24 24"><path fill="#5f6368" d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM9 6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9V6zm9 14H6V10h12v10zm-6-3c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2z"/></svg>
+                              Standard encryption (TLS)
+                            </span>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
           </div>
 
 {/* Email Body */}
@@ -4822,32 +4985,40 @@ if (currentView.app === "gmail") {
                 </div>
               </div>
 
-              <div className="email-attach-grid">
-                {att.map((f, i) => (
-                  <button
-                    key={i}
-                    className="email-attach"
-                    onClick={() => setEmailPreview(f)}
-                    title={f.name}
-                    style={{ background: "#fff", border: "1px solid #dadce0", borderRadius: "8px", width: "180px", height: "auto", padding: "0", overflow: "hidden", display: "flex", flexDirection: "column" }}
-                  >
-                    <div className="email-attach-preview" style={{ height: "100px", background: "#f8f9fa", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <iframe
-                        className="email-attach-frame"
-                        title={f.name}
-                        src={f.url}
-                        style={{ pointerEvents: "none", width: "100%", height: "100%", border: "none" }}
-                      />
-                    </div>
-                    <div className="email-attach-footer" style={{ padding: "8px 12px", display: "flex", alignItems: "center", gap: "8px", background: "#fff", borderTop: "1px solid #dadce0", width: "100%" }}>
-                      <span style={{ background: "#ea4335", color: "white", padding: "2px 4px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold" }}>
-                        {f.type ? f.type.toUpperCase() : "FILE"}
-                      </span>
-                      <span className="email-attach-name" style={{ fontSize: "12px", color: "#3c4043", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f.name}</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
+    <div className="email-attach-grid">
+                {att.map((f, i) => {
+                  const isPdf = f.type === 'pdf' || f.name.toLowerCase().includes('.pdf');
+                  const isImg = f.type === 'img' || f.name.toLowerCase().match(/\.(jpg|jpeg|png|gif)$/i);
+                  const isXls = f.type === 'xls' || f.name.toLowerCase().match(/\.(xls|xlsx|csv)$/i);
+                  const isWord = f.type === 'doc' || f.name.toLowerCase().match(/\.(doc|docx)$/i);
+                  
+                  const iconColor = isPdf ? '#ea4335' : isImg ? '#a142f4' : isXls ? '#188038' : isWord ? '#1a73e8' : '#5f6368';
+                  const displayType = isPdf ? 'PDF' : isImg ? 'IMG' : isXls ? 'XLS' : isWord ? 'DOC' : 'FILE';
+
+                  return (
+                    <button
+                      key={i}
+                      className="email-attach"
+                      onClick={() => setEmailPreview(f)}
+                      title={f.name}
+                      style={{ background: "#fff", border: "1px solid #dadce0", borderRadius: "8px", width: "180px", height: "auto", padding: "0", overflow: "hidden", display: "flex", flexDirection: "column" }}
+                    >
+                      <div className="email-attach-preview" style={{ height: "100px", background: "#f8f9fa", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        {/* Iframe removed to prevent auto-downloads. Replaced with dynamic type icon. */}
+                        <div style={{ fontSize: "28px", fontWeight: "bold", color: iconColor, opacity: 0.3 }}>
+                          {displayType}
+                        </div>
+                      </div>
+                      <div className="email-attach-footer" style={{ padding: "8px 12px", display: "flex", alignItems: "center", gap: "8px", background: "#fff", borderTop: "1px solid #dadce0", width: "100%" }}>
+                        <span style={{ background: iconColor, color: "white", padding: "2px 4px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold" }}>
+                          {displayType}
+                        </span>
+                        <span className="email-attach-name" style={{ fontSize: "12px", color: "#3c4043", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f.name}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
 {/* Authentic Gmail Inline Reply Trigger & Actions */}
@@ -5293,6 +5464,7 @@ if (currentView.app === "gmail") {
                             const cid = c.id;
                             
                             // Optimistic Update
+                            window.dispatchEvent(new Event("pauseTrelloPolling"));
                             setTrelloCard(prev => ({ ...prev, isArchived: false, boardList: "Restored" }));
                             setTrelloMenuOpen(false);
 
@@ -5316,6 +5488,7 @@ if (currentView.app === "gmail") {
                             const cid = c.id;
                             
                             // Optimistic Update
+                            window.dispatchEvent(new Event("pauseTrelloPolling"));
                             setTrelloBuckets(prev => prev.map(b => ({ ...b, cards: b.cards.filter(card => card.id !== cid) })));
                             setTrelloMenuOpen(false);
                             setTrelloCard(null);
@@ -5480,6 +5653,7 @@ if (currentView.app === "gmail") {
                           const targetName = trelloBuckets.find(b => b.id === targetId)?.title || c.boardList;
 
                           // 1. Optimistic Update: Move instantly on UI
+                          window.dispatchEvent(new Event("pauseTrelloPolling"));
                           setTrelloBuckets(prev => {
                             let cardToMove = null;
                             const stripped = prev.map(b => {
@@ -5534,10 +5708,10 @@ if (currentView.app === "gmail") {
         </div>
 
         {/* 2. BODY (Columns) */}
-        <div className="trello-modal-body" style={{ display: "flex", gap: "40px", alignItems: "flex-start", padding: "16px 24px" }}>
+        <div className="trello-modal-body">
           
           {/* LEFT COLUMN (60%) */}
-          <div className="trello-main-col" style={{ flex: "3", minWidth: 0 }}>
+          <div className="trello-main-col">
             
             {/* Action Row (Buttons under title) */}
             <div className="trello-action-row">
@@ -6164,8 +6338,8 @@ if (currentView.app === "gmail") {
           </div>
 
          {/* RIGHT COLUMN (40%) */}
-          <div className="trello-sidebar-col" style={{ flex: "2", minWidth: "320px" }}>
-             <ActivityPane 
+         <div className="trello-sidebar-col">
+            <ActivityPane
                 cardId={c.id} 
                 currentUserAvatarUrl="https://trello-avatars.s3.amazonaws.com/cee5b736fb38fc4e0555e8491649392c/50.png" 
              />
@@ -6204,12 +6378,14 @@ if (currentView.app === "gmail") {
         draftPos,
         draftAttachments,
 
-        // Gmail Inbox
+       // Gmail Inbox
         gmailEmails,
         gmailLoading,
         gmailError,
         gmailEmails, // 👈 ADD THIS: Tells React to refresh the list when a star is clicked
         gmailFolder, // 👈 ADD THIS: Tells React to refresh when you switch to "Starred" view
+        gmailPage,
+        gmailTotal,
 
        // Trello
         trelloCard,
@@ -6243,18 +6419,18 @@ if (currentView.app === "gmail") {
               style={{ position: "relative" }}
             >
               <img src={n.icon} alt={n.alt} className="icon" />
-              <span>[{n.time}] {n.alt}: {n.text}</span>
+              <span>[{n.time}] {n.alt === "Gmail" ? n.text : `${n.alt}: ${n.text}`}</span>
               {n.alt === "Gmail" && <span className="notif-chip">Email</span>}
               <button
-                className="notif-close"
-                title="Dismiss"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  dismissNotification(n);
-                }}
-              >
-                ×
-              </button>
+                className="notif-close"
+                title="Dismiss"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  dismissNotification(n);
+                }}
+              >
+                ×
+              </button>
             </div>
           ))}
         </div>

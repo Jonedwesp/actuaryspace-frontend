@@ -33,14 +33,12 @@ export async function handler(event) {
     // 2. Safety parse the body
     let body = {};
     try {
-      // If it's a string, try to parse it. If it's not JSON, catch will handle it.
       body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
     } catch (e) {
       console.warn("Body is not JSON. Treating raw body as the email input.");
       body = { email: event.body };
     }
 
-    // Ensure we actually have an email string to work with
     const rawInput = body && body.email ? body.email : event.body;
     const emailInput = (rawInput || "").toLowerCase().trim();
     
@@ -50,16 +48,14 @@ export async function handler(event) {
       console.error("No email found in request body.");
       return { statusCode: 400, body: JSON.stringify({ error: "Please enter a full email address." }) };
     }
-    // 3. Format the Resource Name (Check map first, fallback to direct email)
+    
     let resourceName = KNOWN_USERS_MAP[emailInput];
     
     if (!resourceName) {
-      // If it is not in the map, check if it is a valid email structure
       if (emailInput.includes("@")) {
         resourceName = `users/${emailInput}`;
         console.log("User not in map, formatting directly as:", resourceName);
       } else {
-        // Reject if they just typed a name instead of an email
         console.error(`Invalid input. Not in map and not an email: ${emailInput}`);
         return { statusCode: 400, body: JSON.stringify({ error: `Please enter a full email address.` }) };
       }
@@ -67,10 +63,9 @@ export async function handler(event) {
       console.log("Found user in map:", resourceName);
     }
 
-    // 4. Get Google Token
     const token = await getAccessToken(event);
 
-    // 5. Setup the space using native fetch
+    // 5. Setup the space (Pluralized memberships and added human-only flag)
     const response = await fetch(`https://chat.googleapis.com/v1/spaces:setup`, {
       method: "POST",
       headers: { 
@@ -78,19 +73,23 @@ export async function handler(event) {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        space: { spaceType: "DIRECT_MESSAGE" },
-        membership: [ { member: { name: resourceName } } ]
+        space: { 
+          spaceType: "DIRECT_MESSAGE",
+          singleUserBotDm: false // 🛡️ Ensures it looks like a Human DM in Screenshot 5
+        },
+        memberships: [ { member: { name: resourceName } } ] // 🛡️ Changed to plural 'memberships'
       })
     });
 
     const result = await response.json();
+    
+    // 🛡️ Changed 'data' to 'space' to match App.jsx expectations
     return { 
       statusCode: response.ok ? 200 : response.status, 
-      body: JSON.stringify({ ok: response.ok, data: result }) 
+      body: JSON.stringify({ ok: response.ok, space: result }) 
     };
 
   } catch (err) {
-    // 6. Force the error to be a string so we don't get that "table of numbers"
     console.error("CRITICAL FUNCTION ERROR:", err.message);
     return { 
       statusCode: 500, 
@@ -98,4 +97,3 @@ export async function handler(event) {
     };
   }
 }
-

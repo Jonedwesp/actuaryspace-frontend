@@ -13,6 +13,7 @@ function request(urlStr, options = {}) {
       method: options.method || "GET",
       headers: options.headers || {},
     };
+
     const req = https.request(reqOpts, (res) => {
       let data = "";
       res.on("data", (chunk) => (data += chunk));
@@ -24,19 +25,24 @@ function request(urlStr, options = {}) {
         });
       });
     });
+
     req.on("error", reject);
     if (options.body) req.write(options.body);
     req.end();
   });
 }
 
-exports.handler = async function (event) {
-  if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method Not Allowed" };
+exports.handler = async function (event, context) {
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, body: "Method Not Allowed" };
+  }
 
   try {
-    const { messageId, starred } = JSON.parse(event.body);
+    const { messageId } = JSON.parse(event.body);
+    if (!messageId) {
+      return { statusCode: 400, body: JSON.stringify({ ok: false, error: "Missing messageId" }) };
+    }
 
-    // 1. Get Access Token
     const bodyStr = new URLSearchParams({
       client_id: GOOGLE_CLIENT_ID,
       client_secret: GOOGLE_CLIENT_SECRET,
@@ -52,16 +58,12 @@ exports.handler = async function (event) {
       },
       body: bodyStr,
     });
+
     const tokenData = await tokenRes.json();
+    if (!tokenRes.ok) throw new Error(`Auth failed: ${JSON.stringify(tokenData)}`);
     const token = tokenData.access_token;
 
-    // 2. Define the Payload
-    const modifyPayload = JSON.stringify({
-      addLabelIds: starred ? ["STARRED"] : [],
-      removeLabelIds: !starred ? ["STARRED"] : [],
-    });
-
-    // 3. Send Request to Gmail
+    const modifyBody = JSON.stringify({ addLabelIds: ["UNREAD"] });
     const modifyRes = await request(
       `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/modify`,
       {
@@ -69,43 +71,23 @@ exports.handler = async function (event) {
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
-          "Content-Length": Buffer.byteLength(modifyPayload),
+          "Content-Length": Buffer.byteLength(modifyBody),
         },
-        body: modifyPayload,
+        body: modifyBody,
       }
     );
 
-    // 🛡️ GUARANTEED JSON RESPONSE
-    const responseHeaders = { 
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
-    };
+    const modifyData = await modifyRes.json();
+    if (!modifyRes.ok) throw new Error(`Modify failed: ${JSON.stringify(modifyData)}`);
 
-    // 🛡️ GUARANTEED CLEAN JSON RESPONSE
-    // 🛡️ FIXED RESPONSE LOGIC
-    if (modifyRes.ok) {
-      return {
-        statusCode: 200,
-        headers: { 
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*" 
-        },
-        body: JSON.stringify({ ok: true }),
-      };
-    }
-
-    // Since our request() helper already parsed the JSON, 
-    // we just access the error details directly if they exist.
     return {
-      statusCode: modifyRes.status || 500,
-      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-      body: JSON.stringify({ ok: false, error: "Gmail API Error" }),
+      statusCode: 200,
+      body: JSON.stringify({ ok: true }),
     };
   } catch (err) {
-    console.error("Star Toggle Crash:", err.message);
+    console.error("Mark unread error:", err);
     return {
       statusCode: 500,
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ok: false, error: err.message }),
     };
   }

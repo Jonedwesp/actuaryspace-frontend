@@ -11,15 +11,19 @@ export async function handler(event) {
     if (event.httpMethod !== "POST") return json(405, { error: "Method not allowed" });
 
     const body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
-    const { messageId, type } = body; 
+    let { messageId, type } = body; 
     
     if (!messageId || !type) {
       return json(400, { ok: false, error: "Missing messageId or type" });
     }
 
+    // 🛡️ ID HARDENING: Google reactions require the full resource path.
+    // If the frontend only sends "spaces/AAA/messages/BBB", it's fine.
+    // But it MUST NOT start with a leading slash.
+    messageId = messageId.replace(/^\/+/, "");
+
     const emojiChar = EMOJI_UNICODE[type];
     if (!emojiChar) return json(400, { ok: false, error: "Invalid reaction type" });
-
     // 1. Auth - This now uses the helper to find Siya's session in the cookies
     const accessToken = await getAccessToken(event);
 

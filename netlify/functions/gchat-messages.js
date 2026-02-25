@@ -1,4 +1,4 @@
-// netlify/functions/gchat-messages.js
+import { getAccessToken } from "./_google-creds.js";
 
 // 🏆 THE MASTER LIST
 const KNOWN_USERS = {
@@ -27,7 +27,6 @@ const KNOWN_USERS = {
   "users/104654529926543347255": "Martin Otto"
 };
 
-// Emoji Mapper: Unicode -> Internal ID
 const EMOJI_MAP = {
   "👍": "like",
   "❤️": "heart",
@@ -39,36 +38,13 @@ export async function handler(event) {
     const { space } = event.queryStringParameters || {};
     if (!space) return json(400, { ok: false, error: "Missing ?space" });
 
-    const RT_RAW = process.env.AS_GCHAT_RT;
-    const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-    const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-
-    if (!RT_RAW) return json(400, { ok: false, error: "Missing AS_GCHAT_RT" });
-
-    // 1) Get Access Token
-    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
-        refresh_token: RT_RAW,
-        grant_type: "refresh_token",
-      }),
-    });
-
-    const tokenJson = await tokenRes.json();
-    if (!tokenJson.access_token) {
-      return json(502, { ok: false, error: "Token refresh failed", details: tokenJson });
-    }
-    const accessToken = tokenJson.access_token;
+    // 1) Get Access Token (Uses Siya's identity from cookies)
+    const accessToken = await getAccessToken(event);
 
     // 2) List messages
     const url = new URL(`https://chat.googleapis.com/v1/${space}/messages`);
     url.searchParams.set("pageSize", "50");
     url.searchParams.set("orderBy", "createTime desc");
-    
-    // 👇 CHANGED: Explicitly asking for attachmentDataRef
     url.searchParams.set(
       "fields", 
       "messages(name,text,createTime,sender(name,displayName,email,type),emojiReactionSummaries,attachment(name,contentName,contentType,downloadUri,attachmentDataRef)),nextPageToken"
@@ -91,7 +67,6 @@ export async function handler(event) {
       const apiEmail = m?.sender?.email;
       
       let resolved = "Unknown";
-
       if (senderId && KNOWN_USERS[senderId]) {
         resolved = KNOWN_USERS[senderId];
       } else if (apiDisplay) {
@@ -102,7 +77,6 @@ export async function handler(event) {
         resolved = senderId; 
       }
 
-      // Process Reactions
       const reactions = [];
       if (m.emojiReactionSummaries) {
         m.emojiReactionSummaries.forEach(r => {
@@ -126,21 +100,25 @@ export async function handler(event) {
           type: m?.sender?.type,
         },
         reactions,
-        // 👇 CHANGED: Pass the attachment data to the frontend
         attachment: m.attachment || [] 
       };
     });
 
     return json(200, { ok: true, messages, nextPageToken: data.nextPageToken });
   } catch (err) {
-    return json(500, { ok: false, error: String(err?.message || err) });
+    console.error("GCHAT-MESSAGES ERROR:", err.message);
+    const isAuthError = err.message.includes("No Refresh Token");
+    return json(isAuthError ? 401 : 500, { ok: false, error: err.message });
   }
 }
 
 function json(statusCode, body) {
   return {
     statusCode,
-    headers: { "Content-Type": "application/json" },
+    headers: { 
+      "Content-Type": "application/json",
+      "Cache-Control": "no-cache" 
+    },
     body: JSON.stringify(body),
   };
 }

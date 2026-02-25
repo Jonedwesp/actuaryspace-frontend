@@ -939,11 +939,10 @@ html, body {
   border-radius: 12px;
   width: 94%; 
   max-width: 900px;
-  margin: 24px auto; /* Clean margins */
+  margin: 24px auto; 
   
-  /* 👇 FIX: Height adjusts to content (auto), but stops before hitting the chat bar (max-height) */
-  height: auto;
-  max-height: calc(100% - 80px); 
+  /* 👈 FIX: Enforce a strict height so inner columns know when to start scrolling */
+  height: calc(100% - 48px); 
   
   display: flex;
   flex-direction: column;
@@ -1027,17 +1026,20 @@ html, body {
 /* Modal Body - Scrollable Area */
 .trello-modal-body {
   flex: 1;
-  overflow-y: auto;
+  overflow: hidden;
   display: flex;
-  /* 👇 FIX: 80px padding ensures space below "Start Timer" even when zoomed/scrolling */
-  padding: 0 24px 80px 24px; 
+  padding: 0 16px 0 24px;
   gap: 32px;
   min-height: 0; /* Critical for nested flex scrolling */
 }
+
 /* Left Main Column */
 .trello-main-col {
   flex: 2.8;
   min-width: 0;
+  overflow-y: auto;
+  padding-bottom: 24px;
+  padding-right: 8px;
 }
 
 /* Right Sidebar Column */
@@ -1048,6 +1050,9 @@ html, body {
   gap: 16px;
   min-width: 180px;
   padding-top: 8px;
+  overflow-y: auto;
+  padding-bottom: 24px;
+  padding-right: 8px;
 }
 
 /* --- Sections --- */

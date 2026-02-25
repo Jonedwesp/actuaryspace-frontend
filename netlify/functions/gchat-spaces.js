@@ -1,31 +1,12 @@
-// netlify/functions/gchat-spaces.js (NEW & IMPROVED)
+import { getAccessToken } from "./_google-creds.js";
+
 export async function handler(event) {
   try {
-    const RT_RAW = process.env.AS_GCHAT_RT;
-    const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-    const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-
-    if (!RT_RAW) return json(400, { ok: false, error: "Missing AS_GCHAT_RT in env" });
-    const RT = decodeURIComponent(RT_RAW);
-
-    // 1. Refresh Token (The Engine)
-    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
-        refresh_token: RT,
-        grant_type: "refresh_token",
-      }),
-    });
-
-    const tokenJson = await tokenRes.json().catch(() => ({}));
-    const accessToken = tokenJson.access_token;
-    if (!accessToken) return json(502, { ok: false, where: "token", tokenJson });
+    // 1. Get User Token (Acts as Siya using browser cookies)
+    const accessToken = await getAccessToken(event);
 
     // -----------------------------------------------------------------
-    // ADDITION: SEARCH OR CREATE LOGIC (Fixes the ID & Amnesia)
+    // SEARCH OR CREATE LOGIC (For starting new Direct Messages)
     // -----------------------------------------------------------------
     if (event.httpMethod === "POST") {
       const body = JSON.parse(event.body || "{}");
@@ -33,19 +14,18 @@ export async function handler(event) {
 
       if (!targetEmail) return json(400, { ok: false, error: "Email required" });
 
-      // Use spaces:setup to "Find or Create"
       const setupUrl = "https://chat.googleapis.com/v1/spaces:setup";
       const setupRes = await fetch(setupUrl, {
         method: "POST",
         headers: { 
-          Authorization: `Bearer ${accessToken}`,
+          "Authorization": `Bearer ${accessToken}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
           space: { spaceType: "DIRECT_MESSAGE", singleUserBotDm: false },
           memberships: [{
             member: { 
-              name: `users/${targetEmail}`, // Use email directly thanks to our new Badge
+              name: `users/${targetEmail}`, 
               type: "HUMAN" 
             }
           }]
@@ -59,16 +39,19 @@ export async function handler(event) {
     }
     // -----------------------------------------------------------------
 
-    // 2. List Spaces (The Sidebar)
+    // 2. List Spaces (Populates your Sidebar list)
     const url = new URL("https://chat.googleapis.com/v1/spaces");
     url.searchParams.set("pageSize", "200");
     url.searchParams.set("fields", "spaces(name,displayName,spaceType,spaceDetails),nextPageToken");
 
     const res = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: { "Authorization": `Bearer ${accessToken}` },
     });
 
     const data = await res.json().catch(() => ({}));
+    
+    if (!res.ok) return json(502, { ok: false, where: "list-spaces", data });
+
     const spaces = (data.spaces || []).map((s) => ({
       id: s.name,
       displayName: s.displayName || "",
@@ -79,14 +62,19 @@ export async function handler(event) {
     return json(200, { ok: true, spaces });
 
   } catch (err) {
-    return json(500, { ok: false, error: String(err?.message || err) });
+    console.error("GCHAT-SPACES ERROR:", err.message);
+    const isAuthError = err.message.includes("No Refresh Token");
+    return json(isAuthError ? 401 : 500, { ok: false, error: err.message });
   }
 }
 
 function json(statusCode, body) {
   return {
     statusCode,
-    headers: { "Content-Type": "application/json; charset=utf-8" },
+    headers: { 
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-cache"
+    },
     body: JSON.stringify(body),
   };
 }
