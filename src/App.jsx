@@ -4727,7 +4727,7 @@ if (currentView.app === "gmail") {
               <input
                 type="text"
                 placeholder="Subject"
-                defaultValue={selectedDraftTemplate.subject || ""}
+                defaultValue={selectedDraftTemplate?.subject || ""}
                 id="compose-subject"
                 style={{ flex: 1, border: "none", outline: "none", fontSize: "14px", color: "#202124", fontWeight: 500 }}
               />
@@ -4830,46 +4830,45 @@ if (currentView.app === "gmail") {
                         });
                       }));
 
-                 const res = await fetch("/.netlify/functions/gmail-send-email", {
+                const res = await fetch("/.netlify/functions/gmail-send-email", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            to: draftTo,
+                            subject: document.getElementById("compose-subject")?.value || "New Message",
+                            body: selectedDraftTemplate.body.replace(/\*([^*]+)\*/g, "<b>$1</b>"),
+                            attachments: base64Attachments 
+                          }),
+                        });
+                        const json = await res.json().catch(() => ({}));
+                        if (!res.ok || json.ok === false) throw new Error(json.error || `HTTP ${res.status}`);
+                        
+                        // 🟢 IF EDITING A DRAFT, DELETE THE OLD ONE AFTER SENDING
+                        if (selectedDraftTemplate.draftId) {
+                           fetch("/.netlify/functions/gmail-delete", {
                               method: "POST",
                               headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({
-                                to: draftTo,
-                                subject: document.getElementById("compose-subject")?.value || "New Message",
-                                body: selectedDraftTemplate.body.replace(/\*([^*]+)\*/g, "<b>$1</b>"),
-                                attachments: base64Attachments 
-                              }),
-                            });
-                            const json = await res.json().catch(() => ({}));
-                            if (!res.ok || json.ok === false) throw new Error(json.error || `HTTP ${res.status}`);
-                            
-                            // 🟢 DELETE OLD DRAFT IF WE JUST SENT IT
-                            if (selectedDraftTemplate.draftId) {
-                               fetch("/.netlify/functions/gmail-delete", {
-                                  method: "POST",
-                                  headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ messageId: selectedDraftTemplate.draftId })
-                               });
-                               
-                               // Remove it from the list locally so it feels instant
-                               setGmailEmails(prev => prev.filter(e => e.id !== selectedDraftTemplate.draftId));
-                            }
+                              body: JSON.stringify({ messageId: selectedDraftTemplate.draftId })
+                           });
+                           setGmailEmails(prev => prev.filter(emailItem => emailItem.id !== selectedDraftTemplate.draftId));
+                        }
 
-                            setSelectedDraftTemplate(null);
-                            setDraftTo("");
-                            setDraftAttachments([]);
-                          // 🔽 Show snackbar for 4 seconds
-                            setGmailSnackbar("Message sent");
-                            setTimeout(() => setGmailSnackbar(null), 4000);
-                          } catch (err) {
-                            setEmail((prev) => prev ? { ...prev, systemNote: `Error: ${err.message}` } : prev);
-                            btn.disabled = false;
-                          }
+                        setSelectedDraftTemplate(null);
+                        setDraftTo("");
+                        setDraftAttachments([]);
+                      // 🔽 Show snackbar for 4 seconds
+                        setGmailSnackbar("Message sent");
+                        setTimeout(() => setGmailSnackbar(null), 4000);
+                      } catch (err) {
+                        setEmail((prev) => prev ? { ...prev, systemNote: `Error: ${err.message}` } : prev);
+                        btn.disabled = false;
+                      }
                   }}
                   style={{ background: "#0b57d0", color: "#fff", padding: "8px 24px", borderRadius: "24px", border: "none", fontWeight: 500, cursor: "pointer" }}
                 >
                   Send
                 </button>
+
 {/* 💾 SAVE AS DRAFT BUTTON */}
                 <button
                   title="Save to Drafts"
@@ -5125,19 +5124,27 @@ if (currentView.app === "gmail") {
                     </div>
                <div style={{ display: "flex", alignItems: "center", gap: "12px", color: "#5f6368", fontSize: "12px", flexShrink: 0 }}>
                       <span>{email.time} ({timeAgo(email.date)})</span>
+                      
+                      {/* ⭐ STAR BUTTON - Fixed to update local view state */}
                       <div 
-                        style={{ cursor: "pointer", color: email.isStarred ? "#f2d600" : "#5f6368", display: "grid", placeItems: "center" }}
+                        style={{ 
+                          cursor: "pointer", 
+                          fontSize: "20px", 
+                          display: "grid", 
+                          placeItems: "center",
+                          color: email.isStarred ? "#f2d600" : "#c1c7d0",
+                          transition: "transform 0.1s ease"
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.transform = "scale(1.2)"}
+                        onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
                         onMouseDown={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          handleToggleStar(null, email.id, email.isStarred);
+                          // Pass 'e' correctly so the handler can stop propagation
+                          handleToggleStar(e, email.id, email.isStarred);
                         }}
                       >
-                        {email.isStarred ? (
-                          <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
-                        ) : (
-                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
-                        )}
+                        {email.isStarred ? "★" : "☆"}
                       </div>
                       <div 
                         style={{ cursor: "pointer", display: "grid", placeItems: "center" }}
@@ -5300,69 +5307,106 @@ if (currentView.app === "gmail") {
           {!selectedDraftTemplate && (
             <div style={{ marginLeft: "56px", marginTop: "32px", paddingBottom: "24px" }}>
               
-              {/* Reply & Forward */}
+             {/* Reply, Forward, or Edit Draft */}
               <div style={{ display: "flex", gap: "8px", marginBottom: "24px" }}>
-                <button 
-                  className="gmail-btn-outline" 
-                  onClick={() => {
-                    const replyTpl = DRAFT_TEMPLATES.find(t => t.id === "new_blank");
-                    setSelectedDraftTemplate({...replyTpl, body: "\n\n", isForward: false});
-                    
-                    let targetEmail = "";
-                    if (email.fromEmail) {
-                      targetEmail = email.fromEmail.replace("<", "").replace(">", "").trim();
-                    } else if (email.fromName && email.fromName.includes("@")) {
-                      targetEmail = email.fromName;
-                    }
-                    setDraftTo(targetEmail);
-                  }}
-                  style={{ borderRadius: "100px", padding: "8px 24px", color: "#3c4043", border: "1px solid #dadce0", display: "flex", alignItems: "center", gap: "8px", background: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: 500 }}
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>
-                  Reply
-                </button>
-                <button 
-                  className="gmail-btn-outline" 
-                  onClick={() => {
-                    const replyTpl = DRAFT_TEMPLATES.find(t => t.id === "new_blank");
-                    
-                    const cleanFromEmail = email.fromEmail ? email.fromEmail.replace(/[<>]/g, '') : "";
-                    const fromLine = email.fromName && !email.fromName.includes("@") 
-                        ? `${email.fromName} <${cleanFromEmail}>` 
-                        : `<${cleanFromEmail || email.fromName}>`;
-                    
-                    // Fixed the hardcoded Yolandie string to correctly show Siya as the original recipient
-                    const fwdHeader = `\n\n---------- Forwarded message ---------\nFrom: ${fromLine}\nDate: ${email.time}\nSubject: ${email.subject}\nTo: Siyabonga Nono <siyabonga@actuaryconsulting.co.za>\n\n`;
-                    const fwdBody = email.body || email.snippet || "";
-                    
-                    setSelectedDraftTemplate({...replyTpl, body: fwdHeader + fwdBody, isForward: true});
-                    setDraftTo(""); // Forwarding requires you to pick a new recipient
-                  }}
-                  style={{ borderRadius: "100px", padding: "8px 24px", color: "#3c4043", border: "1px solid #dadce0", display: "flex", alignItems: "center", gap: "8px", background: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: 500 }}
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M14 9V5l7 7-7 7v-4.1c-5 0-8.5 1.6-11 5.1 1-5 4-10 11-11z"/></svg>
-                  Forward
-                </button>
+                {gmailFolder === "DRAFTS" ? (
+                  <button 
+                    className="gmail-btn-outline" 
+                    onClick={() => {
+                      const plainBody = email.bodyHtml ? email.body.replace(/<br\s*[\/]?>/gi, "\n").replace(/<\/p>/gi, "\n").replace(/<[^>]+>/g, "") : email.body;
+                      
+                      let toEmail = "";
+                      if (email.to && email.to.length > 0) {
+                         const toStr = Array.isArray(email.to) ? email.to[0] : email.to;
+                         const toParts = toStr.split("<");
+                         toEmail = toParts.length > 1 ? toParts[1].replace(">", "").trim() : toParts[0].trim();
+                      }
+
+                      setSelectedDraftTemplate({
+                        id: "existing_draft",
+                        draftId: email.id,
+                        label: "Edit Draft",
+                        subject: email.subject || "",
+                        body: plainBody,
+                        isForward: false 
+                      });
+                      setDraftTo(toEmail);
+                      setDraftAttachments(email.attachments || []);
+                      setEmail(null); 
+                      setEmailPreview(null);
+                    }}
+                    style={{ borderRadius: "100px", padding: "8px 24px", color: "#3c4043", border: "1px solid #dadce0", display: "flex", alignItems: "center", gap: "8px", background: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: 500 }}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+                    Edit Draft
+                  </button>
+                ) : (
+                  <>
+                    <button 
+                      className="gmail-btn-outline" 
+                      onClick={() => {
+                        const replyTpl = DRAFT_TEMPLATES.find(t => t.id === "new_blank");
+                        setSelectedDraftTemplate({...replyTpl, body: "\n\n", isForward: false});
+                        
+                        let targetEmail = "";
+                        if (email.fromEmail) {
+                          targetEmail = email.fromEmail.replace("<", "").replace(">", "").trim();
+                        } else if (email.fromName && email.fromName.includes("@")) {
+                          targetEmail = email.fromName;
+                        }
+                        setDraftTo(targetEmail);
+                      }}
+                      style={{ borderRadius: "100px", padding: "8px 24px", color: "#3c4043", border: "1px solid #dadce0", display: "flex", alignItems: "center", gap: "8px", background: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: 500 }}
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>
+                      Reply
+                    </button>
+                    <button 
+                      className="gmail-btn-outline" 
+                      onClick={() => {
+                        const replyTpl = DRAFT_TEMPLATES.find(t => t.id === "new_blank");
+                        
+                        const cleanFromEmail = email.fromEmail ? email.fromEmail.replace(/[<>]/g, '') : "";
+                        const fromLine = email.fromName && !email.fromName.includes("@") 
+                            ? `${email.fromName} <${cleanFromEmail}>` 
+                            : `<${cleanFromEmail || email.fromName}>`;
+                        
+                        // Fixed the hardcoded Yolandie string to correctly show Siya as the original recipient
+                        const fwdHeader = `\n\n---------- Forwarded message ---------\nFrom: ${fromLine}\nDate: ${email.time}\nSubject: ${email.subject}\nTo: Siyabonga Nono <siyabonga@actuaryconsulting.co.za>\n\n`;
+                        const fwdBody = email.body || email.snippet || "";
+                        
+                        setSelectedDraftTemplate({...replyTpl, body: fwdHeader + fwdBody, isForward: true});
+                        setDraftTo(""); // Forwarding requires you to pick a new recipient
+                      }}
+                      style={{ borderRadius: "100px", padding: "8px 24px", color: "#3c4043", border: "1px solid #dadce0", display: "flex", alignItems: "center", gap: "8px", background: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: 500 }}
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M14 9V5l7 7-7 7v-4.1c-5 0-8.5 1.6-11 5.1 1-5 4-10 11-11z"/></svg>
+                      Forward
+                    </button>
+                  </>
+                )}
               </div>
 
-              {/* Trello / Tracker Actions */}
-              <div className="email-actions" style={{ borderTop: "1px solid #f1f3f4", paddingTop: "24px", display: "flex", gap: "12px", justifyContent: "flex-start" }}>
-                {actions.map((a) => (
+              {/* Trello / Tracker Actions (Hidden for Drafts) */}
+              {gmailFolder !== "DRAFTS" && (
+                <div className="email-actions" style={{ borderTop: "1px solid #f1f3f4", paddingTop: "24px", display: "flex", gap: "12px", justifyContent: "flex-start" }}>
+                  {actions.map((a) => (
+                    <button
+                      key={a.key}
+                      className="email-action-btn"
+                      onClick={() => handleEmailAction(a.key)}
+                    >
+                      {a.label}
+                    </button>
+                  ))}
                   <button
-                    key={a.key}
                     className="email-action-btn"
-                    onClick={() => handleEmailAction(a.key)}
+                    onClick={() => setShowDraftPicker(prev => !prev)}
                   >
-                    {a.label}
+                    Create Draft
                   </button>
-                ))}
-                <button
-                  className="email-action-btn"
-                  onClick={() => setShowDraftPicker(prev => !prev)}
-                >
-                  Create Draft
-                </button>
-              </div>
+                </div>
+              )}
 
               {email.systemNote && (
                 <div className="email-note" style={{ marginTop: "12px" }}>{email.systemNote}</div>
