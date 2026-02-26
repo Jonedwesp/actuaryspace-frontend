@@ -64,16 +64,22 @@ export const handler = async function (event, context) {
     if (!tokenRes.ok) throw new Error(`Auth failed: ${JSON.stringify(tokenData)}`);
     const token = tokenData.access_token;
 
-    const folder = event.queryStringParameters?.folder || "INBOX";
+const folder = event.queryStringParameters?.folder || "INBOX";
     const limit = event.queryStringParameters?.limit || "50"; 
     
-    let query = "in:inbox";
+    let query = "in:inbox -is:chat"; // 👈 Added -is:chat to remove message logs from count
     let labelId = "INBOX";
 
-    if (folder === "TRASH") { query = "is:trash"; labelId = "TRASH"; }
-    if (folder === "STARRED") { query = "is:starred"; labelId = "STARRED"; }
-    if (folder === "SENT") { query = "in:sent"; labelId = "SENT"; }
-    if (folder === "DRAFTS") { query = "label:DRAFT -in:inbox"; labelId = "DRAFT"; }
+    if (folder === "TRASH") { 
+      query = "is:trash"; labelId = "TRASH"; 
+    } else if (folder === "STARRED") { 
+      query = "is:starred -is:trash -is:chat"; labelId = "STARRED"; 
+    } else if (folder === "SENT") { 
+      query = "in:sent -is:trash -is:chat"; labelId = "SENT"; 
+    } else if (folder === "DRAFTS") { 
+      query = "is:draft -is:trash -is:chat"; labelId = "DRAFT"; 
+    
+    }
 
     // 1. Clean the Page Token (Fixes the "Next Page" bug)
     let pageToken = event.queryStringParameters?.pageToken || "";
@@ -88,12 +94,6 @@ export const handler = async function (event, context) {
       request(listUrl, { headers: { Authorization: `Bearer ${token}` } })
     ]);
 
-    let exactTotal = 0;
-    if (labelRes.ok) {
-      const labelData = await labelRes.json();
-      exactTotal = labelData.messagesTotal || 0;
-    }
-
     const listData = await listRes.json();
     if (!listRes.ok) {
       const errorMsg = listData.error?.message || JSON.stringify(listData);
@@ -101,9 +101,22 @@ export const handler = async function (event, context) {
       throw new Error(`Gmail List Error: ${errorMsg}`);
     }
 
+    let exactTotal = 0;
+    // For standard labels like INBOX and TRASH, the label metadata is authoritative.
+    // For queries like "is:starred -is:trash", the label count (STARRED) includes trash.
+    // So for those, we use resultSizeEstimate to ensure trash is excluded from the count.
+    if (labelRes.ok && (folder === "INBOX" || folder === "TRASH")) {
+      const labelData = await labelRes.json();
+      // 🎯 THE DISCREPANCY FIX: 
+      // Siya sees 10,461 in Gmail because the app counts THREADS by default.
+      // messagesTotal returns the count of every individual email, which is always higher.
+      exactTotal = labelData.threadsTotal || labelData.messagesTotal || 0;
+    } else {
+      exactTotal = listData.resultSizeEstimate || 0;
+    }
+
     const messages = listData.messages || [];
     if (messages.length === 0) return { statusCode: 200, body: JSON.stringify({ ok: true, emails: [], total: exactTotal }) };
-    if (exactTotal === 0) exactTotal = listData.resultSizeEstimate || 0;
 
     // 3. THE CONCURRENCY POOL (The Speed Fix)
     // Ensures exactly 12 emails are downloaded at a time. No delays, no rate limits, maximum speed.
@@ -173,13 +186,14 @@ export const handler = async function (event, context) {
          decodedBody = decodedBody.replace(regex, imgSrc);
       });
 
-      return {
+    return {
         id: msg.id,
         snippet: msgData.snippet || "",
         body: decodedBody || msgData.snippet || "", 
         subject: getH("Subject") || "(No Subject)",
         from: getH("From") || "(Unknown)",
         to: getH("To") || "",
+        cc: getH("Cc") || "", // 👈 Added CC to pick up more historical contacts
         date: getH("Date") || "",
         isUnread: msgData.labelIds?.includes("UNREAD") || false,
         isStarred: msgData.labelIds?.includes("STARRED") || false,

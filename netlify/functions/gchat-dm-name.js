@@ -26,7 +26,14 @@ const KNOWN_USERS = {
   "users/115863503558522206541": "Yolandie",
   "users/105726015150067918055": "Enock Kazembe",
   "users/114022848581179253421": "Matthew Darch",
-  "users/104654529926543347255": "Martin Otto"
+  "users/104654529926543347255": "Martin Otto", 
+  "users/111372729949487816593": "Melokuhle Mabuza",
+"users/113385769871096416574": "Willem Havenga",
+"users/103669371912398598964": "Jennifer Mouton",
+"users/117489264027903000976": "Conah MacFarlane",
+"users/112422887282158931745": "Repository",
+"users/117124449099034019701": "Robyn Anderson",
+"users/112417469383977278282": "Siyolise Mazwi",
 };
 
 export async function handler(event) {

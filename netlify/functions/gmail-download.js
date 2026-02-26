@@ -60,11 +60,18 @@ exports.handler = async function (event, context) {
 
     if (attachData.data) {
       const base64 = attachData.data.replace(/-/g, '+').replace(/_/g, '/');
+      
+      // 🟢 Determine if the file should be shown inline (PDF/Images) or downloaded (Word/Excel)
+      const isViewable = mimeType === "application/pdf" || mimeType.startsWith("image/");
+      const disposition = isViewable ? "inline" : "attachment";
+
       return {
         statusCode: 200,
         headers: {
           "Content-Type": mimeType || "application/octet-stream",
-          "Content-Disposition": `attachment; filename="${filename || 'Document'}"`
+          // ⚡ FIX: Use 'inline' for PDFs so they render in your iframe preview
+          "Content-Disposition": `${disposition}; filename="${filename || 'Document'}"`,
+          "Access-Control-Allow-Origin": "*", // Ensures the browser allows the iframe to load the content
         },
         isBase64Encoded: true,
         body: base64

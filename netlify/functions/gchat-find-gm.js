@@ -22,7 +22,14 @@ const KNOWN_USERS_MAP = {
   "yolandie@actuaryconsulting.co.za": "users/115863503558522206541",
   "enock@actuaryconsulting.co.za": "users/105726015150067918055",
   "matthew@actuaryconsulting.co.za": "users/114022848581179253421",
-  "martin@actuaryconsulting.co.za": "users/104654529926543347255"
+  "martin@actuaryconsulting.co.za": "users/104654529926543347255", 
+  "melokuhle@actuaryconsulting.co.za": "users/111372729949487816593",
+  "willem@actuaryconsulting.co.za": "users/113385769871096416574",
+  "jennifer@actuaryconsulting.co.za": "users/103669371912398598964",
+  "conah@actuaryconsulting.co.za": "users/117489264027903000976",
+  "repository@actuaryconsulting.co.za": "users/112422887282158931745",
+  "ryan@actuaryconsulting.co.za": "users/117124449099034019701",
+  "siyolise@actuaryconsulting.co.za": "users/112417469383977278282",
 };
 
 export async function handler(event) {

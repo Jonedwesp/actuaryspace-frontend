@@ -1114,6 +1114,11 @@ const RightPanel = React.memo(function RightPanel() {
   const [archivedCards, setArchivedCards] = useState([]);
   const [archivedLoading, setArchivedLoading] = useState(false);
   const [archiveSearch, setArchiveSearch] = useState(""); // 👈 NEW: Archive Search
+  
+  // 👇 ADD THESE THREE LINES:
+  const [checklists, setChecklists] = useState([]);
+  const [newChecklistTitle, setNewChecklistTitle] = useState("Checklist");
+  const [copyFromChecklist, setCopyFromChecklist] = useState("");
   const openArchiveBin = async () => {
     setShowArchiveModal(true);
     setArchivedLoading(true);
@@ -1492,12 +1497,18 @@ const RightPanel = React.memo(function RightPanel() {
               customFields: (() => {
                  let safeCF = {};
                  for (let k in (c.customFields || {})) {
-                    // ⚡ STRICT MAPPING: Prevents the two clocks from overwriting each other
-                    if (k === "WorkTimerStart") safeCF.WorkTimerStart = c.customFields[k];
-                    else if (k === "WorkDuration") safeCF.WorkDuration = c.customFields[k];
-                    else if (k === "TimerStart") safeCF.TimerStart = c.customFields[k];
-                    else if (k === "Duration") safeCF.Duration = c.customFields[k];
-                    else safeCF[k] = c.customFields[k];
+                    // ⚡ THE FIX: Catch the "[SYSTEM]" tags coming from Trello and map them to the React UI
+                    if (k.includes("WorkStartTime") || k.includes("WorkTimerStart")) {
+                        safeCF.WorkTimerStart = c.customFields[k];
+                    } else if (k.includes("WorkDuration")) {
+                        safeCF.WorkDuration = c.customFields[k];
+                    } else if (k === "TimerStart") {
+                        safeCF.TimerStart = c.customFields[k];
+                    } else if (k === "Duration") {
+                        safeCF.Duration = c.customFields[k];
+                    } else {
+                        safeCF[k] = c.customFields[k];
+                    }
                  }
                  return safeCF;
               })(),
@@ -2077,6 +2088,9 @@ const EmailMetadata = ({ email }) => {
 
 /* ---------- app ---------- */
 export default function App() {
+  // 🕒 SESSION START: Marks the exact millisecond the user opened the workspace
+  const sessionStartTime = useRef(new Date());
+
   // 👇 NEW: Fetch Live Trello Members on load and populate the cache
   useEffect(() => {
     fetch("/.netlify/functions/trello-members")
@@ -2087,9 +2101,11 @@ export default function App() {
             if (m.avatarUrl) {
               const full = m.fullName.toLowerCase().trim();
               const first = full.split(' ')[0];
-              // Save to global cache
-              LIVE_TRELLO_AVATARS[full] = m.avatarUrl;
-              LIVE_TRELLO_AVATARS[first] = m.avatarUrl;
+              // ⚡ FIX: Trello API returns base URLs. We must append /50.png to make them visible!
+              const finalUrl = m.avatarUrl.endsWith('.png') ? m.avatarUrl : m.avatarUrl + '/50.png';
+              
+              LIVE_TRELLO_AVATARS[full] = finalUrl;
+              LIVE_TRELLO_AVATARS[first] = finalUrl;
             }
           });
         }
@@ -2097,50 +2113,51 @@ export default function App() {
       .catch(err => console.error("Failed to fetch Trello members", err));
   }, []);
 
-  const [inputValue, setInputValue] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [inputValue, setInputValue] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [notifications, setNotifications] = useState([]);
 
- // 🟢 RESTORED: The "Ear" that listens for Trello, Gmail, and Chat notifications
-  useEffect(() => {
-    const onNotify = (e) => {
-      const { text, cardData, icon, alt, spaceId, gmailData, timestamp } = e.detail || {};
-      if (!text) return;
+// 🟢 RESTORED: The "Ear" that listens for Trello, Gmail, and Chat notifications
+  useEffect(() => {
+    const onNotify = (e) => {
+      const { text, cardData, icon, alt, spaceId, gmailData, timestamp } = e.detail || {};
+      if (!text) return;
 
-      const uniqueId = `notif-${Date.now()}-${Math.random()}`;
-      
-      // 🕒 DYNAMIC TIMESTAMP: Respects original message time vs arrival time
-      let actualDate = new Date();
-      if (gmailData && gmailData.date) {
-        actualDate = new Date(gmailData.date);
-      } else if (timestamp) {
-        actualDate = new Date(timestamp);
-      }
-      
-      const newItem = {
-        id: uniqueId,
-        alt: alt || "System",
-        icon: icon || trelloIcon,
-        text: text, 
-        time: formatUKTimeWithSeconds(actualDate),
-        timestamp: actualDate.toISOString(),
-        cardData,
-        spaceId,
-        gmailData
-      };
+      // 🕒 DYNAMIC TIMESTAMP
+      let actualDate = new Date();
+      if (gmailData && gmailData.date) {
+        actualDate = new Date(gmailData.date);
+      } else if (timestamp) {
+        actualDate = new Date(timestamp);
+      }
 
-      setNotifications((prev) => {
-        // Avoid duplicate IDs (useful during high-frequency polling)
-        if (prev.some(p => p.id === uniqueId || (p.text === text && p.timestamp === newItem.timestamp))) return prev;
-        
-        const nextList = [newItem, ...prev];
-        return nextList.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0, 100);
-      });
-    };
+      // 🛡️ SESSION FILTER: Ignore anything that happened before the user opened the site
+      if (actualDate <= sessionStartTime.current) return;
 
-    window.addEventListener("notify", onNotify);
-    return () => window.removeEventListener("notify", onNotify);
-  }, []);
+      const uniqueId = `notif-${Date.now()}-${Math.random()}`;
+      
+      const newItem = {
+        id: uniqueId,
+        alt: alt || "System",
+        icon: icon || trelloIcon,
+        text: text, 
+        time: formatUKTimeWithSeconds(actualDate),
+        timestamp: actualDate.toISOString(),
+        cardData,
+        spaceId,
+        gmailData
+      };
+
+      setNotifications((prev) => {
+        if (prev.some(p => p.id === uniqueId || (p.text === text && p.timestamp === newItem.timestamp))) return prev;
+        const nextList = [newItem, ...prev];
+        return nextList.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0, 100);
+      });
+    };
+
+    window.addEventListener("notify", onNotify);
+    return () => window.removeEventListener("notify", onNotify);
+  }, []);
 
   // 🟢 NEW: State for the Gmail-style Snackbar pop-up and Undo tracking
   const [snackbar, setSnackbar] = useState({ show: false, text: "" });
@@ -2484,7 +2501,8 @@ const [gmailPageTokens, setGmailPageTokens] = useState({}); // 👈 NEW: Fast pa
  const [isDraftEnlarged, setIsDraftEnlarged] = useState(false); // 👈 NEW
  const [draftAttachments, setDraftAttachments] = useState([]); // 👈 NEW: Holds email attachments
  const draftFileInputRef = useRef(null); // 👈 NEW: Reference for the hidden file input
- const [otherContacts, setOtherContacts] = useState({});
+const [otherContacts, setOtherContacts] = useState({});
+const [historyContacts, setHistoryContacts] = useState({});
 
 useEffect(() => {
    fetch("/.netlify/functions/gmail-contacts", { credentials: "include" })
@@ -2497,9 +2515,81 @@ useEffect(() => {
      .catch(err => console.error("Failed to fetch contacts", err));
  }, []);
 
+useEffect(() => {
+  if (!gmailEmails || !Array.isArray(gmailEmails) || gmailEmails.length === 0) return;
+  const newHits = {};
+  const parse = (input) => {
+    if (!input) return;
+    const items = Array.isArray(input) ? input : String(input).split(/,(?=[^>]*?(?:<|$))/);
+    items.forEach(raw => {
+      if (!raw) return;
+      let str = String(raw).trim();
+      if (!str) return;
+
+      let emailAddress = "";
+      let displayName = "";
+
+      // Logic: If the string has brackets, the content inside is the full email [cite: 84]
+      if (str.includes("<") && str.includes(">")) {
+        const parts = str.split("<");
+        displayName = parts[0].replace(/"/g, '').trim();
+        emailAddress = parts[1].replace(">", "").trim().toLowerCase();
+      } else if (str.includes("@")) {
+        // Fallback for raw email addresses without names
+        emailAddress = str.toLowerCase();
+        const prefix = emailAddress.split("@")[0];
+        displayName = prefix.split(/[._]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+      }
+
+      // Ensure we only store valid email entries [cite: 211, 238]
+      if (emailAddress && emailAddress.includes("@")) {
+        newHits[displayName || emailAddress] = emailAddress;
+      }
+    });
+  };
+  
+  gmailEmails.forEach(m => { 
+    if (m) {
+      parse(m.from); 
+      parse(m.to); 
+      parse(m.cc); 
+    }
+  });
+
+if (Object.keys(newHits).length > 0) {
+    setHistoryContacts(prev => {
+      // 🛡️ Deep compare: Only update state if we found an email address not already in the list
+      const hasNew = Object.values(newHits).some(email => !Object.values(prev).includes(email));
+      if (!hasNew) return prev;
+      return { ...prev, ...newHits };
+    });
+  }
+}, [gmailEmails]);
+
+const combinedContacts = useMemo(() => {
+  return { 
+    ...(AC_EMAIL_MAP || {}), 
+    ...(otherContacts || {}), 
+    ...(historyContacts || {}) 
+  };
+}, [otherContacts, historyContacts]);
+
 
   /* Trello modal */
   const [trelloCard, setTrelloCard] = useState(null);
+  const [checklists, setChecklists] = useState([]);
+  const [newChecklistTitle, setNewChecklistTitle] = useState("Checklist");
+  const [copyFromChecklist, setCopyFromChecklist] = useState("");
+
+  // Fetches checklists when the modal opens
+  useEffect(() => {
+    if (trelloCard?.id) {
+       fetch(`/.netlify/functions/trello-checklists?cardId=${trelloCard.id}`)
+         .then(res => res.json())
+         .then(data => { if(Array.isArray(data)) setChecklists(data); })
+         .catch(err => console.error("Checklist fetch failed:", err));
+    }
+  }, [trelloCard?.id]);
   const [trelloMenuOpen, setTrelloMenuOpen] = useState(false);
   const [showMoveSubmenu, setShowMoveSubmenu] = useState(false);
   const [moveTab, setMoveTab] = useState("outbox");
@@ -2511,10 +2601,10 @@ useEffect(() => {
   const [descEditing, setDescEditing] = useState(false);
   const [descDraft, setDescDraft] = useState("");
   
-  // 👇 NEW: Member Menu State
   const [trelloMembers, setTrelloMembers] = useState([]);
-  const [showAddMenu, setShowAddMenu] = useState(false);
-  const [addMenuStep, setAddMenuStep] = useState("main"); // "main" or "members"
+  const [showAddMenu, setShowAddMenu] = useState(false);
+  const [addMenuStep, setAddMenuStep] = useState("main"); // "main" or "members"
+  const [showMemberShortcut, setShowMemberShortcut] = useState(false); // 👈 NEW
 
   const pendingCFRef = useRef(new Map()); // cardId -> { fieldName: expiryTs }
 
@@ -2557,19 +2647,29 @@ useEffect(() => {
         }
         // Add Google Chats
         if (chatData.ok && chatData.notifications) {
-          combined = [...combined, ...chatData.notifications.map(n => ({
-            ...n,
-            alt: "Google Chat",
-            icon: gchatIcon,
-            text: n.text || `Message in ${n.title}`,
-            timestamp: n.timestamp || new Date().toISOString()
-          }))];
+          combined = [...combined, ...chatData.notifications.map(n => {
+            // 🧠 NAME RESOLUTION: Use the title from gchat-sync which already contains the human name
+            const senderLabel = n.title || "Colleague";
+            
+            // Truncate the snippet if it exists
+            const snippet = n.text || "";
+            const truncatedSnippet = snippet.length > 60 ? snippet.substring(0, 57) + "..." : snippet;
+
+            return {
+              ...n,
+              alt: "Google Chat",
+              icon: gchatIcon,
+              text: truncatedSnippet || `New message from ${senderLabel}`,
+              senderName: senderLabel,
+              timestamp: n.timestamp || new Date().toISOString()
+            };
+          })];
         }
 
         // 2. Sort by newest first
         combined.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
-        // 3. Map to UI format and Filter for NEW items only
+     // 3. Map to UI format and Filter for NEW items only
         setNotifications(prev => {
           const seenIds = new Set(prev.map(p => p.id));
           const newItems = combined
@@ -2867,24 +2967,28 @@ useEffect(() => {
 
             // 🛡️ Only notify if NOT the first run AND message is not from Siya
             if (!isFirstRun && latestMsg.sender?.name !== gchatMe) {
-              // 🧠 INFORMATION DEPTH: Identify the actual sender name vs generic label
-              const senderName = latestMsg.sender?.displayName || "Colleague";
-              let previewText = latestMsg.text || "";
+              // 👤 HUMAN NAME FIX: Pull from displayName or fallback to learned DM names
+              const learnedName = gchatDmNames[targetSpaceId];
+              const senderName = latestMsg.sender?.displayName || learnedName || "Someone";
               
-              // 📎 ATTACHMENT DETAIL: Identify what was sent if text is missing
-              if (!previewText && latestMsg.attachment?.length) {
+              let rawText = latestMsg.text || "";
+              if (!rawText && latestMsg.attachment?.length) {
                 const fileName = latestMsg.attachment[0].contentName || "a file";
-                previewText = `Sent an attachment: ${fileName}`;
+                rawText = `Sent an attachment: ${fileName}`;
               }
+              
+              // ✂️ CONCISE SNIPPET: Match the scannability of Gmail notifications
+              const previewText = rawText.length > 45 ? rawText.substring(0, 42) + "..." : rawText;
 
               window.dispatchEvent(new CustomEvent("notify", {
                 detail: {
                   id: latestId, 
-                  text: `${senderName}: ${previewText}`, // Standard informative format
+                  text: `${senderName}: ${previewText}`, 
                   alt: "Google Chat",
                   icon: gchatIcon,
                   spaceId: targetSpaceId,
-                  timestamp: latestMsg.createTime // Passes the real msg time for the [HH:MM:SS] label
+                  senderName: senderName,
+                  timestamp: latestMsg.createTime 
                 }
               }));
             }
@@ -2911,7 +3015,7 @@ useEffect(() => {
         
         if (!json.ok || !Array.isArray(json.emails)) return;
 
-       // 1. FIRST RUN: Memorize inbox AND trigger notifications for UNREAD emails
+     // 1. FIRST RUN: Memorize inbox AND trigger notifications for UNREAD emails
         if (seenGmailIdsRef.current === null) {
           seenGmailIdsRef.current = new Set(json.emails.map(e => e.id));
           
@@ -3086,6 +3190,8 @@ useEffect(() => {
   return () => window.removeEventListener("openTrelloCard", handler);
 }, []);
 
+
+
 // 👇 NEW: Fetch Board Members on load
   useEffect(() => {
     fetch("/.netlify/functions/trello-members")
@@ -3095,19 +3201,22 @@ useEffect(() => {
   }, []);
 
   useEffect(() => {
-    const close = (e) => {
-      if (e.target.closest?.(".kebab-wrap")) return;
-      setTrelloMenuOpen(false);
-      setShowMoveSubmenu(false); 
-      
-      // 👇 NEW: Close the Add Menu if clicking outside
-      if (!e.target.closest?.(".add-menu-wrap")) {
-        setShowAddMenu(false);
+    const close = (e) => {
+      if (e.target.closest?.(".kebab-wrap")) return;
+      setTrelloMenuOpen(false);
+      setShowMoveSubmenu(false); 
+      
+      if (!e.target.closest?.(".add-menu-wrap")) {
+        setShowAddMenu(false);
+      }
+      // 👇 NEW: Close the shortcut menu if clicking outside
+      if (!e.target.closest?.(".member-shortcut-wrap")) {
+        setShowMemberShortcut(false);
       }
-    };
-    document.addEventListener("click", close);
-    return () => document.removeEventListener("click", close);
-  }, []);
+    };
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, []);
 
   // 1. TRACK PENDING UPDATES (Prevents flickering)
   useEffect(() => {
@@ -3194,19 +3303,22 @@ useEffect(() => {
     const isPending = (field) => pend[field] && pend[field] > now;
 
     // C. Detect Changes
-    const oldCF = JSON.stringify(trelloCard.customFields || {});
-    const newCF = JSON.stringify(fresh.customFields || {});
-    const oldLabels = JSON.stringify(trelloCard.labels || []);
-    const newLabels = JSON.stringify(fresh.labels || []);
-    const oldDesc = trelloCard.description || "";
-    const newDesc = fresh.description || "";
+    const oldCF = JSON.stringify(trelloCard.customFields || {});
+    const newCF = JSON.stringify(fresh.customFields || {});
+    const oldLabels = JSON.stringify(trelloCard.labels || []);
+    const newLabels = JSON.stringify(fresh.labels || []);
+    const oldDesc = trelloCard.description || "";
+    const newDesc = fresh.description || "";
+    const oldMembers = JSON.stringify(trelloCard.members || []);
+    const newMembers = JSON.stringify(fresh.people || []);
 
-    // D. Update if changed (BUT respect pending fields)
-    if (oldCF !== newCF || oldLabels !== newLabels || oldDesc !== newDesc) {
-       console.log("Syncing Middle Pane with Trello changes...");
-       setTrelloCard(prev => {
-          const mergedCF = { ...fresh.customFields };
-
+    // D. Update if changed (BUT respect pending fields)
+    if (oldCF !== newCF || oldLabels !== newLabels || oldDesc !== newDesc || oldMembers !== newMembers) {
+       setTrelloCard(prev => {
+          const mergedCF = { ...fresh.customFields };
+          
+          // 🛡️ MEMBER SHIELD: Ignore Trello's data if we just clicked Add/Remove
+          const mergedMembers = isPending("Members") ? prev.members : (fresh.people || []);
           // 🛡️ PROTECT LOCAL EDITS: If user just edited these, ignore Server value for a few seconds
           if (isPending("Priority"))   mergedCF.Priority   = prev.customFields.Priority;
           if (isPending("Status"))     mergedCF.Status     = prev.customFields.Status;
@@ -3219,6 +3331,7 @@ useEffect(() => {
           return {
              ...prev,
              labels: fresh.labels,       // Always take fresh labels
+             members: mergedMembers, // 👈 ADD THIS LINE
              description: descEditing ? prev.description : newDesc, 
              customFields: mergedCF,     // Smart Merge
              badges: ensureBadgeTypes([
@@ -3238,25 +3351,30 @@ useEffect(() => {
   };
 
 const onNotificationClick = async (n) => {
-    // 👇 NEW: Google Chat Handler
-    if (n.alt === "Google Chat") {
-      // 1. Switch View
-      setCurrentView({ app: "gchat", contact: null });
+    // 👇 NEW: Google Chat Handler
+    if (n.alt === "Google Chat") {
+      // 1. Switch View
+      setCurrentView({ app: "gchat", contact: null });
 
-      // 2. Select the Space (if found)
-      if (n.spaceId) {
-        const targetSpace = gchatSpaces.find((s) => s.id === n.spaceId);
-        if (targetSpace) {
-          setGchatSelectedSpace(targetSpace);
-        }
-      }
+      // 2. Select the Space (if found)
+      // 🧠 LOGIC: We check n.spaceId (background poll) OR n.gmailData.spaceId (arrival sync)
+      const sid = n.spaceId || n.gmailData?.spaceId;
+      if (sid) {
+        const targetSpace = gchatSpaces.find((s) => s.id === sid || s.name === sid);
+        if (targetSpace) {
+          setGchatSelectedSpace(targetSpace);
+        } else {
+            // Fallback: If space list isn't loaded yet, create a "ghost" space to trigger the message loader
+            setGchatSelectedSpace({ id: sid, name: sid, type: "DIRECT_MESSAGE" });
+        }
+      }
 
-      // 3. Dismiss notification
-      dismissNotification(n);
-      return;
-    }
+      // 3. Dismiss notification
+      dismissNotification(n);
+      return;
+    }
 
-   // UPDATED SNIPPET
+   // UPDATED SNIPPET
     // 📋 Trello Handler
     if (n.alt === "Trello" && n.cardData) {
       setCurrentView({ app: "trello", contact: null });
@@ -3313,7 +3431,7 @@ const onNotificationClick = async (n) => {
                             plainBody = plainBody.substring(0, sigIndex).trim();
                           }
 
-                          setSelectedDraftTemplate({
+                         setSelectedDraftTemplate({
                             id: "existing_draft",
                             draftId: msg.id,
                             label: "Edit Draft",
@@ -3322,8 +3440,18 @@ const onNotificationClick = async (n) => {
                             isForward: false 
                           });
                           setDraftTo(toEmail);
-                          setDraftAttachments(msg.attachments || []);
-                          setEmail(null); 
+                          
+                          // 📎 Load existing draft attachments as File objects
+                          if (msg.attachments && msg.attachments.length > 0) {
+                            Promise.all(msg.attachments.map(async (a) => {
+                              const fileUrl = `/.netlify/functions/gmail-download?messageId=${msg.id}&attachmentId=${a.id}&filename=${encodeURIComponent(a.name)}&mimeType=${encodeURIComponent(a.mimeType)}`;
+                              const res = await fetch(fileUrl);
+                              const blob = await res.blob();
+                              return new File([blob], a.name, { type: a.mimeType });
+                            })).then(files => setDraftAttachments(files));
+                          }
+
+                          setEmail(null);
                           setEmailPreview(null);
                           return;
                         }
@@ -3982,38 +4110,38 @@ const handleStartChat = async () => {
         {gchatError && <div className="gchat-error">{gchatError}</div>}
 
   {!gchatLoading && gchatSpaces.map((s) => {
-            // 🛡️ Logic: If it's a DM, prioritize the learned human name over the generic Space name
-            const learnedName = gchatDmNames[s.id];
-            const title = s.type === "DIRECT_MESSAGE" 
-              ? (learnedName && learnedName !== "Direct Message" ? learnedName : (s.displayName || "Direct Message"))
-              : (s.displayName || "Unnamed");
+            // 🛡️ Logic: If it's a DM, prioritize the learned human name over the generic Space name
+            const learnedName = gchatDmNames[s.id];
+            const title = s.type === "DIRECT_MESSAGE" 
+              ? (learnedName && learnedName !== "Direct Message" ? learnedName : (s.displayName || "Direct Message"))
+              : (s.displayName || "Unnamed");
 
-            return (
-              <button 
-                key={s.id} 
-                className={`gchat-item ${gchatSelectedSpace?.id === s.id ? "active" : ""}`} 
-                style={{ 
-                  width: "100%", 
-                  display: "flex", 
-                  gap: "8px", 
-                  padding: "8px", 
-                  marginBottom: "4px", 
-                  textAlign: "left",
-                  background: gchatSelectedSpace?.id === s.id ? "#e8f0fe" : "transparent",
-                  border: "none",
-                  cursor: "pointer",
-                  borderRadius: "8px"
-                }} 
-                onClick={() => setGchatSelectedSpace(s)}
-              >
-                <div className="gchat-item-text">
-                  <div className="gchat-item-title" style={{ fontWeight: gchatSelectedSpace?.id === s.id ? "600" : "400", color: "#202124" }}>
-                    {title}
-                  </div>
-                </div>
-              </button>
-            );
-          })}
+            return (
+              <button 
+                key={s.id} 
+                className={`gchat-item ${gchatSelectedSpace?.id === s.id ? "active" : ""}`} 
+                style={{ 
+                  width: "100%", 
+                  display: "flex", 
+                  gap: "8px", 
+                  padding: "8px", 
+                  marginBottom: "4px", 
+                  textAlign: "left",
+                  background: gchatSelectedSpace?.id === s.id ? "#e8f0fe" : "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  borderRadius: "8px"
+                }} 
+                onClick={() => setGchatSelectedSpace(s)}
+              >
+                <div className="gchat-item-text">
+                  <div className="gchat-item-title" style={{ fontWeight: gchatSelectedSpace?.id === s.id ? "600" : "400", color: "#202124" }}>
+                    {title}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
       </div>
 
       {/* RIGHT 3/4 — message thread */}
@@ -4026,23 +4154,23 @@ const handleStartChat = async () => {
         }}
       >
         <div
-          className="gchat-topbar"
-          style={{
-            borderBottom: "1px solid #ddd",
-            padding: "8px",
-          }}
-        >
-          <div className="gchat-top-title">
-            {gchatSelectedSpace
-              ? gchatSelectedSpace.type === "DIRECT_MESSAGE"
-                ? gchatDmNames[gchatSelectedSpace.id] ||
-                  gchatSelectedSpace.displayName ||
-                  otherPersonName || // 👈 Uses the real name found in messages!
-                  "Direct Message"
-                : gchatSelectedSpace.displayName || "Unnamed"
-              : "Select a space"}
-          </div>
-        </div>
+          className="gchat-topbar"
+          style={{
+            borderBottom: "1px solid #ddd",
+            padding: "8px",
+          }}
+        >
+          <div className="gchat-top-title">
+            {gchatSelectedSpace
+              ? gchatSelectedSpace.type === "DIRECT_MESSAGE"
+                ? gchatDmNames[gchatSelectedSpace.id] ||
+                  gchatSelectedSpace.displayName ||
+                  otherPersonName || // 👈 Uses the real name found in messages!
+                  "Direct Message"
+                : gchatSelectedSpace.displayName || "Unnamed"
+              : "Select a space"}
+          </div>
+        </div>
 
         <div
           className="gchat-thread-body"
@@ -4073,14 +4201,18 @@ const handleStartChat = async () => {
               {!gchatMsgLoading && !gchatMsgError && (
                 <div className="gchat-msg-list">
                   {/* Corrected Google Chat Message List */}
-                  {gchatMessages.map((m, idx) => {
+                  {gchatMessages.map((m, idx) => {
                     const msg = normalizeGChatMessage(m);
                     const senderName = msg?.sender?.displayName || "Unknown";
                     const msgId = msg?.name || msg?.id || `${msg?.createTime || "no-ts"}-${idx}`;
                     const avatar = avatarFor(senderName);
                     
-                    // Identity Logic
-                    const isMine = (!!gchatMe && msg?.sender?.name === gchatMe) || msg?.sender?.email === 'siya@actuaryspace.co.za';
+                    // 🛡️ BATTLE-HARDENED IDENTITY CHECK:
+                    // 1. Matches unique Google resource ID (gchatMe)
+                    // 2. Matches Siya's known work emails (backup if ID is missing)
+                    const isMine = (!!gchatMe && msg?.sender?.name === gchatMe) || 
+                                   (msg?.sender?.email === 'siya@actuaryspace.co.za') ||
+                                   (msg?.sender?.email === 'siya@actuaryconsulting.co.za');
 
                     const hasAttachment = msg.attachment && msg.attachment.length > 0;
                     const fileData = hasAttachment ? msg.attachment[0] : null;
@@ -4187,7 +4319,10 @@ if (currentView.app === "gmail") {
       if (snapshotIds.length === 0) return;
       
       const isPerm = gmailFolder === "TRASH";
+      const countToRemove = snapshotIds.length;
       
+      // 1. OPTIMISTIC COUNT REDUCTION: Subtract from the total immediately
+      setGmailTotal(prev => Math.max(0, prev - countToRemove));
       setGmailLoading(true);
       
       try {
@@ -4204,28 +4339,29 @@ if (currentView.app === "gmail") {
           setGmailEmails([]); 
           setGmailRefreshTrigger(p => p + 1);
           
-          // 🟢 Pass action info for Undo tracking (only for non-permanent deletes)
           triggerSnackbar(
-            isPerm ? `${snapshotIds.length} item(s) permanently deleted.` : `${snapshotIds.length} conversation(s) moved to Trash.`,
+            isPerm ? `${countToRemove} item(s) permanently deleted.` : `${countToRemove} conversation(s) moved to Trash.`,
             isPerm ? null : { type: "delete", ids: snapshotIds }
           );
           
-          // Trigger the on-screen notification
           window.dispatchEvent(new CustomEvent("notify", { 
             detail: { 
-              text: isPerm ? `${snapshotIds.length} item(s) permanently deleted` : `${snapshotIds.length} item(s) moved to Trash`, 
+              text: isPerm ? `${countToRemove} item(s) permanently deleted` : `${countToRemove} item(s) moved to Trash`, 
               alt: "Gmail", 
               icon: gmailIcon 
             } 
           }));
         } else {
+          // Revert count on error
+          setGmailTotal(prev => prev + countToRemove);
           setGmailLoading(false);
           alert(`Error: ${bulkResult.error || "Server failed to process request"}`);
         }
       } catch (e) { 
+        setGmailTotal(prev => prev + countToRemove);
         console.error("Delete handler error:", e);
         setGmailLoading(false);
-        alert("Action failed. Please check your connection and try again.");
+        alert("Action failed.");
       }
     };
 
@@ -4465,7 +4601,7 @@ if (currentView.app === "gmail") {
     </svg>
   </button>
 
-  <span>{`${gmailTotal > 0 ? (gmailPage - 1) * 50 + 1 : 0}–${Math.min(gmailPage * 50, gmailTotal)} of ${gmailTotal.toLocaleString()}`}</span>
+ <span>{`${gmailTotal > 0 ? (gmailPage - 1) * 50 + 1 : 0}–${(gmailPage - 1) * 50 + gmailEmails.length} of ${gmailTotal.toLocaleString()}`}</span>
   <div style={{ display: "flex" }}>
                     <button onClick={() => { setGmailEmails([]); setGmailPage(p => Math.max(1, p - 1)); }} disabled={gmailPage === 1} style={{ background: "transparent", border: "none", cursor: gmailPage === 1 ? "default" : "pointer", color: gmailPage === 1 ? "#c1c7d0" : "#5f6368", padding: "4px", borderRadius: "50%" }} onMouseEnter={e => gmailPage !== 1 && (e.currentTarget.style.background = "#eee")} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                       <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
@@ -4819,7 +4955,7 @@ if (currentView.app === "gmail") {
                       overflowY: "auto",
                       borderRadius: "4px"
                     }}>
-                      {Object.entries({ ...otherContacts, ...AC_EMAIL_MAP })
+                      {Object.entries(combinedContacts)
                         .filter(([name]) => name.toLowerCase().includes((draftTo || "").toLowerCase()))
                         .map(([name, email]) => (
                               <div 
@@ -4836,8 +4972,8 @@ if (currentView.app === "gmail") {
                                   color: "#202124"
                                 }}
                               >
-                                <span style={{ fontWeight: 600 }}>{name}</span>
-                                <span style={{ color: "#5f6368" }}>{email}</span>
+                               <span style={{ fontWeight: 600, whiteSpace: "nowrap" }}>{name}</span>
+                                <span style={{ color: "#5f6368", marginLeft: "15px", whiteSpace: "nowrap" }}>{email}</span>
                               </div>
                             ))
                           }
@@ -5328,12 +5464,28 @@ if (currentView.app === "gmail") {
 
                   return (
                     <button
-                      key={i}
-                      className="email-attach"
-                      onClick={() => setEmailPreview(f)}
-                      title={f.name}
-                      style={{ background: "#fff", border: "1px solid #dadce0", borderRadius: "8px", width: "180px", height: "auto", padding: "0", overflow: "hidden", display: "flex", flexDirection: "column" }}
-                    >
+  key={i}
+  className="email-attach"
+  onClick={(e) => {
+    e.stopPropagation();
+    const isViewable = f.type === 'pdf' || f.type === 'img';
+    
+    if (isViewable) {
+      // 🟢 PDFs and Images: Open the split-view preview pane
+      setEmailPreview(f);
+    } else {
+      // 🔵 Word/Excel/Other: Bypass preview and trigger instant download
+      const link = document.createElement("a");
+      link.href = f.url;
+      link.setAttribute("download", f.name);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  }}
+  title={f.name}
+  style={{ background: "#fff", border: "1px solid #dadce0", borderRadius: "8px", width: "180px", height: "auto", padding: "0", overflow: "hidden", display: "flex", flexDirection: "column" }}
+>
                       <div className="email-attach-preview" style={{ height: "100px", background: "#f8f9fa", display: "flex", alignItems: "center", justifyContent: "center" }}>
                         {/* Iframe removed to prevent auto-downloads. Replaced with dynamic type icon. */}
                         <div style={{ fontSize: "28px", fontWeight: "bold", color: iconColor, opacity: 0.3 }}>
@@ -5380,16 +5532,25 @@ if (currentView.app === "gmail") {
                       }
 
                       setSelectedDraftTemplate({
-                        id: "existing_draft",
-                        draftId: email.id,
-                        label: "Edit Draft",
-                        subject: email.subject || "",
-                        body: plainBody + "\n\n",
-                        isForward: false 
-                      });
-                      setDraftTo(toEmail);
-                      setDraftAttachments(email.attachments || []);
-                      setEmail(null); 
+                            id: "existing_draft",
+                            draftId: email.id,
+                            label: "Edit Draft",
+                            subject: email.subject || "",
+                            body: plainBody + "\n\n",
+                            isForward: false 
+                          });
+                          setDraftTo(toEmail);
+
+                          // 📎 Load existing draft attachments as File objects
+                          if (email.attachments && email.attachments.length > 0) {
+                            Promise.all(email.attachments.map(async (a) => {
+                              const res = await fetch(a.url);
+                              const blob = await res.blob();
+                              return new File([blob], a.name, { type: a.mimeType });
+                            })).then(files => setDraftAttachments(files));
+                          }
+
+                          setEmail(null);
                       setEmailPreview(null);
                       setCurrentView({ app: "gmail", contact: null }); // 🟢 FIX: Switch view so it doesn't crash trying to render a null email
                     }}
@@ -5422,7 +5583,7 @@ if (currentView.app === "gmail") {
                     </button>
                     <button 
                       className="gmail-btn-outline" 
-                      onClick={() => {
+                      onClick={async () => {
                         const replyTpl = DRAFT_TEMPLATES.find(t => t.id === "new_blank");
                         
                         const cleanFromEmail = email.fromEmail ? email.fromEmail.replace(/[<>]/g, '') : "";
@@ -5430,12 +5591,25 @@ if (currentView.app === "gmail") {
                             ? `${email.fromName} <${cleanFromEmail}>` 
                             : `<${cleanFromEmail || email.fromName}>`;
                         
-                        // Fixed the hardcoded Yolandie string to correctly show Siya as the original recipient
                         const fwdHeader = `\n\n---------- Forwarded message ---------\nFrom: ${fromLine}\nDate: ${email.time}\nSubject: ${email.subject}\nTo: Siyabonga Nono <siyabonga@actuaryconsulting.co.za>\n\n`;
                         const fwdBody = email.body || email.snippet || "";
                         
+                        // 📎 ATTACHMENT FORWARDING: Convert existing attachments to File objects
+                        if (email.attachments && email.attachments.length > 0) {
+                          try {
+                            const existingFiles = await Promise.all(email.attachments.map(async (a) => {
+                              const res = await fetch(a.url);
+                              const blob = await res.blob();
+                              return new File([blob], a.name, { type: a.mimeType });
+                            }));
+                            setDraftAttachments(existingFiles);
+                          } catch (e) {
+                            console.error("Failed to collect attachments for forward", e);
+                          }
+                        }
+                        
                         setSelectedDraftTemplate({...replyTpl, body: fwdHeader + fwdBody, isForward: true});
-                        setDraftTo(""); // Forwarding requires you to pick a new recipient
+                        setDraftTo(""); 
                       }}
                       style={{ borderRadius: "100px", padding: "8px 24px", color: "#3c4043", border: "1px solid #dadce0", display: "flex", alignItems: "center", gap: "8px", background: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: 500 }}
                     >
@@ -5534,45 +5708,46 @@ if (currentView.app === "gmail") {
                         placeholder={selectedDraftTemplate.isForward ? "To" : "Recipient"}
                       />
                       
-                    {/* Suggestion Dropdown */}
-                      {(draftTo || "").length > 1 && !(draftTo || "").includes("@") && (
-                        <div style={{
-                          position: "absolute",
-                          top: "100%",
-                          left: "0",
-                          width: "100%",
-                          background: "white",
-                          border: "1px solid #dadce0",
-                          boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-                          zIndex: 2000,
-                          maxHeight: "200px",
-                          overflowY: "auto",
-                          borderRadius: "4px",
-                          marginTop: "12px"
-                        }}>
-                          {Object.entries({ ...otherContacts, ...AC_EMAIL_MAP })
-                            .filter(([name]) => name.toLowerCase().includes((draftTo || "").toLowerCase()))
-                            .map(([name, email]) => (
-                          <div 
-                            key={email}
-                            onClick={() => setDraftTo(email)}
-                            onMouseEnter={(e) => e.currentTarget.style.background = "#f1f3f4"}
-                            onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-                            style={{
-                              padding: "8px 12px",
-                              cursor: "pointer",
-                              display: "flex",
-                              justifyContent: "space-between",
-                              fontSize: "13px"
-                            }}
-                          >
-                            <span style={{ fontWeight: 600 }}>{name}</span>
-                            <span style={{ color: "#5f6368" }}>{email}</span>
-                          </div>
-                        ))
-                      }
-                    </div>
-                  )}
+                    
+                 {/* Suggestion Dropdown */}
+                  {(draftTo || "").length > 1 && !(draftTo || "").includes("@") && (
+                    <div style={{
+                      position: "absolute",
+                      top: "100%",
+                      left: "56px",
+                      right: "16px",
+                      background: "white",
+                      border: "1px solid #dadce0",
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                      zIndex: 2000,
+                      maxHeight: "200px",
+                      overflowY: "auto",
+                      borderRadius: "4px"
+                    }}>
+                      {Object.entries(combinedContacts)
+                        .filter(([name]) => name.toLowerCase().includes((draftTo || "").toLowerCase()))
+                        .map(([name, email]) => (
+                              <div 
+                                key={email}
+                                onClick={() => setDraftTo(email)}
+                                onMouseEnter={(e) => e.currentTarget.style.background = "#f1f3f4"}
+                                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                                style={{
+                                  padding: "8px 12px",
+                                  cursor: "pointer",
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  fontSize: "13px",
+                                  color: "#202124"
+                                }}
+                              >
+                                <span style={{ fontWeight: 600, whiteSpace: "nowrap" }}>{name}</span>
+                                <span style={{ color: "#5f6368", marginLeft: "15px", whiteSpace: "nowrap" }}>{email}</span>
+                              </div>
+                            ))
+                          }
+                        </div>
+                      )}
                     </>
                   )}
                 </div>
@@ -6150,100 +6325,143 @@ if (currentView.app === "gmail") {
 
                  {showAddMenu && (
                    <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: '4px', background: '#fff', border: '1px solid #dfe1e6', borderRadius: '3px', boxShadow: '0 8px 16px -4px rgba(9,30,66,0.25), 0 0 0 1px rgba(9,30,66,0.08)', width: '300px', zIndex: 1000, color: '#172b4d', fontSize: '14px' }}>
-                     {addMenuStep === "main" ? (
+                     
+                     {/* 1. MAIN MENU */}
+                     {addMenuStep === "main" && (
                        <>
                          <div style={{ display: 'flex', alignItems: 'center', padding: '12px 12px 8px', borderBottom: '1px solid #091e4221', marginBottom: '8px', position: 'relative' }}>
                            <div style={{ flex: 1, textAlign: 'center', fontWeight: 600, color: '#5e6c84', fontSize: '14px' }}>Add to card</div>
                            <button onClick={() => setShowAddMenu(false)} style={{ border:'none', background:'none', cursor:'pointer', color:'#42526e', fontSize:'16px', position: 'absolute', right: '12px' }}>✕</button>
                          </div>
                          <div style={{ padding: '0 8px 12px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                           <div style={{ padding: '8px', borderRadius: '3px', cursor: 'pointer', display: 'flex', gap: '12px', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = '#091e420f'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                             <span style={{ fontSize: '16px' }}>🏷️</span><div><div style={{ fontWeight: 500 }}>Labels</div><div style={{ fontSize: '12px', color: '#5e6c84' }}>Organize, categorize, and prioritize</div></div>
-                           </div>
-                           <div style={{ padding: '8px', borderRadius: '3px', cursor: 'pointer', display: 'flex', gap: '12px', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = '#091e420f'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                             <span style={{ fontSize: '16px' }}>🕒</span><div><div style={{ fontWeight: 500 }}>Dates</div><div style={{ fontSize: '12px', color: '#5e6c84' }}>Start dates, due dates, and reminders</div></div>
-                           </div>
-                           <div style={{ padding: '8px', borderRadius: '3px', cursor: 'pointer', display: 'flex', gap: '12px', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = '#091e420f'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                             <span style={{ fontSize: '16px' }}>☑️</span><div><div style={{ fontWeight: 500 }}>Checklist</div><div style={{ fontSize: '12px', color: '#5e6c84' }}>Add subtasks</div></div>
-                           </div>
                            <div onClick={() => setAddMenuStep("members")} style={{ padding: '8px', borderRadius: '3px', cursor: 'pointer', display: 'flex', gap: '12px', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = '#091e420f'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                              <span style={{ fontSize: '16px' }}>👤</span><div><div style={{ fontWeight: 500 }}>Members</div><div style={{ fontSize: '12px', color: '#5e6c84' }}>Assign members</div></div>
+                           </div>
+                           <div onClick={() => setAddMenuStep("checklist")} style={{ padding: '8px', borderRadius: '3px', cursor: 'pointer', display: 'flex', gap: '12px', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = '#091e420f'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                             <span style={{ fontSize: '16px' }}>☑️</span><div><div style={{ fontWeight: 500 }}>Checklist</div><div style={{ fontSize: '12px', color: '#5e6c84' }}>Add subtasks</div></div>
                            </div>
                            <div style={{ padding: '8px', borderRadius: '3px', cursor: 'pointer', display: 'flex', gap: '12px', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = '#091e420f'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                              <span style={{ fontSize: '16px' }}>📎</span><div><div style={{ fontWeight: 500 }}>Attachment</div><div style={{ fontSize: '12px', color: '#5e6c84' }}>Add links, pages, work items, and more</div></div>
                            </div>
                          </div>
                        </>
-                     ) : (
-                       <>
-                         <div style={{ display: 'flex', alignItems: 'center', padding: '12px 12px 8px', borderBottom: '1px solid #091e4221', marginBottom: '8px', position: 'relative' }}>
-                           <button onClick={() => setAddMenuStep("main")} style={{ border:'none', background:'none', cursor:'pointer', color:'#42526e', fontSize:'18px', position: 'absolute', left: '12px' }}>‹</button>
-                           <div style={{ flex: 1, textAlign: 'center', fontWeight: 600, color: '#5e6c84', fontSize: '14px' }}>Members</div>
-                           <button onClick={() => setShowAddMenu(false)} style={{ border:'none', background:'none', cursor:'pointer', color:'#42526e', fontSize:'16px', position: 'absolute', right: '12px' }}>✕</button>
-                         </div>
-                         <div style={{ padding: '0 12px 12px', maxHeight: '300px', overflowY: 'auto' }}>
-                           <div style={{ fontWeight: 600, fontSize: '12px', color: '#5e6c84', marginBottom: '8px' }}>Board members</div>
-                           {trelloMembers.length === 0 && <div style={{ fontSize: '12px', color: '#5e6c84' }}>Loading members...</div>}
-                           {trelloMembers.map(member => {
-                             const isAssigned = (c.members || []).some(m => m === member.fullName || m === member.id);
-                             return (
-                               <div 
-                                 key={member.id} 
-                                 onMouseEnter={e => e.currentTarget.style.background = isAssigned ? '#e6fcff' : '#091e420f'} 
-                                 onMouseLeave={e => e.currentTarget.style.background = isAssigned ? '#e6fcff' : 'transparent'}
-                                 onClick={async (e) => {
-                                    e.stopPropagation();
-                                    
-                                    // Calculate new members array
-                                    const newMembers = isAssigned 
-                                      ? c.members.filter(m => m !== member.fullName && m !== member.id)
-                                      : [...(c.members || []), member.fullName];
-                                      
-                                    // 1. Optimistic Update (Instantly show on UI)
-                                    setTrelloCard(prev => ({ ...prev, members: newMembers }));
-                                    
-                                    // 2. Background Sync to Trello
-                                    try {
-                                      await fetch("/.netlify/functions/trello-toggle-member", {
-                                        method: "POST", headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({ cardId: c.id, memberId: member.id, shouldAdd: !isAssigned })
-                                      });
-                                      // 3. Update hidden background lists
-                                      window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
-                                        detail: { cardId: c.id, updater: old => ({ ...old, people: newMembers }) }
-                                      }));
-                                    } catch (err) { console.error("Member toggle failed", err); }
-                                 }} 
-                                 style={{ display: 'flex', alignItems: 'center', padding: '6px', cursor: 'pointer', borderRadius: '3px', background: isAssigned ? '#e6fcff' : 'transparent', marginBottom: '2px' }}
-                               >
-                                 {member.avatarUrl 
-                                   ? <img src={member.avatarUrl} alt="" style={{ width: 32, height: 32, borderRadius: '50%', marginRight: 12 }} /> 
-                                   : <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#dfe1e6', color: '#172b4d', marginRight: 12, display: 'grid', placeItems: 'center', fontWeight: 600 }}>{member.fullName[0]}</div>
-                                 }
-                                 <span style={{ flex: 1, fontWeight: 500, fontSize: '14px' }}>{member.fullName}</span>
-                                 {isAssigned && <span style={{ color: '#0079bf', fontWeight: 'bold' }}>✓</span>}
-                               </div>
-                             )
-                           })}
-                         </div>
-                       </>
                      )}
+
+                     {/* 2. CHECKLIST CREATION POPOVER */}
+                     {addMenuStep === "checklist" && (
+                        <>
+                          <div style={{ display: 'flex', alignItems: 'center', padding: '12px 12px 8px', borderBottom: '1px solid #091e4221', marginBottom: '8px', position: 'relative' }}>
+                            <button onClick={() => setAddMenuStep("main")} style={{ border:'none', background:'none', cursor:'pointer', color:'#42526e', fontSize:'18px', position: 'absolute', left: '12px' }}>‹</button>
+                            <div style={{ flex: 1, textAlign: 'center', fontWeight: 600, color: '#5e6c84', fontSize: '14px' }}>Add checklist</div>
+                            <button onClick={() => setShowAddMenu(false)} style={{ border:'none', background:'none', cursor:'pointer', color:'#42526e', fontSize:'16px', position: 'absolute', right: '12px' }}>✕</button>
+                          </div>
+                          <div style={{ padding: '0 12px 12px' }}>
+                            <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#5e6c84', marginBottom: '4px' }}>Title</label>
+                            <input autoFocus value={newChecklistTitle} onChange={e => setNewChecklistTitle(e.target.value)} style={{ width: '100%', padding: '8px 12px', borderRadius: '3px', border: '2px solid #0079bf', outline: 'none', marginBottom: '16px', color: '#172b4d', fontSize: '14px', boxSizing: 'border-box' }} />
+
+                            <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#5e6c84', marginBottom: '4px' }}>Copy items from...</label>
+                            <select value={copyFromChecklist} onChange={e => setCopyFromChecklist(e.target.value)} style={{ width: '100%', padding: '8px 12px', borderRadius: '3px', border: '2px solid #dfe1e6', outline: 'none', marginBottom: '16px', background: '#fafbfc', color: '#172b4d', fontSize: '14px', boxSizing: 'border-box' }}>
+                              <option value="">(none)</option>
+                              {checklists.map(cl => <option key={cl.id} value={cl.id}>{cl.name}</option>)}
+                            </select>
+
+                            <button 
+                               className="btn-blue" 
+                               onClick={async (e) => {
+                                  e.stopPropagation();
+                                  const title = newChecklistTitle || "Checklist";
+                                  const tempId = "temp-" + Date.now();
+                                  
+                                  // ⚡ Optimistic Update
+                                  setChecklists(prev => [...prev, { id: tempId, name: title, checkItems: [] }]);
+                                  setShowAddMenu(false);
+                                  setNewChecklistTitle("Checklist"); 
+                                  setCopyFromChecklist("");
+
+                                  // 🚀 Sync to backend
+                                  try {
+                                      const res = await fetch("/.netlify/functions/trello-checklists", {
+                                          method: "POST",
+                                          body: JSON.stringify({ action: 'create_checklist', cardId: c.id, name: title, idChecklistSource: copyFromChecklist || null })
+                                      });
+                                      const realCl = await res.json();
+                                      setChecklists(prev => prev.map(cl => cl.id === tempId ? realCl : cl));
+                                  } catch(err) { console.error(err); }
+                               }} 
+                               style={{ padding: '6px 12px', borderRadius: '3px', border: 'none', background: '#0052cc', color: 'white', fontWeight: 500, cursor: 'pointer' }}
+                            >
+                               Add
+                            </button>
+                          </div>
+                        </>
+                     )}
+
+                     {/* 3. MEMBERS ASSIGNMENT POPOVER */}
+                     {addMenuStep === "members" && (
+                        <>
+                          <div style={{ display: 'flex', alignItems: 'center', padding: '12px 12px 8px', borderBottom: '1px solid #091e4221', marginBottom: '8px', position: 'relative' }}>
+                            <button onClick={() => setAddMenuStep("main")} style={{ border:'none', background:'none', cursor:'pointer', color:'#42526e', fontSize:'18px', position: 'absolute', left: '12px' }}>‹</button>
+                            <div style={{ flex: 1, textAlign: 'center', fontWeight: 600, color: '#5e6c84', fontSize: '14px' }}>Members</div>
+                            <button onClick={() => setShowAddMenu(false)} style={{ border:'none', background:'none', cursor:'pointer', color:'#42526e', fontSize:'16px', position: 'absolute', right: '12px' }}>✕</button>
+                          </div>
+                          <div style={{ padding: '0 12px 12px', maxHeight: '300px', overflowY: 'auto' }}>
+                            <div style={{ fontWeight: 600, fontSize: '12px', color: '#5e6c84', marginBottom: '8px' }}>Board members</div>
+                            {trelloMembers.length === 0 && <div style={{ fontSize: '12px', color: '#5e6c84' }}>Loading members...</div>}
+                            
+                            {/* DYNAMIC SORT */}
+                            {(() => {
+                               const sortedMembers = [...trelloMembers].sort((a, b) => {
+                                  const aAssigned = (c.members || []).some(m => m === a.fullName || m === a.id);
+                                  const bAssigned = (c.members || []).some(m => m === b.fullName || m === b.id);
+                                  if (aAssigned === bAssigned) return a.fullName.localeCompare(b.fullName);
+                                  return aAssigned ? -1 : 1;
+                               });
+
+                               return sortedMembers.map(member => {
+                                  const isAssigned = (c.members || []).some(m => m === member.fullName || m === member.id);
+                                  return (
+                                    <div 
+                                      key={member.id} 
+                                      onMouseEnter={e => e.currentTarget.style.background = isAssigned ? '#e6fcff' : '#091e420f'} 
+                                      onMouseLeave={e => e.currentTarget.style.background = isAssigned ? '#e6fcff' : 'transparent'}
+                                      onClick={async (e) => {
+                                         e.stopPropagation();
+                                         const newMembers = isAssigned 
+                                           ? c.members.filter(m => m !== member.fullName && m !== member.id)
+                                           : [...(c.members || []), member.fullName];
+                                           
+                                         window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "Members", ttlMs: 10000 } }));
+                                         setTrelloCard(prev => ({ ...prev, members: newMembers }));
+                                         
+                                         try {
+                                           fetch("/.netlify/functions/trello-toggle-member", {
+                                             method: "POST", headers: { "Content-Type": "application/json" },
+                                             body: JSON.stringify({ cardId: c.id, memberId: member.id, shouldAdd: !isAssigned })
+                                           });
+                                           window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
+                                             detail: { cardId: c.id, updater: old => ({ ...old, people: newMembers }) }
+                                           }));
+                                         } catch (err) { console.error("Member toggle failed", err); }
+                                      }} 
+                                      style={{ display: 'flex', alignItems: 'center', padding: '6px', cursor: 'pointer', borderRadius: '3px', background: isAssigned ? '#e6fcff' : 'transparent', marginBottom: '2px' }}
+                                    >
+                                      {member.avatarUrl 
+                                        ? <img src={member.avatarUrl} alt="" style={{ width: 32, height: 32, borderRadius: '50%', marginRight: 12 }} /> 
+                                        : <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#dfe1e6', color: '#172b4d', marginRight: 12, display: 'grid', placeItems: 'center', fontWeight: 600 }}>{member.fullName[0]}</div>
+                                      }
+                                      <span style={{ flex: 1, fontWeight: 500, fontSize: '14px' }}>{member.fullName}</span>
+                                      {isAssigned && <span style={{ color: '#0079bf', fontWeight: 'bold' }}>✓</span>}
+                                    </div>
+                                  );
+                               });
+                            })()}
+                          </div>
+                        </>
+                     )}
+
                    </div>
                  )}
                </div>
-
-               <button className="t-btn-gray">
-                  <span>🕒</span> Dates
-               </button>
-               <button className="t-btn-gray">
-                  <span>☑</span> Checklist
-               </button>
-               <button className="t-btn-gray">
-                  <span>👤</span> Members
-               </button>
-               <button className="t-btn-gray">
-                  <span>📎</span> Attachment
-               </button>
             </div>
 
             {/* Members & Labels Section (Fixed Layout & Sizing) */}
@@ -6255,20 +6473,98 @@ if (currentView.app === "gmail") {
                   <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                      {(c.members || []).map((m, i) => {
                         const img = avatarFor(m);
+                        
+                        // ⚡ FIX: Calculate 2-letter initials (e.g. "Ofentse Moagi" -> "OM")
+                        const initials = m.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+                        
                         return (
-                           <div key={i} className="member-avatar" title={m}>
-                              {img ? <img src={img} alt={m} /> : m.slice(0,1)}
+                           <div 
+                              key={i} 
+                              title={m}
+                              style={{ 
+                                width: '32px', height: '32px', borderRadius: '50%', 
+                                background: img ? 'transparent' : '#dfe1e6', 
+                                color: '#172b4d', display: 'grid', placeItems: 'center', 
+                                fontWeight: 600, fontSize: '13px', overflow: 'hidden'
+                              }}
+                           >
+                              {img ? <img src={img} alt={m} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : initials}
                            </div>
                         );
                      })}
-                     {/* 👇 NEW: Wires the round + button to open the member menu */}
-                     <button 
-                        className="round-btn-gray" 
-                        title="Add member"
-                        onClick={(e) => { e.stopPropagation(); setShowAddMenu(true); setAddMenuStep("members"); }}
-                     >
-                        <span>+</span>
-                     </button>
+                     {/* SHORTCUT MENU WRAPPER */}
+                     <div className="member-shortcut-wrap" style={{ position: 'relative' }}>
+                         <button 
+                            className="round-btn-gray" 
+                            title="Add member"
+                            style={{ display: 'grid', placeItems: 'center', padding: 0 }}
+                            onClick={(e) => { e.stopPropagation(); setShowMemberShortcut(!showMemberShortcut); }}
+                         >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M13 11V5C13 4.44772 12.5523 4 12 4C11.4477 4 11 4.44772 11 5V11H5C4.44772 11 4 11.4477 4 12C4 12.5523 4.44772 13 5 13H11V19C11 19.5523 11.4477 20 12 20C12.5523 20 13 19.5523 13 19V13H19C19.5523 13 20 12.5523 20 12C20 11.4477 19.5523 11 19 11H13Z"/></svg>
+                         </button>
+
+                         {showMemberShortcut && (
+                            <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: '4px', background: '#fff', border: '1px solid #dfe1e6', borderRadius: '3px', boxShadow: '0 8px 16px -4px rgba(9,30,66,0.25), 0 0 0 1px rgba(9,30,66,0.08)', width: '300px', zIndex: 1000, color: '#172b4d', fontSize: '14px' }}>
+                               <div style={{ display: 'flex', alignItems: 'center', padding: '12px 12px 8px', borderBottom: '1px solid #091e4221', marginBottom: '8px', position: 'relative' }}>
+                                 <div style={{ flex: 1, textAlign: 'center', fontWeight: 600, color: '#5e6c84', fontSize: '14px' }}>Members</div>
+                                 <button onClick={() => setShowMemberShortcut(false)} style={{ border:'none', background:'none', cursor:'pointer', color:'#42526e', fontSize:'16px', position: 'absolute', right: '12px' }}>✕</button>
+                               </div>
+                               <div style={{ padding: '0 12px 12px', maxHeight: '300px', overflowY: 'auto' }}>
+                                 <div style={{ fontWeight: 600, fontSize: '12px', color: '#5e6c84', marginBottom: '8px' }}>Board members</div>
+                                 {trelloMembers.length === 0 && <div style={{ fontSize: '12px', color: '#5e6c84' }}>Loading members...</div>}
+                                 
+                                 {(() => {
+                                    const sortedMembers = [...trelloMembers].sort((a, b) => {
+                                       const aAssigned = (c.members || []).some(m => m === a.fullName || m === a.id);
+                                       const bAssigned = (c.members || []).some(m => m === b.fullName || m === b.id);
+                                       if (aAssigned === bAssigned) return a.fullName.localeCompare(b.fullName);
+                                       return aAssigned ? -1 : 1;
+                                    });
+
+                                    return sortedMembers.map(member => {
+                                       const isAssigned = (c.members || []).some(m => m === member.fullName || m === member.id);
+                                       return (
+                                         <div 
+                                           key={member.id} 
+                                           onMouseEnter={e => e.currentTarget.style.background = isAssigned ? '#e6fcff' : '#091e420f'} 
+                                           onMouseLeave={e => e.currentTarget.style.background = isAssigned ? '#e6fcff' : 'transparent'}
+                                           onClick={async (e) => {
+                                              e.stopPropagation();
+                                              const newMembers = isAssigned 
+                                                ? c.members.filter(m => m !== member.fullName && m !== member.id)
+                                                : [...(c.members || []), member.fullName];
+                                                
+                                              window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "Members", ttlMs: 10000 } }));
+                                              setTrelloCard(prev => ({ ...prev, members: newMembers }));
+                                              
+                                              try {
+                                                fetch("/.netlify/functions/trello-toggle-member", {
+                                                  method: "POST", headers: { "Content-Type": "application/json" },
+                                                  body: JSON.stringify({ cardId: c.id, memberId: member.id, shouldAdd: !isAssigned })
+                                                });
+                                                window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
+                                                  detail: { cardId: c.id, updater: old => ({ ...old, people: newMembers }) }
+                                                }));
+                                              } catch (err) { console.error("Member toggle failed", err); }
+                                           }} 
+                                           style={{ display: 'flex', alignItems: 'center', padding: '6px', cursor: 'pointer', borderRadius: '3px', background: isAssigned ? '#e6fcff' : 'transparent', marginBottom: '2px' }}
+                                         >
+                                           {member.avatarUrl 
+                                       ? <img src={member.avatarUrl.endsWith('.png') ? member.avatarUrl : member.avatarUrl + '/50.png'} alt="" style={{ width: 32, height: 32, borderRadius: '50%', marginRight: 12, objectFit: 'cover' }} /> 
+                                       : <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#dfe1e6', color: '#172b4d', marginRight: 12, display: 'grid', placeItems: 'center', fontWeight: 600 }}>
+                                           {member.fullName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
+                                         </div>
+                                     }
+                                           <span style={{ flex: 1, fontWeight: 500, fontSize: '14px' }}>{member.fullName}</span>
+                                           {isAssigned && <span style={{ color: '#0079bf', fontWeight: 'bold' }}>✓</span>}
+                                         </div>
+                                       );
+                                    });
+                                 })()}
+                               </div>
+                            </div>
+                         )}
+                     </div>
                   </div>
                </div>
 
@@ -6295,9 +6591,10 @@ if (currentView.app === "gmail") {
                      <button 
                         className="rect-btn-gray" 
                         title="Add label"
+                        style={{ display: 'grid', placeItems: 'center', padding: 0 }}
                         onClick={(e) => { e.stopPropagation(); setShowLabelPicker(!showLabelPicker); }}
                      >
-                        <span>+</span>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M13 11V5C13 4.44772 12.5523 4 12 4C11.4477 4 11 4.44772 11 5V11H5C4.44772 11 4 11.4477 4 12C4 12.5523 4.44772 13 5 13H11V19C11 19.5523 11.4477 20 12 20C12.5523 20 13 19.5523 13 19V13H19C19.5523 13 20 12.5523 20 12C20 11.4477 19.5523 11 19 11H13Z"/></svg>
                      </button>
 
                      {/* 🔽 POPUP LABEL PICKER (Checkboxes) 🔽 */}
@@ -6845,14 +7142,74 @@ if (currentView.app === "gmail") {
                {/* 🗑️ BANNER REMOVED */}
             </div>
 
-            {/* Time */}
-            <div className="trello-section">
-               <div className="trello-section-icon">⏱</div>
-               <div className="trello-section-header">
-                  <h3 className="trello-h3">Time</h3>
-               </div>
-               <button className="t-btn-gray">Start Timer</button>
-            </div>
+            {/* 🔴 CHECKLISTS RENDERER */}
+            {checklists.map(cl => {
+              const total = cl.checkItems?.length || 0;
+              const checked = cl.checkItems?.filter(i => i.state === 'complete').length || 0;
+              const percent = total === 0 ? 0 : Math.round((checked / total) * 100);
+
+              return (
+                <div key={cl.id} className="trello-section">
+                  <div className="trello-section-icon">
+                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+                  </div>
+                  <div className="trello-section-header" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                     <h3 className="trello-h3" style={{ fontSize: '16px', color: '#172b4d' }}>{cl.name}</h3>
+                     <button className="t-btn-gray" style={{ padding: '6px 12px', fontSize: '14px' }} onClick={async () => {
+                         if(!window.confirm("Delete this checklist?")) return;
+                         // Optimistic Update
+                         setChecklists(prev => prev.filter(x => x.id !== cl.id));
+                         await fetch("/.netlify/functions/trello-checklists", {
+                             method: "POST", body: JSON.stringify({ action: 'delete_checklist', checklistId: cl.id })
+                         });
+                     }}>Delete</button>
+                  </div>
+
+                  {/* 🟢 PROGRESS BAR */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                     <span style={{ fontSize: '12px', color: '#5e6c84', width: '32px', textAlign: 'right' }}>{percent}%</span>
+                     <div style={{ flex: 1, background: '#091e4214', borderRadius: '4px', height: '8px', overflow: 'hidden' }}>
+                        <div style={{ width: `${percent}%`, background: percent === 100 ? '#5aac44' : '#5ba4cf', height: '100%', transition: 'width 0.3s ease, background 0.3s ease' }} />
+                     </div>
+                  </div>
+
+                  {/* 🟢 CHECKLIST ITEMS */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px', paddingLeft: '44px' }}>
+                     {(cl.checkItems || []).map(item => (
+                        <div key={item.id} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', cursor: 'pointer' }} onClick={async () => {
+                            const newState = item.state === 'complete' ? 'incomplete' : 'complete';
+                            
+                            // Optimistic Toggle Update
+                            setChecklists(prev => prev.map(x => x.id === cl.id ? { ...x, checkItems: x.checkItems.map(i => i.id === item.id ? { ...i, state: newState } : i) } : x));
+                            
+                            await fetch("/.netlify/functions/trello-checklists", {
+                                method: "POST", body: JSON.stringify({ action: 'toggle_item', cardId: c.id, idCheckItem: item.id, state: newState })
+                            });
+                        }}>
+                           <input type="checkbox" checked={item.state === 'complete'} readOnly style={{ width: '16px', height: '16px', marginTop: '3px', cursor: 'pointer', accentColor: '#0079bf' }} />
+                           <span style={{ flex: 1, fontSize: '14px', color: item.state === 'complete' ? '#5e6c84' : '#172b4d', textDecoration: item.state === 'complete' ? 'line-through' : 'none', transition: 'color 0.2s, text-decoration 0.2s' }}>{item.name}</span>
+                        </div>
+                     ))}
+                  </div>
+
+                  {/* 🟢 ADD ITEM INPUT COMPONENT */}
+                  <div style={{ paddingLeft: '44px' }}>
+                     <ChecklistItemInput onAdd={async (name) => {
+                         const tempId = "item-" + Date.now();
+                         // Optimistic Add Update
+                         setChecklists(prev => prev.map(x => x.id === cl.id ? { ...x, checkItems: [...(x.checkItems||[]), { id: tempId, name, state: 'incomplete' }] } : x));
+                         
+                         const res = await fetch("/.netlify/functions/trello-checklists", {
+                             method: "POST", body: JSON.stringify({ action: 'add_item', checklistId: cl.id, name })
+                         });
+                         const realItem = await res.json();
+                         // Swap temp ID for real Trello ID
+                         setChecklists(prev => prev.map(x => x.id === cl.id ? { ...x, checkItems: x.checkItems.map(i => i.id === tempId ? realItem : i) } : x));
+                     }} />
+                  </div>
+                </div>
+              );
+            })}
 
           </div>
 
@@ -6898,21 +7255,27 @@ if (currentView.app === "gmail") {
         draftAttachments,
 
        // Gmail Inbox
-        gmailEmails,
-        gmailLoading,
-        gmailError,
-        gmailEmails, // 👈 ADD THIS: Tells React to refresh the list when a star is clicked
-        gmailFolder, // 👈 ADD THIS: Tells React to refresh when you switch to "Starred" view
-        gmailPage,
-        gmailTotal,
-        email,
+       gmailEmails,
+       gmailLoading,
+       gmailError,
+       gmailFolder, 
+       gmailPage,
+       gmailTotal,
+       email,
+       gmailRefreshTrigger, 
+       otherContacts,
+       historyContacts, // ⚡ ADD THIS so suggestions update, but REMOVE the duplicate gmailEmails
 
        // Trello
-        trelloCard,
-        trelloMenuOpen,
-        descEditing,
-        descDraft,
-        showLabelPicker, 
+        trelloCard,
+        trelloMenuOpen,
+        descEditing,
+        descDraft,
+        checklists,
+        newChecklistTitle,
+        copyFromChecklist,
+        showLabelPicker, 
+        showMemberShortcut, // 👈 ADD THIS HERE
         showMoveSubmenu,
         moveTab,
         moveTargetList,
@@ -6930,19 +7293,23 @@ if (currentView.app === "gmail") {
       {/* LEFT */}
       <div className="left-panel">
         <div className="panel-title">Notifications</div>
-        <div className="notifications">
-          {notifications.map((n) => (
-            <div
-              className={`notification ${n.alt.toLowerCase()}`}
-              key={n.id}
-              onClick={() => onNotificationClick(n)}
-              style={{ position: "relative" }}
-            >
-              <img src={n.icon} alt={n.alt} className="icon" />
-              <span style={{ flex: 1, paddingRight: "8px", lineHeight: "1.4" }}>[{n.time}] {n.text}</span>
-              {n.alt === "Gmail" && <span className="notif-chip">Email</span>}
-              {n.alt === "Trello" && <span className="notif-chip">Trello</span>}
-              <button
+       <div className="notifications">
+          {notifications.map((n) => (
+            <div
+              className={`notification ${n.alt.toLowerCase().replace(/\s/g, '-')}`}
+              key={n.id}
+              onClick={() => onNotificationClick(n)}
+              style={{ position: "relative" }}
+            >
+              <img src={n.icon} alt={n.alt} className="icon" />
+              <span style={{ flex: 1, paddingRight: "8px", lineHeight: "1.4" }}>
+                [{n.time}] {n.text}
+              </span>
+              {/* 🟢 ADDED CHAT CHIP & SYNCED LABELS */}
+              {n.alt === "Gmail" && <span className="notif-chip">Email</span>}
+              {n.alt === "Trello" && <span className="notif-chip">Trello</span>}
+              {n.alt === "Google Chat" && <span className="notif-chip chat-chip">Chat</span>}
+              <button
                 className="notif-close"
                 title="Dismiss"
                 onClick={(e) => {
@@ -6954,7 +7321,7 @@ if (currentView.app === "gmail") {
               </button>
             </div>
           ))}
-        </div>
+        </div> 
       </div>
 
      {/* MIDDLE */}
@@ -7493,4 +7860,30 @@ const ActivityPane = React.memo(function ActivityPane({ cardId, currentUserAvata
       </div>
     </div>
   );
+});
+
+// ---------------- NEW CHECKLIST ITEM COMPONENT ----------------
+const ChecklistItemInput = React.memo(({ onAdd }) => {
+   const [text, setText] = useState("");
+   const [isOpen, setIsOpen] = useState(false);
+
+   if (!isOpen) {
+      return <button className="t-btn-gray" style={{ width: 'fit-content', padding: '6px 12px', fontSize: '14px' }} onClick={() => setIsOpen(true)}>Add an item</button>
+   }
+
+   return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+         <textarea 
+            autoFocus 
+            value={text} 
+            onChange={e => setText(e.target.value)} 
+            placeholder="Add an item" 
+            style={{ width: '100%', padding: '8px 12px', borderRadius: '3px', border: '2px solid #0079bf', outline: 'none', resize: 'vertical', minHeight: '56px', fontSize: '14px', fontFamily: 'inherit', color: '#172b4d' }} 
+         />
+         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button className="btn-blue" onClick={() => { if(text.trim()){ onAdd(text); setText(""); setIsOpen(false); } }} style={{ padding: '6px 16px', borderRadius: '3px', border: 'none', background: '#0052cc', color: 'white', fontWeight: 500, cursor: 'pointer' }}>Add</button>
+            <button onClick={() => { setIsOpen(false); setText(""); }} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#42526e', fontWeight: 500, padding: '6px 12px' }}>Cancel</button>
+         </div>
+      </div>
+   );
 });

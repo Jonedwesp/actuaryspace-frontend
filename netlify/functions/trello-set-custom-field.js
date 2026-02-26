@@ -1,4 +1,3 @@
-// netlify/functions/trello-set-custom-field.js
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method Not Allowed" };
 
@@ -7,36 +6,38 @@ exports.handler = async (event) => {
     const key = process.env.TRELLO_API_KEY || process.env.TRELLO_KEY;
     const token = process.env.TRELLO_TOKEN;
 
-    // 1. Get Board ID from the Card
+    // 1. Get Board ID
     const cardRes = await fetch(`https://api.trello.com/1/cards/${cardId}?fields=idBoard&key=${key}&token=${token}`);
     const cardData = await cardRes.json();
     const boardId = cardData.idBoard;
 
-    // 2. Fetch all Custom Fields on this Board
+    // 2. Fetch Custom Fields
     const cfRes = await fetch(`https://api.trello.com/1/boards/${boardId}/customFields?key=${key}&token=${token}`);
     const cfData = await cfRes.json();
 
-    // 3. FUZZY MATCH: Find the field regardless of exact casing or spaces (e.g., "WorkTimerStart" matches "Work Timer Start")
-    const targetName = fieldName.toLowerCase().replace(/\s/g, '');
-    const field = cfData.find(f => f.name.toLowerCase().replace(/\s/g, '') === targetName);
+    // 3. 🚨 THE TRANSLATOR: Map React's internal names to your exact Trello Power-Up names
+    let targetTrelloName = fieldName;
+    if (fieldName === "WorkTimerStart" || fieldName === "WorkStartTime") {
+        targetTrelloName = "[SYSTEM] WorkStartTime";
+    } else if (fieldName === "WorkDuration") {
+        targetTrelloName = "[SYSTEM] WorkDuration";
+    }
+
+    // Find the field on Trello
+    const field = cfData.find(f => f.name === targetTrelloName || f.name === fieldName);
 
     if (!field) {
-        console.error(`Trello error: Field '${fieldName}' not found on board.`);
+        console.error(`Trello error: Field '${targetTrelloName}' not found on board.`);
         return { statusCode: 404, body: JSON.stringify({ ok: false, error: "Field not found" }) };
     }
 
-    // 4. AUTO-FORMAT PAYLOAD: Trello demands text fields be sent as text, and number fields as numbers!
+    // 4. 🚨 FORMAT AS TEXT: You specifically mentioned these are Text fields on Trello!
     let payload = { value: "" }; // Default to clearing the field
-    
     if (valueText !== "" && valueText !== null) {
-         if (field.type === "number") {
-             payload = { value: { number: String(valueText) } };
-         } else if (field.type === "text") {
-             payload = { value: { text: String(valueText) } };
-         }
+         payload = { value: { text: String(valueText) } };
     }
 
-    // 5. Send the exact formatted data to Trello
+    // 5. Send to Trello
     const updateRes = await fetch(`https://api.trello.com/1/cards/${cardId}/customField/${field.id}/item?key=${key}&token=${token}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },

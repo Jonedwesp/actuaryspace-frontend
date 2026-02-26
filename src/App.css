@@ -681,6 +681,11 @@ html, body {
 .notification.trello .notif-chip {
   background: #0079bf; /* Trello blue */
 }
+.notification.google-chat .notif-chip {
+  background:  #e8f0fe;
+  color: #1a73e8;
+  border: 1px solid #d2e3fc;
+}
 
 /* ---------- Email view ---------- */
 .email-full,
