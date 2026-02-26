@@ -66,20 +66,38 @@ export const handler = async function (event, context) {
 
 const folder = event.queryStringParameters?.folder || "INBOX";
     const limit = event.queryStringParameters?.limit || "50"; 
+    const q = event.queryStringParameters?.q || ""; // 👈 Catch the search keyword
     
-    let query = "in:inbox -is:chat"; // 👈 Added -is:chat to remove message logs from count
+    let queryParts = [];
     let labelId = "INBOX";
 
+    // 1. Handle Folder Scoping and the "Unified Inbox" requirement
     if (folder === "TRASH") { 
-      query = "is:trash"; labelId = "TRASH"; 
+      queryParts.push("is:trash"); 
+      labelId = "TRASH"; 
     } else if (folder === "STARRED") { 
-      query = "is:starred -is:trash -is:chat"; labelId = "STARRED"; 
+      queryParts.push("is:starred -is:trash -is:chat"); 
+      labelId = "STARRED"; 
     } else if (folder === "SENT") { 
-      query = "in:sent -is:trash -is:chat"; labelId = "SENT"; 
+      queryParts.push("in:sent -is:trash -is:chat"); 
+      labelId = "SENT"; 
     } else if (folder === "DRAFTS") { 
-      query = "is:draft -is:trash -is:chat"; labelId = "DRAFT"; 
-    
+      queryParts.push("is:draft -is:trash -is:chat"); 
+      labelId = "DRAFT"; 
+    } else {
+      // ⚡ UNIFIED INBOX (Removed is:sent as requested)
+      queryParts.push("(in:inbox OR is:draft) -is:chat -is:trash"); 
+      labelId = "INBOX";
     }
+
+    // 2. ⚡ HISTORIC OVERRIDE: If a keyword is provided, search 'anywhere' to find old emails
+    if (q && q.trim()) {
+      // We clear queryParts and use 'anywhere' to find matches regardless of current folder
+      const keyword = q.trim();
+      queryParts = [`in:anywhere "${keyword}" -is:chat` ];
+    }
+
+    const query = queryParts.join(" ");
 
     // 1. Clean the Page Token (Fixes the "Next Page" bug)
     let pageToken = event.queryStringParameters?.pageToken || "";
@@ -88,11 +106,22 @@ const folder = event.queryStringParameters?.folder || "INBOX";
     let listUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=${limit}`;
     if (pageToken) listUrl += `&pageToken=${pageToken}`;
 
-    // 2. Fetch Label Data and Inbox List simultaneously to save time
-    const [labelRes, listRes] = await Promise.all([
-      request(`https://gmail.googleapis.com/gmail/v1/users/me/labels/${labelId}`, { headers: { Authorization: `Bearer ${token}` } }),
-      request(listUrl, { headers: { Authorization: `Bearer ${token}` } })
-    ]);
+    // 2. ⚡ SMART FETCH: Handle search vs folder view correctly
+    let listRes;
+    let labelRes = { ok: false }; // Initialize with a default state to prevent "not defined" errors
+
+    if (q && q.trim()) {
+      // 🕵️ GLOBAL SEARCH: Directly fetch the list without label constraints
+      listRes = await request(listUrl, { headers: { Authorization: `Bearer ${token}` } });
+    } else {
+      // STANDARD FOLDER VIEW: Fetch both simultaneously
+      const [lRes, mRes] = await Promise.all([
+        request(`https://gmail.googleapis.com/gmail/v1/users/me/labels/${labelId}`, { headers: { Authorization: `Bearer ${token}` } }),
+        request(listUrl, { headers: { Authorization: `Bearer ${token}` } })
+      ]);
+      labelRes = lRes;
+      listRes = mRes;
+    }
 
     const listData = await listRes.json();
     if (!listRes.ok) {
@@ -102,21 +131,47 @@ const folder = event.queryStringParameters?.folder || "INBOX";
     }
 
     let exactTotal = 0;
-    // For standard labels like INBOX and TRASH, the label metadata is authoritative.
-    // For queries like "is:starred -is:trash", the label count (STARRED) includes trash.
-    // So for those, we use resultSizeEstimate to ensure trash is excluded from the count.
-    if (labelRes.ok && (folder === "INBOX" || folder === "TRASH")) {
+    
+    // ⚡ ACCURATE HISTORICAL COUNTER LOGIC
+    if (q && q.trim()) {
+      // 🕵️ FOR SEARCH: resultSizeEstimate is capped. 
+      // To get the TRUE total, we fetch ONLY the message IDs for the entire query.
+      try {
+        const countUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=10000&fields=messages(id)`;
+        const countRes = await request(countUrl, { headers: { Authorization: `Bearer ${token}` } });
+        const countData = await countRes.json();
+        
+        // The length of the messages array is the real historical count
+        exactTotal = countData.messages ? countData.messages.length : 0;
+        
+        // If we hit exactly 10,000, we use the estimate as a fallback for massive inboxes
+        if (exactTotal === 10000) exactTotal = listData.resultSizeEstimate || 10000;
+      } catch (e) {
+        console.error("Historical count failed, falling back to estimate", e);
+        exactTotal = listData.resultSizeEstimate || 0;
+      }
+    } else if (labelRes.ok && (folder === "INBOX" || folder === "TRASH" || folder === "SENT" || folder === "DRAFTS")) {
       const labelData = await labelRes.json();
-      // 🎯 THE DISCREPANCY FIX: 
-      // Siya sees 10,461 in Gmail because the app counts THREADS by default.
-      // messagesTotal returns the count of every individual email, which is always higher.
       exactTotal = labelData.threadsTotal || labelData.messagesTotal || 0;
     } else {
       exactTotal = listData.resultSizeEstimate || 0;
     }
 
     const messages = listData.messages || [];
-    if (messages.length === 0) return { statusCode: 200, body: JSON.stringify({ ok: true, emails: [], total: exactTotal }) };
+    
+    // ⚡ PAGINATION FIX: If we have zero messages but a total count (common in deep pagination), 
+    // we return the total so the UI doesn't reset the "1-50 of X" bar to zero.
+    if (messages.length === 0) {
+      return { 
+        statusCode: 200, 
+        body: JSON.stringify({ 
+          ok: true, 
+          emails: [], 
+          total: exactTotal,
+          nextPageToken: listData.nextPageToken || null 
+        }) 
+      };
+    }
 
     // 3. THE CONCURRENCY POOL (The Speed Fix)
     // Ensures exactly 12 emails are downloaded at a time. No delays, no rate limits, maximum speed.
@@ -193,8 +248,9 @@ const folder = event.queryStringParameters?.folder || "INBOX";
         subject: getH("Subject") || "(No Subject)",
         from: getH("From") || "(Unknown)",
         to: getH("To") || "",
-        cc: getH("Cc") || "", // 👈 Added CC to pick up more historical contacts
+        cc: getH("Cc") || "", 
         date: getH("Date") || "",
+        labelIds: msgData.labelIds || [], // ⚡ FIX: Explicitly send label IDs to the frontend
         isUnread: msgData.labelIds?.includes("UNREAD") || false,
         isStarred: msgData.labelIds?.includes("STARRED") || false,
         attachments: typeMap.attachments

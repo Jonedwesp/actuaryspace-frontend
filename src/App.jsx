@@ -1111,15 +1111,109 @@ const RightPanel = React.memo(function RightPanel() {
 
   const [preview, setPreview] = React.useState(null);
   const [showArchiveModal, setShowArchiveModal] = useState(false);
-  const [archivedCards, setArchivedCards] = useState([]);
-  const [archivedLoading, setArchivedLoading] = useState(false);
-  const [archiveSearch, setArchiveSearch] = useState(""); // 👈 NEW: Archive Search
-  
-  // 👇 ADD THESE THREE LINES:
-  const [checklists, setChecklists] = useState([]);
-  const [newChecklistTitle, setNewChecklistTitle] = useState("Checklist");
-  const [copyFromChecklist, setCopyFromChecklist] = useState("");
-  const openArchiveBin = async () => {
+  const [archivedCards, setArchivedCards] = useState([]);
+  const [archivedLoading, setArchivedLoading] = useState(false);
+  const [archiveSearch, setArchiveSearch] = useState(""); // 👈 NEW: Archive Search
+
+// 👇 NEW: Inline Card Creation State
+  const [addingToList, setAddingToList] = useState(null);
+  const [newCardTitle, setNewCardTitle] = useState("");
+
+  const handleCreateCard = async (listId) => {
+      if (!newCardTitle.trim()) return;
+      
+      const titleToCreate = newCardTitle.trim();
+      const tempId = "temp-" + Date.now(); // Temporary ID for instant UI rendering
+
+      // 1. Reset input UI immediately
+      setAddingToList(null);
+      setNewCardTitle("");
+
+      // 2. Optimistic Update: Draw the card instantly on screen
+      setTrelloBuckets(prev => prev.map(b => {
+          if (b.id === listId) {
+              return {
+                  ...b,
+                  cards: [...b.cards, {
+                      id: tempId,
+                      title: titleToCreate,
+                      labels: [],
+                      badges: [],
+                      people: [],
+                      customFields: {},
+                      listId: listId,
+                      list: b.title
+                  }]
+              };
+          }
+          return b;
+      }));
+
+      // 3. Send to Trello Backend
+      try {
+          const res = await fetch("/.netlify/functions/trello-add-card", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name: titleToCreate, idList: listId })
+          });
+          const json = await res.json();
+          
+          if (json.ok && json.card) {
+              // Swap the temporary ID for the real Trello ID once the server replies
+              setTrelloBuckets(prev => prev.map(b => {
+                  if (b.id === listId) {
+                      return {
+                          ...b,
+                          cards: b.cards.map(c => c.id === tempId ? { ...c, id: json.card.id } : c)
+                      };
+                  }
+                  return b;
+              }));
+          }
+      } catch (err) {
+          console.error("Failed to create card:", err);
+      }
+  };
+  
+  // 👇 NEW: Track Pinned Lists
+  const [pinnedLists, setPinnedLists] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("PINNED_LISTS") || "[]"); }
+    catch { return []; }
+  });
+
+  const togglePin = (listId, e) => {
+      e.stopPropagation(); // Prevents dragging the list when clicking the pin
+      setPinnedLists(prev => {
+          let next;
+          if (prev.includes(listId)) {
+              next = prev.filter(id => id !== listId); // unpin
+          } else {
+              next = [...prev, listId]; // pin (adds to bottom of pinned group)
+          }
+          localStorage.setItem("PINNED_LISTS", JSON.stringify(next));
+          
+          // Instantly re-sort the UI without waiting for the background poller
+          setTrelloBuckets(oldBuckets => {
+              const newBuckets = [...oldBuckets].sort((a, b) => {
+                  const aPin = next.indexOf(a.id);
+                  const bPin = next.indexOf(b.id);
+                  if (aPin !== -1 && bPin !== -1) return aPin - bPin;
+                  if (aPin !== -1) return -1;
+                  if (bPin !== -1) return 1;
+                  
+                  let idxA = listOrderRef.current.indexOf(a.title);
+                  let idxB = listOrderRef.current.indexOf(b.title);
+                  return (idxA !== -1 ? idxA : 999) - (idxB !== -1 ? idxB : 999);
+              });
+              // Update master ref so dragging doesn't break
+              listOrderRef.current = newBuckets.map(b => b.title);
+              return newBuckets;
+          });
+          return next;
+      });
+  };
+
+  const openArchiveBin = async () => {
     setShowArchiveModal(true);
     setArchivedLoading(true);
     try {
@@ -1221,27 +1315,28 @@ const RightPanel = React.memo(function RightPanel() {
   };
 
   const handleListDragEnter = (e, index) => {
-    // 1. Only run if we are dragging a LIST (not a card)
-    if (!dragItem.current || dragItem.current.listIdx === undefined) return;
-    
-    // 2. Don't swap if we are hovering the same list
-    if (dragItem.current.listIdx === index) return;
+    if (!dragItem.current || dragItem.current.listIdx === undefined) return;
+    if (dragItem.current.listIdx === index) return;
 
-    setTrelloBuckets(prev => {
-      const newList = [...prev];
-      // Move the list in the array
-      const item = newList.splice(dragItem.current.listIdx, 1)[0];
-      newList.splice(index, 0, item);
+    setTrelloBuckets(prev => {
+      const newList = [...prev];
+      const item = newList.splice(dragItem.current.listIdx, 1)[0];
+      newList.splice(index, 0, item);
+      
+      listOrderRef.current = newList.map(b => b.title);
       
-      // 🛑 CRITICAL: Update the Ref so the next Trello Poll respects this order!
-      listOrderRef.current = newList.map(b => b.title);
-      
-      return newList;
-    });
+      // 🛡️ Synchronize the pinned list order based on where the user dragged it
+      setPinnedLists(oldPins => {
+          const newPins = newList.map(b => b.id).filter(id => oldPins.includes(id));
+          localStorage.setItem("PINNED_LISTS", JSON.stringify(newPins));
+          return newPins;
+      });
 
-    // Update tracker
-    dragItem.current.listIdx = index;
-  };
+      return newList;
+    });
+
+    dragItem.current.listIdx = index;
+  };
 
   // 1. Start Dragging (Overlay Strategy)
   const handleDragStart = (e, params) => {
@@ -1533,13 +1628,23 @@ const RightPanel = React.memo(function RightPanel() {
         let filtered = mapped.filter((b) => PERSONA_TITLES.includes(b.title));
         
         // 5. SORT LOGIC
-        filtered.sort((a, b) => {
-          let idxA = listOrderRef.current.indexOf(a.title);
-          let idxB = listOrderRef.current.indexOf(b.title);
-          if (idxA === -1) idxA = 999;
-          if (idxB === -1) idxB = 999;
-          return idxA - idxB;
-        });
+        filtered.sort((a, b) => {
+          // Check pins first
+          const pins = JSON.parse(localStorage.getItem("PINNED_LISTS") || "[]");
+          const aPin = pins.indexOf(a.id);
+          const bPin = pins.indexOf(b.id);
+          
+          if (aPin !== -1 && bPin !== -1) return aPin - bPin;
+          if (aPin !== -1) return -1;
+          if (bPin !== -1) return 1;
+
+          // Fallback to manual drag order
+          let idxA = listOrderRef.current.indexOf(a.title);
+          let idxB = listOrderRef.current.indexOf(b.title);
+          if (idxA === -1) idxA = 999;
+          if (idxB === -1) idxB = 999;
+          return idxA - idxB;
+        });
         
         if (filtered.length > 0) mapped = filtered;
 
@@ -1835,10 +1940,30 @@ const RightPanel = React.memo(function RightPanel() {
                 className="tl-head"
                 draggable
                 onDragStart={(e) => handleListDragStart(e, i)}
-                style={{ cursor: "grab" }} 
+                style={{ cursor: "grab", display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} 
               >
                 <span className="tl-title">{bucket.title}</span>
-                <span className="tl-actions">•••</span>
+                <span 
+                    className="tl-actions" 
+                    onClick={(e) => togglePin(bucket.id, e)}
+                    style={{ 
+                        cursor: "pointer", 
+                        opacity: pinnedLists.includes(bucket.id) ? 1 : 0.4, 
+                        color: pinnedLists.includes(bucket.id) ? '#0052cc' : '#42526e', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        padding: '4px',
+                        transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.opacity = 1}
+                    onMouseLeave={(e) => e.currentTarget.style.opacity = pinnedLists.includes(bucket.id) ? 1 : 0.4}
+                    title={pinnedLists.includes(bucket.id) ? "Unpin List" : "Pin List"}
+                >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill={pinnedLists.includes(bucket.id) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="12" y1="17" x2="12" y2="22"></line>
+                        <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 11.2V6a3 3 0 0 0-6 0v5.2a2 2 0 0 1-1.11 1.35l-1.78.9A2 2 0 0 0 5 15.24Z"></path>
+                    </svg>
+                </span>
               </div>
               
               {/* CARDS */}
@@ -1902,7 +2027,54 @@ const RightPanel = React.memo(function RightPanel() {
                 ))}
               </div>
 
-              <button className="tl-add"><span>+</span> Add a card</button>
+              {/* 🟢 DYNAMIC ADD CARD INPUT */}
+              {addingToList === bucket.id ? (
+                <div style={{ padding: '8px', background: '#fff', borderRadius: '8px', boxShadow: '0 1px 2px rgba(0,0,0,0.1)', marginTop: '8px' }}>
+                  <textarea
+                    autoFocus
+                    placeholder="Enter a title for this card..."
+                    value={newCardTitle}
+                    onChange={(e) => setNewCardTitle(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleCreateCard(bucket.id);
+                      }
+                      if (e.key === 'Escape') {
+                        setAddingToList(null);
+                        setNewCardTitle("");
+                      }
+                    }}
+                    style={{ width: '100%', border: 'none', resize: 'none', outline: 'none', fontSize: '14px', fontFamily: 'inherit', color: '#172b4d', minHeight: '54px' }}
+                  />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                    <button 
+                      onClick={() => handleCreateCard(bucket.id)} 
+                      style={{ padding: '6px 12px', borderRadius: '3px', border: 'none', background: '#0b57d0', color: 'white', fontWeight: 500, cursor: 'pointer', fontSize: '13px' }}
+                    >
+                      Add card
+                    </button>
+                    <button 
+                      onClick={() => { setAddingToList(null); setNewCardTitle(""); }} 
+                      style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#42526e', fontSize: '20px', display: 'grid', placeItems: 'center', width: '32px', height: '32px', borderRadius: '3px' }} 
+                      onMouseEnter={e => e.currentTarget.style.background = '#091e420f'} 
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button 
+                  className="tl-add" 
+                  onClick={() => {
+                    setAddingToList(bucket.id);
+                    setNewCardTitle("");
+                  }}
+                >
+                  <span>+</span> Add a card
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -2012,6 +2184,7 @@ const EmailMetadata = ({ email }) => {
           zIndex: isOpen ? 95 : "auto" 
         }}
         onClick={(e) => {
+          // ⚡ STOP BUBBLING: Prevents the parent email container from refreshing or closing
           e.preventDefault();
           e.stopPropagation();
           setIsOpen(prev => !prev);
@@ -2024,7 +2197,7 @@ const EmailMetadata = ({ email }) => {
 
       {isOpen && (
         <>
-          {/* Invisible backdrop to close the menu when clicking outside */}
+          {/* Backdrop to capture clicks outside the box */}
           <div 
             style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} 
             onClick={(e) => {
@@ -2034,45 +2207,41 @@ const EmailMetadata = ({ email }) => {
             }}
           />
           
-          <div style={{
-            position: "absolute",
-            top: "100%",
-            left: "0",
-            marginTop: "4px",
-            background: "white",
-            border: "1px solid #dadce0",
-            borderRadius: "8px",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-            padding: "16px",
-            zIndex: 100,
-            minWidth: "480px",
-            fontSize: "13px",
-            color: "#202124",
-            display: "flex",
-            flexDirection: "column",
-            cursor: "default"
-          }}
-          onClick={e => e.stopPropagation()} // Prevent clicks inside from closing it
+          <div 
+            style={{
+              position: "absolute",
+              top: "100%",
+              left: "0",
+              marginTop: "4px",
+              background: "white",
+              border: "1px solid #dadce0",
+              borderRadius: "8px",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+              padding: "16px",
+              zIndex: 100,
+              minWidth: "480px",
+              fontSize: "13px",
+              color: "#202124",
+              display: "flex",
+              flexDirection: "column",
+              cursor: "default"
+            }}
+            // 🛡️ SHIELD: Ensures clicking inside the details box doesn't close the email view
+            onClick={e => e.stopPropagation()} 
           >
             <div style={{ display: "grid", gridTemplateColumns: "75px 1fr", gap: "8px 12px", alignItems: "baseline" }}>
               <span style={{ color: "#5f6368", textAlign: "right" }}>from:</span>
               <span><strong>{email.fromName}</strong> {email.fromEmail}</span>
               
               <span style={{ color: "#5f6368", textAlign: "right" }}>to:</span>
-              <span>{email.to ? email.to.join(", ") : "Siyabonga Nono <siyabonga@actuaryconsulting.co.za>"}</span>
+              <span>{Array.isArray(email.to) ? email.to.join(", ") : email.to || "Siyabonga Nono <siya@actuaryspace.co.za>"}</span>
               
               <span style={{ color: "#5f6368", textAlign: "right" }}>date:</span>
-              <span>{email.date ? new Date(email.date).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : email.time}</span>
+              <span>{email.date ? new Date(email.date).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : email.time}</span>
               
               <span style={{ color: "#5f6368", textAlign: "right" }}>subject:</span>
               <span>{email.subject}</span>
 
-              <span style={{ color: "#5f6368", textAlign: "right" }}>mailed-by:</span>
-              <span>actuaryconsulting.co.za</span>
-
-              <span style={{ color: "#5f6368", textAlign: "right" }}>signed-by:</span>
-              <span>actuaryconsulting.co.za</span>
-              
               <span style={{ color: "#5f6368", textAlign: "right" }}>security:</span>
               <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                 <svg width="14" height="14" viewBox="0 0 24 24"><path fill="#5f6368" d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM9 6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9V6zm9 14H6V10h12v10zm-6-3c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2z"/></svg>
@@ -2149,9 +2318,14 @@ export default function App() {
       };
 
       setNotifications((prev) => {
+        // 🛡️ Deduplication check
         if (prev.some(p => p.id === uniqueId || (p.text === text && p.timestamp === newItem.timestamp))) return prev;
+        
         const nextList = [newItem, ...prev];
-        return nextList.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0, 100);
+        // 🚀 FORCED SORT: Strict descending order (Newest First)
+        return nextList.sort((a, b) => {
+          return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+        }).slice(0, 100);
       });
     };
 
@@ -2236,6 +2410,8 @@ export default function App() {
   const [gchatMsgLoading, setGchatMsgLoading] = useState(false);
   const [gchatMsgError, setGchatMsgError] = useState("");
   const [gchatComposer, setGchatComposer] = useState("");
+  const [editingMsgId, setEditingMsgId] = useState(null);
+  const [editValue, setEditValue] = useState("");
   const [gchatDmNames, setGchatDmNames] = useState({});
   const [gchatAutoScroll, setGchatAutoScroll] = useState(true);
   const [pendingUpload, setPendingUpload] = useState(null); // { file: File, kind: "pdf" }
@@ -2337,18 +2513,10 @@ export default function App() {
    document.addEventListener("mouseup", onMouseUp);
  };
 
-  // Add this near your other state variables
-  const [timerNow, setTimerNow] = useState(Date.now());
   // 👇 NEW: States for the "Add Time" popup
-  const [showAddTime, setShowAddTime] = useState(false);
-  const [manualHours, setManualHours] = useState("0");
-  const [manualMins, setManualMins] = useState("0");
-
-  // Update the timer every second for visual feedback
-  useEffect(() => {
-    const interval = setInterval(() => setTimerNow(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, []);
+  const [showAddTime, setShowAddTime] = useState(false);
+  const [manualHours, setManualHours] = useState("0");
+  const [manualMins, setManualMins] = useState("0");
 
   // 👇 UPDATED: Persist last active space so notifications work after reload
   useEffect(() => {
@@ -2567,29 +2735,40 @@ if (Object.keys(newHits).length > 0) {
 }, [gmailEmails]);
 
 const combinedContacts = useMemo(() => {
-  return { 
-    ...(AC_EMAIL_MAP || {}), 
-    ...(otherContacts || {}), 
-    ...(historyContacts || {}) 
-  };
+  return { 
+    ...(AC_EMAIL_MAP || {}), 
+    ...(otherContacts || {}), 
+    ...(historyContacts || {}) 
+  };
 }, [otherContacts, historyContacts]);
 
-
   /* Trello modal */
-  const [trelloCard, setTrelloCard] = useState(null);
-  const [checklists, setChecklists] = useState([]);
-  const [newChecklistTitle, setNewChecklistTitle] = useState("Checklist");
-  const [copyFromChecklist, setCopyFromChecklist] = useState("");
+  const [trelloCard, setTrelloCard] = useState(null);
+  const [trelloPreview, setTrelloPreview] = useState(null); // 👈 NEW: Controls the preview pop-up
+  const trelloAttachmentRef = useRef(null); 
+  const [checklists, setChecklists] = useState([]);
+  const [newChecklistTitle, setNewChecklistTitle] = useState("Checklist");
+  const [copyFromChecklist, setCopyFromChecklist] = useState("");
+  const [attachLink, setAttachLink] = useState(""); 
+  const [attachName, setAttachName] = useState(""); 
+  const [cardAttachments, setCardAttachments] = useState([]); // 👈 NEW: Holds the file data
 
-  // Fetches checklists when the modal opens
-  useEffect(() => {
-    if (trelloCard?.id) {
-       fetch(`/.netlify/functions/trello-checklists?cardId=${trelloCard.id}`)
+  // Fetches checklists & attachments when the modal opens
+  useEffect(() => {
+    if (trelloCard?.id) {
+       // 1. Fetch Checklists
+       fetch(`/.netlify/functions/trello-checklists?cardId=${trelloCard.id}`)
+         .then(res => res.json())
+         .then(data => { if(Array.isArray(data)) setChecklists(data); })
+         .catch(err => console.error("Checklist fetch failed:", err));
+
+       // 2. Fetch Attachments
+       fetch(`/.netlify/functions/trello-attachments?cardId=${trelloCard.id}`)
          .then(res => res.json())
-         .then(data => { if(Array.isArray(data)) setChecklists(data); })
-         .catch(err => console.error("Checklist fetch failed:", err));
-    }
-  }, [trelloCard?.id]);
+         .then(data => { if(Array.isArray(data)) setCardAttachments(data); })
+         .catch(err => console.error("Attachment fetch failed:", err));
+    }
+  }, [trelloCard?.id]);
   const [trelloMenuOpen, setTrelloMenuOpen] = useState(false);
   const [showMoveSubmenu, setShowMoveSubmenu] = useState(false);
   const [moveTab, setMoveTab] = useState("outbox");
@@ -2661,7 +2840,8 @@ const combinedContacts = useMemo(() => {
               icon: gchatIcon,
               text: truncatedSnippet || `New message from ${senderLabel}`,
               senderName: senderLabel,
-              timestamp: n.timestamp || new Date().toISOString()
+              timestamp: n.timestamp || new Date().toISOString(),
+              spaceId: n.spaceId || n.space?.name // ⚡ Ensure spaceId is passed to the notification
             };
           })];
         }
@@ -2680,9 +2860,13 @@ const combinedContacts = useMemo(() => {
             }));
           
           if (newItems.length === 0) return prev;
-          // Combine and sort to keep the feed fresh
-          const next = [...newItems, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-          return next.slice(0, 100); 
+          
+          // 🚀 BATCH SORT: Ensures arrival of multiple items results in newest on top
+          const next = [...newItems, ...prev].sort((a, b) => {
+            return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+          });
+          
+          return next.slice(0, 100);
         });
       } catch (err) {
         console.error("Failed to sync inbox:", err);
@@ -3005,6 +3189,12 @@ useEffect(() => {
 
   // (pollBackground removed: pollGlobal handles background notifications efficiently)
 
+  // 🟢 FIX: Track active search and folder states so the background poller doesn't inject unrelated emails into search results
+  const activeSearchRef = useRef("");
+  const activeFolderRef = useRef("INBOX");
+  useEffect(() => { activeSearchRef.current = searchQuery; }, [searchQuery]);
+  useEffect(() => { activeFolderRef.current = gmailFolder; }, [gmailFolder]);
+
   // 🔔 Poll Data Centre (Google Drive) for new instruction emails
 // 📧 GMAIL BACKGROUND POLLER (Real Inbox)
   useEffect(() => {
@@ -3050,27 +3240,30 @@ useEffect(() => {
             const cleanSubject = email.subject || "(No Subject)";
 
             // Dispatch Notification
-            window.dispatchEvent(new CustomEvent("notify", {
-              detail: {
-                text: `${cleanFrom}: ${cleanSubject}`,
-                alt: "Gmail",
-                icon: gmailIcon,
-                gmailData: email // Pass the real email data
-              }
-            }));
+                window.dispatchEvent(new CustomEvent("notify", {
+                  detail: {
+                    text: `${cleanFrom}: ${cleanSubject}`,
+                    alt: "Gmail",
+                    icon: gmailIcon,
+                    gmailData: email // Pass the real email data
+                  }
+                }));
 
-            // Insert it seamlessly if they are actively looking at the Gmail tab
-            setGmailEmails(prev => {
-              const exists = prev.find(p => p.id === email.id);
-              if (exists) return prev;
-              return [email, ...prev];
+                // 🛑 FIX: Only inject new emails into the UI if the user is looking at the standard INBOX and NOT searching.
+                // Otherwise, unrelated background emails will ruin the search results!
+                if (!activeSearchRef.current && activeFolderRef.current === "INBOX") {
+                  setGmailEmails(prev => {
+                    const exists = prev.find(p => p.id === email.id);
+                    if (exists) return prev;
+                    return [email, ...prev];
+                  });
+                }
+              }
             });
+          } catch (err) {
+            console.error("Background Gmail poll failed", err);
           }
-        });
-      } catch (err) {
-        console.error("Background Gmail poll failed", err);
-      }
-    };
+        };
 
     pollGmailBackground();
     const id = setInterval(pollGmailBackground, 15000); 
@@ -3083,49 +3276,65 @@ useEffect(() => {
     // This stops the raw .eml Drive file IDs from spamming the notifications panel.
   }, [setNotifications]);
 
- // 📧 GMAIL INBOX LOADER
-  useEffect(() => {
-    if (currentView.app !== "gmail") return;
+// 📧 GMAIL INBOX LOADER
+  useEffect(() => {
+    if (currentView.app !== "gmail") return;
 
-    let cancelled = false;
-    async function loadInbox() {
-      setGmailLoading(true);
-      setGmailError("");
-      try {
-        // Manage page tokens locally to prevent backend looping
-        let currentToken = "";
-        if (gmailPage > 1) {
-          currentToken = gmailPageTokens[gmailPage] || "";
-        }
+    let cancelled = false;
 
-        const res = await fetch(`/.netlify/functions/gmail-inbox?folder=${gmailFolder}&limit=50&pageToken=${currentToken}`);
-        const json = await res.json().catch(() => ({}));
+    // Define function FIRST
+    const loadInbox = async () => {
+      setGmailLoading(true);
+      setGmailError("");
+      try {
+        let currentToken = "";
+        if (gmailPage > 1) {
+          currentToken = gmailPageTokens[gmailPage] || "";
+        }
 
-       if (!res.ok || !json.ok) throw new Error(json.error || `HTTP ${res.status}`);
+        const baseQ = searchQuery.trim();
+        
+        let finalQ = baseQ;
+        if (baseQ.toUpperCase().includes("AC REF") && !baseQ.includes('"')) {
+            finalQ = `"${baseQ}"`;
+        }
+        
+        const qParam = finalQ ? `in:all ${finalQ}` : "";
+        const folderParam = finalQ ? "ALL" : gmailFolder;
 
-        if (!cancelled) {
-          setGmailEmails(json.emails || []);
-          setGmailTotal(json.total || 0);
-          
-          if (json.nextPageToken) {
-            setGmailPageTokens(prev => ({ ...prev, [gmailPage + 1]: json.nextPageToken }));
-          }
-        }
-      } catch (err) {
-        if (!cancelled) setGmailError(String(err.message || err));
-      } finally {
-        if (!cancelled) setGmailLoading(false);
-      }
-    }
+        const res = await fetch(`/.netlify/functions/gmail-inbox?folder=${folderParam}&limit=50&pageToken=${currentToken}&q=${encodeURIComponent(qParam)}`);
+        const json = await res.json().catch(() => ({}));
 
-    // Reset tokens if returning to page 1 (e.g., when switching folders)
-    if (gmailPage === 1) {
-       setGmailPageTokens({});
-    }
+        if (!res.ok || !json.ok) throw new Error(json.error || `HTTP ${res.status}`);
 
-    loadInbox();
-    return () => { cancelled = true; };
-  }, [currentView.app, gmailFolder, gmailRefreshTrigger, gmailPage]); // 👈 Added gmailPage dependency
+        if (!cancelled) {
+          setGmailEmails(json.emails || []);
+          setGmailTotal(json.total || 0);
+          
+          if (json.nextPageToken) {
+            setGmailPageTokens(prev => ({ ...prev, [gmailPage + 1]: json.nextPageToken }));
+          }
+        }
+      } catch (err) {
+        if (!cancelled) setGmailError(String(err.message || err));
+      } finally {
+        if (!cancelled) setGmailLoading(false);
+      }
+    };
+
+    if (gmailPage === 1) {
+        setGmailPageTokens({});
+    }
+
+    // Run immediately if no search, otherwise wait for user to finish typing
+    const delay = searchQuery ? 600 : 0;
+    const timeOutId = setTimeout(loadInbox, delay);
+
+    return () => { 
+      cancelled = true; 
+      clearTimeout(timeOutId);
+    };
+  }, [currentView.app, gmailFolder, gmailRefreshTrigger, gmailPage, searchQuery]);
 
  
     // When we are not looking at an email, the right-panel client files should be empty
@@ -3351,212 +3560,115 @@ useEffect(() => {
   };
 
 const onNotificationClick = async (n) => {
-    // 👇 NEW: Google Chat Handler
-    if (n.alt === "Google Chat") {
-      // 1. Switch View
-      setCurrentView({ app: "gchat", contact: null });
+  // Ensure the panel is dismissed immediately upon clicking
+  dismissNotification(n);
 
-      // 2. Select the Space (if found)
-      // 🧠 LOGIC: We check n.spaceId (background poll) OR n.gmailData.spaceId (arrival sync)
-      const sid = n.spaceId || n.gmailData?.spaceId;
-      if (sid) {
-        const targetSpace = gchatSpaces.find((s) => s.id === sid || s.name === sid);
-        if (targetSpace) {
-          setGchatSelectedSpace(targetSpace);
-        } else {
-            // Fallback: If space list isn't loaded yet, create a "ghost" space to trigger the message loader
-            setGchatSelectedSpace({ id: sid, name: sid, type: "DIRECT_MESSAGE" });
-        }
-      }
+  // 1. Google Chat Handler
+  if (n.alt === "Google Chat") {
+    setCurrentView({ app: "gchat", contact: null });
+    const sid = n.spaceId || n.gmailData?.spaceId || n.id;
+    if (sid) {
+      const targetSpace = gchatSpaces.find((s) => s.id === sid || s.name === sid);
+      if (targetSpace) {
+        setGchatSelectedSpace(targetSpace);
+      } else {
+        setGchatSelectedSpace({ id: sid, name: sid, type: "DIRECT_MESSAGE", displayName: n.senderName });
+      }
+    }
+    return;
+  }
 
-      // 3. Dismiss notification
-      dismissNotification(n);
-      return;
-    }
+  // 2. Trello Handler
+  if (n.alt === "Trello" && n.cardData) {
+    setCurrentView({ app: "trello", contact: null });
+    window.dispatchEvent(new CustomEvent("openTrelloCard", { detail: n.cardData }));
+    return;
+  }
 
-   // UPDATED SNIPPET
-    // 📋 Trello Handler
-    if (n.alt === "Trello" && n.cardData) {
-      setCurrentView({ app: "trello", contact: null });
-      window.dispatchEvent(new CustomEvent("openTrelloCard", { detail: n.cardData }));
-      dismissNotification(n);
+  // 3. Gmail Inbox Handler (Real API)
+  if (n.alt === "Gmail" && n.gmailData) {
+    const msg = n.gmailData;
+    
+    // UI Feedback: Mark read immediately
+    setGmailEmails(prev => prev.map(e => e.id === msg.id ? { ...e, isUnread: false } : e));
+    
+    const isHtml = /<(html|body|div|p|br|b|strong|i|em|a|span|table|style)[^>]*>/i.test(msg.body || "");
+    let rawBody = msg.body || msg.snippet || "";
+    
+    // Logic: Handle plain text newline preservation for instruction emails
+    if (!isHtml && rawBody.split('\n').length < 4) {
+      rawBody = rawBody
+        .replace(/(---------- Forwarded message ---------)/gi, '\n\n$1\n')
+        .replace(/(From:|Date:|Subject:|To:|Cc:)/g, '\n$1')
+        .replace(/(Dear\s+[A-Za-z]+|Hi\s+[A-Za-z]+|Good\s+day)/gi, '\n\n$1\n\n')
+        .replace(/(Kind\s+Regards|Regards|Sincerely|Thank\s+you)/gi, '\n\n$1\n')
+        .replace(/(On\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^:]+wrote:)/gi, '\n\n$1\n')
+        .trim();
+    }
+
+    // INTERCEPT DRAFTS: Open editor instead of viewer
+    if (msg.labelIds?.includes("DRAFT") || gmailFolder === "DRAFTS") {
+      let toEmail = "";
+      if (msg.to) {
+        const toStr = Array.isArray(msg.to) ? msg.to[0] : msg.to;
+        const emailMatch = (typeof toStr === "string" ? toStr : "").match(/<([^>]+)>/);
+        toEmail = emailMatch ? emailMatch[1].trim() : (typeof toStr === "string" ? toStr.replace(/"/g, '').trim() : "");
+      }
+
+      setSelectedDraftTemplate({
+        id: "existing_draft",
+        draftId: msg.id,
+        label: "Edit Draft",
+        subject: msg.subject || "",
+        body: (isHtml ? rawBody.replace(/<[^>]+>/g, "") : rawBody) + "\n\n",
+        isForward: false 
+      });
+      setDraftTo(toEmail);
+      
+      if (msg.attachments?.length > 0) {
+        Promise.all(msg.attachments.map(async (a) => {
+          const fileUrl = `/.netlify/functions/gmail-download?messageId=${msg.id}&attachmentId=${a.id}&filename=${encodeURIComponent(a.name)}&mimeType=${encodeURIComponent(a.mimeType)}`;
+          const res = await fetch(fileUrl);
+          const blob = await res.blob();
+          return new File([blob], a.name, { type: a.mimeType });
+        })).then(files => setDraftAttachments(files));
+      }
+
+      setEmail(null);
+      setCurrentView({ app: "gmail", contact: null });
       return;
     }
 
-    // 📧 Real Gmail Inbox Handler
-    if (n.alt === "Gmail" && n.gmailData) {
-      const msg = n.gmailData;
-      
-      // 1. Mark as read immediately in the UI
-      setGmailEmails(prev => prev.map(e => e.id === msg.id ? { ...e, isUnread: false } : e));
-      
-      // 2. Parse the sender info
-      // Smarter HTML detection to prevent stripping plain text spacing
-                        const isHtml = /<(html|body|div|p|br|b|strong|i|em|a|span|table|style)[^>]*>/i.test(msg.body || "");
-                        
-                        // Reconstruct newlines if the backend compressed the plain text into a blob
-                        let rawBody = msg.body || msg.snippet || "";
-                        if (!isHtml && rawBody.split('\n').length < 4) {
-                          rawBody = rawBody
-                            .replace(/(---------- Forwarded message ---------)/gi, '\n\n$1\n')
-                            .replace(/(From:|Date:|Subject:|To:|Cc:)/g, '\n$1')
-                            .replace(/(Dear\s+[A-Za-z]+|Hi\s+[A-Za-z]+|Good\s+day)/gi, '\n\n$1\n\n')
-                            .replace(/(Kind\s+Regards|Regards|Sincerely|Thank\s+you)/gi, '\n\n$1\n')
-                            .replace(/(On\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^:]+wrote:)/gi, '\n\n$1\n')
-                            .replace(/(>\s*>)/g, '>>')
-                            .replace(/(>\s+)/g, '\n$1')
-                            .replace(/(\s\d+\.)/g, '\n$1')
-                            .replace(/\n{3,}/g, '\n\n')
-                            .trim();
-                        }
+    const fromParts = msg.from ? msg.from.split("<") : ["Unknown", ""];
+    const fromName = fromParts[0].replace(/"/g, '').trim();
+    const fromEmail = fromParts[1] ? "<" + fromParts[1] : "";
 
-                       // 🟢 INTERCEPT FOR DRAFTS
-                        if (gmailFolder === "DRAFTS") {
-                          let toEmail = "";
-                          if (msg.to) {
-                            const toStr = Array.isArray(msg.to) ? msg.to[0] : msg.to;
-                            // Regex to extract email between < > if it exists, otherwise use the whole string
-                            const emailMatch = (typeof toStr === "string" ? toStr : "").match(/<([^>]+)>/);
-                            toEmail = emailMatch ? emailMatch[1].trim() : (typeof toStr === "string" ? toStr.replace(/"/g, '').trim() : "");
-                          }
-                          
-                          let plainBody = rawBody || "";
-                          if (isHtml && plainBody) {
-                            plainBody = plainBody.replace(/<br\s*[\/]?>/gi, "\n").replace(/<\/p>/gi, "\n").replace(/<[^>]+>/g, "");
-                          }
-                          
-                          // 🟢 STRIP PREVIOUS SIGNATURE TO PREVENT DUPLICATION
-                          const sigIndex = plainBody.indexOf("Kind regards");
-                          if (sigIndex !== -1) {
-                            plainBody = plainBody.substring(0, sigIndex).trim();
-                          }
+    setEmail({
+      id: msg.id, subject: msg.subject, fromName, fromEmail,
+      to: msg.to,
+      date: msg.date,
+      isStarred: msg.isStarred,
+      time: new Date(msg.date).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
+      body: isHtml ? "" : rawBody,
+      bodyHtml: isHtml ? msg.body : "",
+      attachments: msg.attachments ? msg.attachments.map(a => ({
+        ...a,
+        type: a.mimeType.includes("pdf") ? "pdf" : a.mimeType.includes("image") ? "img" : a.mimeType.includes("spreadsheet") || a.mimeType.includes("excel") ? "xls" : "file",
+        url: `/.netlify/functions/gmail-download?messageId=${msg.id}&attachmentId=${a.id}&filename=${encodeURIComponent(a.name)}&mimeType=${encodeURIComponent(a.mimeType)}`
+      })) : [],
+      actions: [{ key: "submit_trello", label: "Submit to Trello" }, { key: "update_tracker", label: "Update AC Tracker" }]
+    });
 
-                         setSelectedDraftTemplate({
-                            id: "existing_draft",
-                            draftId: msg.id,
-                            label: "Edit Draft",
-                            subject: msg.subject || "",
-                            body: plainBody + "\n\n",
-                            isForward: false 
-                          });
-                          setDraftTo(toEmail);
-                          
-                          // 📎 Load existing draft attachments as File objects
-                          if (msg.attachments && msg.attachments.length > 0) {
-                            Promise.all(msg.attachments.map(async (a) => {
-                              const fileUrl = `/.netlify/functions/gmail-download?messageId=${msg.id}&attachmentId=${a.id}&filename=${encodeURIComponent(a.name)}&mimeType=${encodeURIComponent(a.mimeType)}`;
-                              const res = await fetch(fileUrl);
-                              const blob = await res.blob();
-                              return new File([blob], a.name, { type: a.mimeType });
-                            })).then(files => setDraftAttachments(files));
-                          }
+    setEmailPreview(null);
+    setCurrentView({ app: "email", contact: null });
+    return;
+  }
 
-                          setEmail(null);
-                          setEmailPreview(null);
-                          return;
-                        }
-
-                        const fromParts = msg.from ? msg.from.split("<") : ["Unknown", ""];
-                        const fromName = fromParts[0].replace(/"/g, '').trim();
-                        const fromEmail = fromParts[1] ? "<" + fromParts[1] : "";
-setEmail({
-                  id: msg.id, subject: msg.subject, fromName, fromEmail,
-                  to: msg.to,
-                  date: msg.date,
-                  isStarred: msg.isStarred,
-                  time: new Date(msg.date).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
-                  body: isHtml ? "" : rawBody,
-                  bodyHtml: isHtml ? msg.body : "",
-                  attachments: msg.attachments ? msg.attachments.map(a => ({
-                    ...a,
-                    type: a.mimeType.includes("pdf") ? "pdf" : a.mimeType.includes("image") ? "img" : a.mimeType.includes("spreadsheet") || a.mimeType.includes("excel") ? "xls" : "file",
-                    url: `/.netlify/functions/gmail-download?messageId=${msg.id}&attachmentId=${a.id}&filename=${encodeURIComponent(a.name)}&mimeType=${encodeURIComponent(a.mimeType)}`
-                  })) : [],
-                  actions: [{ key: "submit_trello", label: "Submit to Trello" }, { key: "update_tracker", label: "Update AC Tracker" }]
-                });
-      
-      setEmailPreview(null);
-      setCurrentView({ app: "email", contact: null }); // Switch to individual email view
-      dismissNotification(n); // This handles the backend 'mark as read' ping automatically
-      return;
-    }
-
-  // 📨 Gmail-style notifications from Data Centre (Drive)
-  if (n.alt === "Gmail" && n.driveEmail) {
-    try {
-      // 🔁 UPDATED: fetch attachments scoped to THIS email
-      const res = await fetch(
-        `/.netlify/functions/drive-get-email-attachments?id=${encodeURIComponent(
-          n.driveEmail.id
-        )}`
-      );
-      const json = await res.json().catch(() => ({}));
-      const files = Array.isArray(json.files) ? json.files : [];
-
-      const attachments = files.map((f) => {
-        const mime = f.mimeType || "application/pdf";
-        const baseUrl = `/.netlify/functions/drive-download?id=${encodeURIComponent(
-          f.id
-        )}&name=${encodeURIComponent(f.name)}&mimeType=${encodeURIComponent(mime)}`;
-
-        return {
-          id: f.id,
-          name: f.name,
-          type: "pdf",
-          url: baseUrl,
-          thumbUrl: f.thumbnailLink || f.webViewLink || baseUrl,
-        };
-      });
-
-      let bodyText = "But the original .eml is stored in the Data Centre.";
-      try {
-        const bodyRes = await fetch(
-          `/.netlify/functions/drive-get-eml?id=${encodeURIComponent(
-            n.driveEmail.id
-          )}`
-        );
-        const bodyJson = await bodyRes.json().catch(() => ({}));
-        if (bodyJson && bodyJson.ok && bodyJson.bodyText) {
-          bodyText = bodyJson.bodyText;
-        }
-      } catch (err) {
-        console.error("Failed to fetch .eml body:", err);
-      }
-
-      const subject =
-        (n.driveEmail.subject && n.driveEmail.subject.trim()) ||
-        n.driveEmail.name.replace(/\.eml$/i, "") ||
-        "Client Instruction (Data Centre)";
-
-      setEmailPreview(null);
-      setEmail({
-        id: n.driveEmail.id,
-        subject,
-        fromName: "Client Instruction (Data Centre)",
-        fromEmail: "via Data Centre <agentyolandie@gmail.com>",
-        to: ["Yolandie <yolandie@actuaryspace.co.za>"],
-        time: n.time,
-        body: bodyText,
-        attachments,
-        actions: [
-          { key: "submit_trello", label: "Submit to Trello" },
-          { key: "update_tracker", label: "Update AC Tracker" },
-        ],
-      });
-
-      window.dispatchEvent(
-        new CustomEvent("setClientFiles", {
-          detail: { files: attachments },
-        })
-      );
-
-      setCurrentView({ app: "email", contact: null });
-    } catch (err) {
-      console.error("Failed to open email from notification:", err);
-    }
-
-    return;
-  }
+  // 4. Drive Email Handler (Legacy Data Centre)
+  if (n.alt === "Gmail" && n.driveEmail) {
+    setCurrentView({ app: "email", contact: null });
+    return;
+  }
 };
 
   /* dismiss notif */
@@ -3813,7 +3925,36 @@ const handleStartChat = async () => {
       setGchatLoading(false);
     }
   };
+  
+  const handleDeleteGChatMessage = async (messageId) => {
+    if (!window.confirm("Delete this message?")) return;
+    try {
+      // Optimistic delete
+      setGchatMessages(prev => prev.filter(m => (m.name || m.id) !== messageId));
+      await fetch("/.netlify/functions/gchat-delete-message", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId })
+      });
+    } catch (err) { console.error("Delete failed", err); }
+  };
 
+  const handleUpdateGChatMessage = async (messageId) => {
+    if (!editValue.trim()) return;
+    try {
+      // Optimistic update
+      setGchatMessages(prev => prev.map(m => (m.name || m.id) === messageId ? { ...m, text: editValue } : m));
+      setEditingMsgId(null);
+      await fetch("/.netlify/functions/gchat-update-message", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId, text: editValue })
+      });
+    } catch (err) { console.error("Update failed", err); }
+  };
+  
   /* src/App.jsx - Improved handleSend */
   const handleSend = async () => {
   const text = inputValue.trim();
@@ -3926,20 +4067,27 @@ const handleStartChat = async () => {
     let rawQ = (searchQuery || "").toLowerCase().trim();
     let searchTerms = [];
     
-    if (rawQ.startsWith('"') && rawQ.endsWith('"') && rawQ.length > 1) {
-      searchTerms = [rawQ.slice(1, -1)]; // Exact phrase match
-    } else {
-      searchTerms = rawQ.split(/\s+/).filter(Boolean); // Multi-word ANY match
+    if (rawQ.includes(':')) {
+      searchTerms = []; 
+    } else if (rawQ.startsWith('"') && rawQ.endsWith('"') && rawQ.length > 1) {
+      searchTerms = [rawQ.slice(1, -1)];
+    } else if (rawQ) {
+      searchTerms = [rawQ];
     }
     
-    const filteredEmails = (gmailEmails || []).filter(e => {
-      if (searchTerms.length === 0) return true;
-      const subject = (e.subject || "").toLowerCase();
-      const from = (e.from || "").toLowerCase();
-      const snippet = (e.snippet || "").toLowerCase();
-      const combined = `${subject} ${from} ${snippet}`;
-      return searchTerms.every(term => combined.includes(term));
-    });
+    // ⚡ IMPROVED ACCURACY: If there is a search query, do NOT filter locally.
+    // The Gmail API handles the historical search. Local filtering is only for the default Inbox view.
+    const filteredEmails = (searchQuery.trim() !== "") 
+      ? (gmailEmails || []) 
+      : (gmailEmails || []).filter((msg) => {
+          if (searchTerms.length === 0) return true;
+          const subject = (msg.subject || "").toLowerCase();
+          const from = (msg.fromName || msg.fromEmail || msg.from || "").toLowerCase();
+          const snippet = (msg.snippet || "").toLowerCase();
+          const bodyText = (msg.body || msg.bodyHtml || "").toLowerCase();
+          const searchable = `${subject} ${from} ${snippet} ${bodyText}`;
+          return searchTerms.every(term => searchable.includes(term));
+        });
 
     const filteredGchatSpaces = (gchatSpaces || []).filter(s => {
       if (searchTerms.length === 0) return true;
@@ -4200,19 +4348,19 @@ const handleStartChat = async () => {
 
               {!gchatMsgLoading && !gchatMsgError && (
                 <div className="gchat-msg-list">
-                  {/* Corrected Google Chat Message List */}
-                  {gchatMessages.map((m, idx) => {
+                  {/* 🛡️ PERMANENT SIYA LOCK: Siya (Right) vs Others (Left). Reactions & Hover preserved. */}
+                  {gchatMessages.map((m, idx) => {
                     const msg = normalizeGChatMessage(m);
                     const senderName = msg?.sender?.displayName || "Unknown";
-                    const msgId = msg?.name || msg?.id || `${msg?.createTime || "no-ts"}-${idx}`;
+                    const msgId = msg?.name || msg?.id || `msg-${idx}`;
                     const avatar = avatarFor(senderName);
                     
-                    // 🛡️ BATTLE-HARDENED IDENTITY CHECK:
-                    // 1. Matches unique Google resource ID (gchatMe)
-                    // 2. Matches Siya's known work emails (backup if ID is missing)
+                    // Unified Identity Guard
                     const isMine = (!!gchatMe && msg?.sender?.name === gchatMe) || 
                                    (msg?.sender?.email === 'siya@actuaryspace.co.za') ||
-                                   (msg?.sender?.email === 'siya@actuaryconsulting.co.za');
+                                   (msg?.sender?.email === 'siya@actuaryconsulting.co.za') ||
+                                   (senderName.toLowerCase().includes("siyabonga")) ||
+                                   (senderName.toLowerCase().trim() === "siya");
 
                     const hasAttachment = msg.attachment && msg.attachment.length > 0;
                     const fileData = hasAttachment ? msg.attachment[0] : null;
@@ -4230,62 +4378,106 @@ const handleStartChat = async () => {
                     else if (["doc", "docx"].includes(ext)) { fileType = "DOC"; iconClass = "doc"; }
 
                     return (
-                      <div key={msgId} className={`gchat-msg ${isMine ? "mine" : "theirs"}`} style={{ position: "relative" }}>
+                      <div 
+                        key={msgId} 
+                        className={`gchat-msg ${isMine ? "mine" : "theirs"}`} 
+                        onMouseEnter={() => setHoveredMsgId(msgId)}
+                        onMouseLeave={() => setHoveredMsgId(null)}
+                        style={{ 
+                          position: "relative",
+                          display: "flex", 
+                          width: "100%",
+                          // 🚀 ALIGNMENT ANCHOR 1: Row-level force
+                          justifyContent: isMine ? "flex-end" : "flex-start", 
+                          marginBottom: "12px",
+                          gap: "8px"
+                        }}
+                      >
+                        {/* 🛠️ UNIVERSAL HOVER ACTION BAR (Reactions + Edit + Delete) */}
+                        {hoveredMsgId === msgId && !editingMsgId && (
+                          <div className="gchat-hover-actions" style={{
+                            position: 'absolute', top: '-22px', [isMine ? 'right' : 'left']: '48px',
+                            background: 'white', border: '1px solid #dadce0', borderRadius: '24px',
+                            display: 'flex', gap: '8px', padding: '4px 14px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', zIndex: 100
+                          }}>
+                            <button title="Like" onClick={() => toggleReaction(msgId, "like")} style={{border:'none', background:'none', cursor:'pointer', fontSize: '16px'}}>👍</button>
+                            <button title="Heart" onClick={() => toggleReaction(msgId, "heart")} style={{border:'none', background:'none', cursor:'pointer', fontSize: '16px'}}>❤️</button>
+                            <button title="Laugh" onClick={() => toggleReaction(msgId, "laugh")} style={{border:'none', background:'none', cursor:'pointer', fontSize: '16px'}}>😆</button>
+                            {isMine && (
+                              <button title="Edit" onClick={() => { setEditingMsgId(msgId); setEditValue(msg.text || ""); }} style={{border:'none', background:'none', cursor:'pointer', color:'#5f6368', display: 'grid', placeItems: 'center'}}>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+                              </button>
+                            )}
+                            <button title="Delete" onClick={() => handleDeleteGChatMessage(msgId)} style={{border:'none', background:'none', cursor:'pointer', color:'#d93025', display: 'grid', placeItems: 'center'}}>
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                            </button>
+                          </div>
+                        )}
+
                         {!isMine && (
-                          <div className="gchat-avatar-circle">
+                          <div className="gchat-avatar-circle" style={{ alignSelf: 'flex-start', flexShrink: 0 }}>
                             {avatar ? <img src={avatar} alt={senderName} /> : <span>{senderName.slice(0, 1).toUpperCase()}</span>}
                           </div>
                         )}
 
-                        <div className="gchat-msg-content group" style={{ display: "flex", flexDirection: "column", alignItems: isMine ? "flex-end" : "flex-start", position: "relative", maxWidth: "75%" }}>
-                          <div className="gchat-meta">
-                            {!isMine && <strong>{senderName}</strong>}
-                            <span className="gchat-time">{formatGchatTime(msg?.createTime)}</span>
+                        <div 
+                          className="gchat-msg-content group" 
+                          style={{ 
+                            display: "flex", 
+                            flexDirection: "column", 
+                            // 🚀 ALIGNMENT ANCHOR 2: Content-level force
+                            alignItems: isMine ? "flex-end" : "flex-start", 
+                            position: "relative", 
+                            maxWidth: "75%",
+                            marginLeft: isMine ? "auto" : "0", // 🧲 Magnetic pull to right
+                            marginRight: isMine ? "0" : "auto"
+                          }}
+                        >
+                          <div className="gchat-meta" style={{ textAlign: isMine ? "right" : "left", width: "100%" }}>
+                            {!isMine && <strong style={{ marginRight: '8px' }}>{senderName}</strong>}
+                            <span className="gchat-time" style={{ marginLeft: isMine ? "0" : "8px", marginRight: isMine ? "8px" : "0" }}>
+                              {formatGchatTime(msg?.createTime)}
+                            </span>
                           </div>
 
-                          {hasAttachment && (
-                            <div style={{ marginBottom: msg?.text ? "8px" : "0" }}>
-                              {isVideo ? (
-                                <div className="gchat-media-wrap">
-                                  <video controls src={fileData?.attachmentDataRef?.resourceName ? `/.netlify/functions/gchat-download?uri=api:${fileData.attachmentDataRef.resourceName}` : fileData?.downloadUri} style={{ maxWidth: "240px", borderRadius: "8px", display: "block", background: "#000" }} />
-                                </div>
-                              ) : isAudio ? (
-                                <div className="gchat-media-wrap" style={{ width: "240px" }}>
-                                  <audio controls src={fileData?.attachmentDataRef?.resourceName ? `/.netlify/functions/gchat-download?uri=api:${fileData.attachmentDataRef.resourceName}` : fileData?.downloadUri} style={{ width: "100%" }} />
-                                </div>
-                              ) : (
-                                <div className="gchat-file-card" style={{ cursor: "pointer" }} onClick={(e) => {
-                                  e.stopPropagation();
-                                  const finalUrl = fileData?.attachmentDataRef?.resourceName ? `/.netlify/functions/gchat-download?uri=api:${fileData.attachmentDataRef.resourceName}` : fileData?.downloadUri;
-                                  const isViewable = ["pdf", "png", "jpg", "jpeg", "gif", "webp"].includes(ext);
-                                  if (isViewable) { setGchatFilePreview({ name: fileName, url: finalUrl, type: iconClass }); }
-                                  else { window.open(finalUrl, '_blank'); }
-                                }}>
-                                  <div className={`gchat-file-icon ${iconClass}`}>{fileType}</div>
-                                  <div className="gchat-file-info"><div className="gchat-file-name">{fileName}</div></div>
+                          {editingMsgId === msgId ? (
+                            <div style={{ width: '100%', background: '#f1f3f4', padding: '8px', borderRadius: '12px', border: '1px solid #dadce0', minWidth: '300px' }}>
+                              <textarea 
+                                autoFocus
+                                value={editValue} 
+                                onChange={e => setEditValue(e.target.value)}
+                                style={{ width: '100%', border: '1px solid #dadce0', borderRadius: '4px', padding: '10px', fontSize: '14px', outline: 'none', minHeight: '60px', fontFamily: 'inherit' }}
+                              />
+                              <div style={{ display: 'flex', gap: '8px', marginTop: '8px', justifyContent: 'flex-end' }}>
+                                <button onClick={() => setEditingMsgId(null)} style={{ background: 'transparent', border: 'none', color: '#5f6368', cursor: 'pointer', fontSize: '13px', fontWeight: 500 }}>Cancel</button>
+                                <button onClick={() => handleUpdateGChatMessage(msgId)} style={{ background: '#0b57d0', border: 'none', color: 'white', cursor: 'pointer', fontSize: '13px', fontWeight: 500, padding: '4px 16px', borderRadius: '16px' }}>Save</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="gchat-bubble" style={{ position: "relative", textAlign: 'left' }}>
+                              {hasAttachment && (
+                                <div style={{ marginBottom: msg?.text ? "8px" : "0" }}>
+                                  <div className="gchat-file-card" onClick={(e) => {
+                                    e.stopPropagation();
+                                    const finalUrl = fileData?.attachmentDataRef?.resourceName ? `/.netlify/functions/gchat-download?uri=api:${fileData.attachmentDataRef.resourceName}` : fileData?.downloadUri;
+                                    const isViewable = ["pdf", "png", "jpg", "jpeg", "gif", "webp"].includes(ext);
+                                    if (isViewable) { setGchatFilePreview({ name: fileName, url: finalUrl, type: iconClass }); }
+                                    else { window.open(finalUrl, '_blank'); }
+                                  }}>
+                                    <div className={`gchat-file-icon ${iconClass}`}>{fileType}</div>
+                                    <div className="gchat-file-info"><div className="gchat-file-name">{fileName}</div></div>
+                                  </div>
                                 </div>
                               )}
+                              {(msg?.text || msg?.formattedText) && formatChatText(msg?.text || msg?.formattedText)}
                             </div>
                           )}
-
-                          {(msg?.text || msg?.formattedText) && (
-                            <div className="gchat-bubble" style={{ position: "relative" }}>
-                              {formatChatText(msg?.text || msg?.formattedText)}
-                            </div>
-                          )}
-
-                          {!isMine && (
-                            <div className="gchat-react-bar">
-                              <button className="gchat-reaction-pill" onMouseDown={(e) => {e.stopPropagation(); e.preventDefault(); toggleReaction(msgId, "like");}}>👍</button>
-                              <button className="gchat-reaction-pill" onMouseDown={(e) => {e.stopPropagation(); e.preventDefault(); toggleReaction(msgId, "heart");}}>❤️</button>
-                              <button className="gchat-reaction-pill" onMouseDown={(e) => {e.stopPropagation(); e.preventDefault(); toggleReaction(msgId, "laugh");}}>😆</button>
-                            </div>
-                          )}
-
+                          
+                          {/* Reaction Chips Row */}
                           {Array.isArray(reactions[msgId]) && reactions[msgId].length > 0 && (
-                            <div className="gchat-reaction-row" style={{ marginTop: 4, display: "flex", gap: 4 }}>
+                            <div style={{ marginTop: 4, display: "flex", gap: 4 }}>
                               {reactions[msgId].map((r) => (
-                                <button key={r} onClick={(e) => {e.stopPropagation(); toggleReaction(msgId, r);}} className="gchat-reaction-chip-btn">
+                                <button key={r} onClick={() => toggleReaction(msgId, r)} className="gchat-reaction-chip-btn">
                                   {r === "like" ? "👍 1" : r === "heart" ? "❤️ 1" : "😆 1"}
                                 </button>
                               ))}
@@ -4420,7 +4612,10 @@ if (currentView.app === "gmail") {
                     type="text"
                     placeholder="Search in mail..."
                     value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                      setGmailPage(1);
+                    }}
                     style={{
                       width: "100%",
                       padding: "10px 12px 10px 44px",
@@ -4572,44 +4767,86 @@ if (currentView.app === "gmail") {
                   </div>
                 )}
 
-                {/* 4. Reload & Pagination (Pinned to right) */}
-<div style={{ display: "flex", alignItems: "center", gap: "12px", color: "#5f6368", fontSize: "13px", marginLeft: "auto", marginRight: "4px" }}>
-  
-  {/* 🔄 RELOAD BUTTON */}
-  <button 
-    onClick={() => {
-      setGmailEmails([]); // Clear list for visual feedback
-      setGmailRefreshTrigger(p => p + 1); // Trigger the loader useEffect
-    }}
-    title="Refresh"
-    style={{ 
-      background: "transparent", 
-      border: "none", 
-      cursor: "pointer", 
-      color: "#5f6368", 
-      padding: "6px", 
-      borderRadius: "50%", 
-      display: "grid", 
-      placeItems: "center",
-      transition: "background 0.2s" 
-    }}
-    onMouseEnter={e => e.currentTarget.style.background = "#f1f3f4"}
-    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-  >
-    <svg width="18" height="18" viewBox="0 0 24 24">
-      <path fill="currentColor" d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
-    </svg>
-  </button>
+        {/* 4. Reload & Pagination (Pinned to right) */}
+                <div style={{ display: "flex", alignItems: "center", gap: "12px", color: "#5f6368", fontSize: "13px", marginLeft: "auto", marginRight: "4px" }}>
+                  
+                  {/* 🔄 RELOAD BUTTON */}
+                  <button 
+                    onClick={() => {
+                      setGmailEmails([]); 
+                      setGmailRefreshTrigger(p => p + 1); 
+                    }}
+                    title="Refresh"
+                    style={{ 
+                      background: "transparent", 
+                      border: "none", 
+                      cursor: "pointer", 
+                      color: "#5f6368", 
+                      padding: "6px", 
+                      borderRadius: "50%", 
+                      display: "grid", 
+                      placeItems: "center",
+                      transition: "background 0.2s" 
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = "#f1f3f4"}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24">
+                      <path fill="currentColor" d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+                    </svg>
+                  </button>
 
- <span>{`${gmailTotal > 0 ? (gmailPage - 1) * 50 + 1 : 0}–${(gmailPage - 1) * 50 + gmailEmails.length} of ${gmailTotal.toLocaleString()}`}</span>
-  <div style={{ display: "flex" }}>
-                    <button onClick={() => { setGmailEmails([]); setGmailPage(p => Math.max(1, p - 1)); }} disabled={gmailPage === 1} style={{ background: "transparent", border: "none", cursor: gmailPage === 1 ? "default" : "pointer", color: gmailPage === 1 ? "#c1c7d0" : "#5f6368", padding: "4px", borderRadius: "50%" }} onMouseEnter={e => gmailPage !== 1 && (e.currentTarget.style.background = "#eee")} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                      <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
-                    </button>
-                    <button onClick={() => { setGmailEmails([]); setGmailPage(p => p + 1); }} disabled={gmailPage * 50 >= gmailTotal} style={{ background: "transparent", border: "none", cursor: gmailPage * 50 >= gmailTotal ? "default" : "pointer", color: gmailPage * 50 >= gmailTotal ? "#c1c7d0" : "#5f6368", padding: "4px", borderRadius: "50%" }} onMouseEnter={e => gmailPage * 50 < gmailTotal && (e.currentTarget.style.background = "#eee")} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                      <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
-                    </button>
-                  </div>
+                {(() => {
+                    const isSearchActive = !!searchQuery.trim();
+                    const hasNextPage = !!gmailPageTokens[gmailPage + 1];
+                    
+                    const visibleCount = filteredEmails.length;
+                    const startIndex = visibleCount > 0 ? (gmailPage - 1) * 50 + 1 : 0;
+                    const endIndex = (gmailPage - 1) * 50 + visibleCount;
+                    
+                    // ⚡ UPDATED PAGINATION TEXT: 
+                    // Correctly shows the "of total" count even during active search
+                    let paginationText = "";
+                    if (hasNextPage) {
+                      paginationText = `${startIndex}–${endIndex} of ${gmailTotal > 0 ? gmailTotal.toLocaleString() : "..."}`;
+                    } else {
+                      // We've reached the absolute end of the historical search
+                      paginationText = `${startIndex}–${endIndex} of ${endIndex.toLocaleString()}`;
+                    }
+
+                    // ⚡ FIX: The button is ONLY disabled if there is no next page token AND we have no more items
+                    const isNextDisabled = !hasNextPage || visibleCount < 50;
+
+                    return (
+                      <>
+                        <span style={{ userSelect: 'none' }}>{paginationText}</span>
+                        <div style={{ display: "flex", alignItems: "center" }}>
+                          <button 
+                            onClick={() => { 
+                              setGmailEmails([]); 
+                              setGmailPage(p => Math.max(1, p - 1)); 
+                            }} 
+                            disabled={gmailPage === 1} 
+                            title="Newer"
+                            style={{ background: "transparent", border: "none", cursor: gmailPage === 1 ? "default" : "pointer", color: gmailPage === 1 ? "#c1c7d0" : "#5f6368", padding: "4px", borderRadius: "50%" }}
+                          >
+                            <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+                          </button>
+                          <button 
+                            onClick={() => { 
+                              setGmailEmails([]); 
+                              setGmailPage(p => p + 1); 
+                            }} 
+                            disabled={isNextDisabled} 
+                            title="Older"
+                            style={{ background: "transparent", border: "none", cursor: isNextDisabled ? "default" : "pointer", color: isNextDisabled ? "#c1c7d0" : "#5f6368", padding: "4px", borderRadius: "50%" }}
+                          >
+                            <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+                          </button>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -4675,6 +4912,7 @@ if (currentView.app === "gmail") {
                   to: msg.to,
                   date: msg.date,
                   isStarred: msg.isStarred,
+                  labelIds: msg.labelIds || [],
                   time: new Date(msg.date).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
                   body: isHtml ? "" : rawBody,
                   bodyHtml: isHtml ? msg.body : "",
@@ -4735,7 +4973,7 @@ if (currentView.app === "gmail") {
        {/* Sender Name */}
               <div style={{ width: "200px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: "#202124" }}>
                 {(() => {
-                  if (gmailFolder === "SENT" || gmailFolder === "DRAFTS") {
+                  if (gmailFolder === "SENT" || gmailFolder === "DRAFTS" || (msg.labelIds || []).includes("DRAFT")) {
                     if (!msg.to) return "To: (Unknown)";
                     
                     let rawName = msg.to.split("<")[0].replace(/"/g, '').trim();
@@ -4771,11 +5009,23 @@ if (currentView.app === "gmail") {
               
 
              {/* Subject, Snippet, and Attachments */}
-              <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  <span style={{ color: "#202124", marginRight: "6px" }}>{msg.subject}</span>
-                  <span style={{ color: "#5f6368", fontWeight: 400 }}>- {msg.snippet}</span>
-                </div>
+ <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+   <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center" }}>
+     
+     {/* 🏷️ GMAIL-STYLE LABELS */}
+     {gmailFolder === "INBOX" && (msg.labelIds || []).includes("DRAFT") && (
+       <span style={{ background: "#fce8e6", color: "#d93025", fontSize: "11px", fontWeight: "bold", padding: "1px 6px", borderRadius: "4px", marginRight: "8px", textTransform: "uppercase" }}>Draft</span>
+     )}
+     
+
+     <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center" }}>
+  
+ 
+
+  <span style={{ color: "#202124", marginRight: "6px" }}>{msg.subject}</span>
+  <span style={{ color: "#5f6368", fontWeight: 400 }}>- {msg.snippet}</span>
+</div>
+   </div>
                 
               {msg.attachments && msg.attachments.length > 0 && (
                   <div style={{ display: 'flex', gap: '8px', marginTop: '6px', overflow: 'hidden', alignItems: 'center' }}>
@@ -5011,60 +5261,69 @@ if (currentView.app === "gmail") {
             )}
 
         {/* Body Container (Scrolls together with Signature) */}
-            <div style={{ flex: 1, overflowY: "auto", background: "#fff", display: "flex", flexDirection: "column", position: 'relative' }}>
-             <div style={{ position: 'relative', minHeight: "200px" }}>
-                {/* Hidden Textarea for Input */}
-                <textarea
-                  className="email-draft-textarea"
-                  value={selectedDraftTemplate.body || ""}
-                  onChange={(e) => setSelectedDraftTemplate((prev) => prev ? { ...prev, body: e.target.value } : prev)}
-                  style={{ 
-                    width: '100%',
-                    border: "none", 
-                    padding: "16px", 
-                    resize: "none", 
-                    outline: "none", 
-                    minHeight: "200px", 
-                    fontSize: "14px", 
-                    fontFamily: "Verdana, sans-serif",
-                    background: "transparent",
-                    color: "transparent", // Hide the raw text
-                    caretColor: "#202124", // Keep the cursor visible
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    zIndex: 2,
-                    whiteSpace: "pre-wrap",
-                    overflow: "hidden"
-                  }}
-                  onInput={(e) => {
-                    e.target.style.height = "auto";
-                    e.target.style.height = e.target.scrollHeight + "px";
-                  }}
-                />
-                {/* Visual Preview Layer for Bold Stars */}
-                <div style={{ 
-                  padding: "16px", 
-                  fontSize: "14px", 
-                  fontFamily: "Verdana, sans-serif",
-                  color: "#202124",
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                  pointerEvents: "none",
-                  zIndex: 1,
-                  minHeight: "200px"
-                }}>
-                  {(selectedDraftTemplate.body || "").split(/(\*[^*]+\*)/g).map((part, i) => 
-                    part.startsWith('*') && part.endsWith('*') && part.length > 2 
-                    ? <strong key={i}>{part.slice(1, -1)}</strong> 
-                    : part
-                  )}
-                  {/* Invisible character to maintain height when trailing newlines exist */}
-                  {(selectedDraftTemplate.body || "").endsWith('\n') ? ' ' : ''}
+                <div style={{ flex: 1, overflowY: "auto", background: "#fff", display: "flex", flexDirection: "column", position: 'relative' }}>
+                 <div style={{ position: 'relative', minHeight: "200px" }}>
+                    {/* Textarea for Input (Now in normal document flow to push signature down) */}
+                    <textarea
+                      className="email-draft-textarea"
+                      ref={(el) => {
+                        if (el) {
+                          el.style.height = "auto";
+                          el.style.height = el.scrollHeight + "px";
+                        }
+                      }}
+                      value={selectedDraftTemplate.body || ""}
+                      onChange={(e) => setSelectedDraftTemplate((prev) => prev ? { ...prev, body: e.target.value } : prev)}
+                      style={{ 
+                        width: '100%',
+                        border: "none", 
+                        padding: "16px", 
+                        resize: "none", 
+                        outline: "none", 
+                        minHeight: "200px", 
+                        fontSize: "14px", 
+                        fontFamily: "Verdana, sans-serif",
+                        background: "transparent",
+                        color: "transparent", // Hide the raw text
+                        caretColor: "#202124", // Keep the cursor visible
+                        position: "relative",
+                        zIndex: 2,
+                        whiteSpace: "pre-wrap",
+                        overflow: "hidden",
+                        boxSizing: "border-box"
+                      }}
+                      onInput={(e) => {
+                        e.target.style.height = "auto";
+                        e.target.style.height = e.target.scrollHeight + "px";
+                      }}
+                    />
+                    {/* Visual Preview Layer for Bold Stars (Now absolute to sit perfectly under textarea) */}
+                    <div style={{ 
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      height: "100%",
+                      padding: "16px", 
+                      fontSize: "14px", 
+                      fontFamily: "Verdana, sans-serif",
+                      color: "#202124",
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      pointerEvents: "none",
+                      zIndex: 1,
+                      minHeight: "200px",
+                      boxSizing: "border-box"
+                    }}>
+                      {(selectedDraftTemplate.body || "").split(/(\*[^*]+\*)/g).map((part, i) => 
+                        part.startsWith('*') && part.endsWith('*') && part.length > 2 
+                        ? <strong key={i}>{part.slice(1, -1)}</strong> 
+                        : part
+                      )}
+                    </div>
+                  </div>
+                  <EmailSignature />
                 </div>
-              </div>
-              <EmailSignature />
-            </div>
             
         {/* Footer */}
             <div style={{ padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff" }}>
@@ -5509,116 +5768,99 @@ if (currentView.app === "gmail") {
             <div style={{ marginLeft: "56px", marginTop: "32px", paddingBottom: "24px" }}>
               
        {/* Reply, Forward, or Edit Draft */}
-              <div style={{ display: "flex", gap: "8px", marginBottom: "24px" }}>
-                {gmailFolder === "DRAFTS" ? (
-                  <button 
-                    className="gmail-btn-outline" 
-                    onClick={() => {
-                      const rawText = email.bodyHtml || email.body || "";
-                      let plainBody = email.bodyHtml ? rawText.replace(/<br\s*[\/]?>/gi, "\n").replace(/<\/p>/gi, "\n").replace(/<[^>]+>/g, "") : rawText;
-                      
-                      // 🟢 STRIP PREVIOUS SIGNATURE TO PREVENT DUPLICATION
-                      const sigIndex = plainBody.indexOf("Kind regards");
-                      if (sigIndex !== -1) {
-                        plainBody = plainBody.substring(0, sigIndex).trim();
-                      }
+<div style={{ display: "flex", gap: "8px", marginBottom: "24px" }}>
+  {/* ⚡ BROADENED LOGIC: Check for DRAFT label to show Edit Draft button in Inbox/Search results */}
+  {((email.labelIds || []).includes("DRAFT") || gmailFolder === "DRAFTS") ? (
+    <button 
+      className="gmail-btn-outline" 
+      onClick={() => {
+        const rawText = email.bodyHtml || email.body || "";
+        let plainBody = email.bodyHtml ? rawText.replace(/<br\s*[\/]?>/gi, "\n").replace(/<\/p>/gi, "\n").replace(/<[^>]+>/g, "") : rawText;
+        
+        const sigIndex = plainBody.indexOf("Kind regards");
+        if (sigIndex !== -1) {
+          plainBody = plainBody.substring(0, sigIndex).trim();
+        }
 
-                      let toEmail = "";
-                      if (email.to && email.to.length > 0) {
-                         const toStr = Array.isArray(email.to) ? email.to[0] : email.to;
-                         // Regex to extract email between < > if it exists, otherwise use the whole string
-                         const emailMatch = (typeof toStr === "string" ? toStr : "").match(/<([^>]+)>/);
-                         toEmail = emailMatch ? emailMatch[1].trim() : (typeof toStr === "string" ? toStr.replace(/"/g, '').trim() : "");
-                      }
+        let toEmail = "";
+        if (email.to && email.to.length > 0) {
+           const toStr = Array.isArray(email.to) ? email.to[0] : email.to;
+           const emailMatch = (typeof toStr === "string" ? toStr : "").match(/<([^>]+)>/);
+           toEmail = emailMatch ? emailMatch[1].trim() : (typeof toStr === "string" ? toStr.replace(/"/g, '').trim() : "");
+        }
 
-                      setSelectedDraftTemplate({
-                            id: "existing_draft",
-                            draftId: email.id,
-                            label: "Edit Draft",
-                            subject: email.subject || "",
-                            body: plainBody + "\n\n",
-                            isForward: false 
-                          });
-                          setDraftTo(toEmail);
+        setSelectedDraftTemplate({
+          id: "existing_draft",
+          draftId: email.id,
+          label: "Edit Draft",
+          subject: email.subject || "",
+          body: plainBody + "\n\n",
+          isForward: false 
+        });
+        setDraftTo(toEmail);
 
-                          // 📎 Load existing draft attachments as File objects
-                          if (email.attachments && email.attachments.length > 0) {
-                            Promise.all(email.attachments.map(async (a) => {
-                              const res = await fetch(a.url);
-                              const blob = await res.blob();
-                              return new File([blob], a.name, { type: a.mimeType });
-                            })).then(files => setDraftAttachments(files));
-                          }
+        if (email.attachments && email.attachments.length > 0) {
+          Promise.all(email.attachments.map(async (a) => {
+            const res = await fetch(a.url);
+            const blob = await res.blob();
+            return new File([blob], a.name, { type: a.mimeType });
+          })).then(files => setDraftAttachments(files));
+        }
 
-                          setEmail(null);
-                      setEmailPreview(null);
-                      setCurrentView({ app: "gmail", contact: null }); // 🟢 FIX: Switch view so it doesn't crash trying to render a null email
-                    }}
-                    style={{ borderRadius: "100px", padding: "8px 24px", color: "#3c4043", border: "1px solid #dadce0", display: "flex", alignItems: "center", gap: "8px", background: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: 500 }}
-                  >
-                    <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
-                    Edit Draft
-                  </button>
-
-                ) : (
-                  <>
-                    <button 
-                      className="gmail-btn-outline" 
-                      onClick={() => {
-                        const replyTpl = DRAFT_TEMPLATES.find(t => t.id === "new_blank");
-                        setSelectedDraftTemplate({...replyTpl, body: "\n\n", isForward: false});
-                        
-                        let targetEmail = "";
-                        if (email.fromEmail) {
-                          targetEmail = email.fromEmail.replace("<", "").replace(">", "").trim();
-                        } else if (email.fromName && email.fromName.includes("@")) {
-                          targetEmail = email.fromName;
-                        }
-                        setDraftTo(targetEmail);
-                      }}
-                      style={{ borderRadius: "100px", padding: "8px 24px", color: "#3c4043", border: "1px solid #dadce0", display: "flex", alignItems: "center", gap: "8px", background: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: 500 }}
-                    >
-                      <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>
-                      Reply
-                    </button>
-                    <button 
-                      className="gmail-btn-outline" 
-                      onClick={async () => {
-                        const replyTpl = DRAFT_TEMPLATES.find(t => t.id === "new_blank");
-                        
-                        const cleanFromEmail = email.fromEmail ? email.fromEmail.replace(/[<>]/g, '') : "";
-                        const fromLine = email.fromName && !email.fromName.includes("@") 
-                            ? `${email.fromName} <${cleanFromEmail}>` 
-                            : `<${cleanFromEmail || email.fromName}>`;
-                        
-                        const fwdHeader = `\n\n---------- Forwarded message ---------\nFrom: ${fromLine}\nDate: ${email.time}\nSubject: ${email.subject}\nTo: Siyabonga Nono <siyabonga@actuaryconsulting.co.za>\n\n`;
-                        const fwdBody = email.body || email.snippet || "";
-                        
-                        // 📎 ATTACHMENT FORWARDING: Convert existing attachments to File objects
-                        if (email.attachments && email.attachments.length > 0) {
-                          try {
-                            const existingFiles = await Promise.all(email.attachments.map(async (a) => {
-                              const res = await fetch(a.url);
-                              const blob = await res.blob();
-                              return new File([blob], a.name, { type: a.mimeType });
-                            }));
-                            setDraftAttachments(existingFiles);
-                          } catch (e) {
-                            console.error("Failed to collect attachments for forward", e);
-                          }
-                        }
-                        
-                        setSelectedDraftTemplate({...replyTpl, body: fwdHeader + fwdBody, isForward: true});
-                        setDraftTo(""); 
-                      }}
-                      style={{ borderRadius: "100px", padding: "8px 24px", color: "#3c4043", border: "1px solid #dadce0", display: "flex", alignItems: "center", gap: "8px", background: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: 500 }}
-                    >
-                      <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M14 9V5l7 7-7 7v-4.1c-5 0-8.5 1.6-11 5.1 1-5 4-10 11-11z"/></svg>
-                      Forward
-                    </button>
-                  </>
-                )}
-              </div>
+        setEmail(null);
+        setEmailPreview(null);
+        setCurrentView({ app: "gmail", contact: null });
+      }}
+      style={{ borderRadius: "100px", padding: "8px 24px", color: "#3c4043", border: "1px solid #dadce0", display: "flex", alignItems: "center", gap: "8px", background: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: 500 }}
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+      Edit Draft
+    </button>
+  ) : (
+    <>
+      <button 
+        className="gmail-btn-outline" 
+        onClick={() => {
+          const replyTpl = DRAFT_TEMPLATES.find(t => t.id === "new_blank");
+          setSelectedDraftTemplate({...replyTpl, body: "\n\n", isForward: false});
+          let targetEmail = email.fromEmail ? email.fromEmail.replace("<", "").replace(">", "").trim() : "";
+          setDraftTo(targetEmail);
+        }}
+        style={{ borderRadius: "100px", padding: "8px 24px", color: "#3c4043", border: "1px solid #dadce0", display: "flex", alignItems: "center", gap: "8px", background: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: 500 }}
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>
+        Reply
+      </button>
+      <button 
+        className="gmail-btn-outline" 
+        onClick={async () => {
+          const replyTpl = DRAFT_TEMPLATES.find(t => t.id === "new_blank");
+          const cleanFromEmail = email.fromEmail ? email.fromEmail.replace(/[<>]/g, '') : "";
+          const fromLine = email.fromName && !email.fromName.includes("@") ? `${email.fromName} <${cleanFromEmail}>` : `<${cleanFromEmail || email.fromName}>`;
+          const fwdHeader = `\n\n---------- Forwarded message ---------\nFrom: ${fromLine}\nDate: ${email.time}\nSubject: ${email.subject}\nTo: Siyabonga Nono <siyabonga@actuaryconsulting.co.za>\n\n`;
+          const fwdBody = email.body || email.snippet || "";
+          
+          if (email.attachments && email.attachments.length > 0) {
+            try {
+              const existingFiles = await Promise.all(email.attachments.map(async (a) => {
+                const res = await fetch(a.url);
+                const blob = await res.blob();
+                return new File([blob], a.name, { type: a.mimeType });
+              }));
+              setDraftAttachments(existingFiles);
+            } catch (e) { console.error(e); }
+          }
+          setSelectedDraftTemplate({...replyTpl, body: fwdHeader + fwdBody, isForward: true});
+          setDraftTo(""); 
+        }}
+        style={{ borderRadius: "100px", padding: "8px 24px", color: "#3c4043", border: "1px solid #dadce0", display: "flex", alignItems: "center", gap: "8px", background: "#fff", cursor: "pointer", fontSize: "14px", fontWeight: 500 }}
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M14 9V5l7 7-7 7v-4.1c-5 0-8.5 1.6-11 5.1 1-5 4-10 11-11z"/></svg>
+        Forward
+      </button>
+    </>
+  )}
+</div>
 
               {/* Trello / Tracker Actions (Hidden for Drafts) */}
               {gmailFolder !== "DRAFTS" && (
@@ -5758,37 +6000,43 @@ if (currentView.app === "gmail") {
               </div>
 
              {/* Text Area */}
-              <div style={{ maxHeight: "350px", overflowY: "auto", padding: "0 16px" }}>
-               <div style={{ position: 'relative', minHeight: "150px", marginTop: "8px" }}>
-                  <textarea
-                    autoFocus
-                    className="email-draft-textarea"
-                    value={selectedDraftTemplate.body || ""}
-                    onChange={(e) => setSelectedDraftTemplate((prev) => prev ? { ...prev, body: e.target.value } : prev)}
-                    style={{
-                      width: "100%", border: "none", outline: "none", minHeight: "150px", fontSize: "14px", resize: "none",
-                      background: "transparent", color: "transparent", caretColor: "#202124", position: "absolute", top: 0, left: 0, zIndex: 2,
-                      whiteSpace: "pre-wrap", overflow: "hidden"
-                    }}
-                    onInput={(e) => {
-                      e.target.style.height = "auto";
-                      e.target.style.height = e.target.scrollHeight + "px";
-                    }}
-                  />
-                  <div style={{ 
-                    fontSize: "14px", fontFamily: "inherit", color: "#202124", whiteSpace: "pre-wrap", wordBreak: "break-word",
-                    pointerEvents: "none", zIndex: 1, minHeight: "150px"
-                  }}>
-                    {(selectedDraftTemplate.body || "").split(/(\*[^*]+\*)/g).map((part, i) => 
-                      part.startsWith('*') && part.endsWith('*') && part.length > 2 
-                      ? <strong key={i}>{part.slice(1, -1)}</strong> 
-                      : part
-                    )}
-                    {(selectedDraftTemplate.body || "").endsWith('\n') ? ' ' : ''}
+                  <div style={{ maxHeight: "350px", overflowY: "auto", padding: "0 16px" }}>
+                   <div style={{ position: 'relative', minHeight: "150px", marginTop: "8px" }}>
+                      <textarea
+                        autoFocus
+                        className="email-draft-textarea"
+                        ref={(el) => {
+                          if (el) {
+                            el.style.height = "auto";
+                            el.style.height = el.scrollHeight + "px";
+                          }
+                        }}
+                        value={selectedDraftTemplate.body || ""}
+                        onChange={(e) => setSelectedDraftTemplate((prev) => prev ? { ...prev, body: e.target.value } : prev)}
+                        style={{
+                          width: "100%", border: "none", outline: "none", minHeight: "150px", fontSize: "14px", resize: "none",
+                          background: "transparent", color: "transparent", caretColor: "#202124", position: "relative", zIndex: 2,
+                          whiteSpace: "pre-wrap", overflow: "hidden", boxSizing: "border-box"
+                        }}
+                        onInput={(e) => {
+                          e.target.style.height = "auto";
+                          e.target.style.height = e.target.scrollHeight + "px";
+                        }}
+                      />
+                      <div style={{ 
+                        position: "absolute", top: 0, left: 0, width: "100%", height: "100%",
+                        fontSize: "14px", fontFamily: "inherit", color: "#202124", whiteSpace: "pre-wrap", wordBreak: "break-word",
+                        pointerEvents: "none", zIndex: 1, minHeight: "150px", boxSizing: "border-box"
+                      }}>
+                        {(selectedDraftTemplate.body || "").split(/(\*[^*]+\*)/g).map((part, i) => 
+                          part.startsWith('*') && part.endsWith('*') && part.length > 2 
+                          ? <strong key={i}>{part.slice(1, -1)}</strong> 
+                          : part
+                        )}
+                      </div>
+                    </div>
+                    <EmailSignature />
                   </div>
-                </div>
-                <EmailSignature />
-              </div>
 
               {/* ATTACHMENT PREVIEW ROW */}
               {draftAttachments.length > 0 && (
@@ -6331,16 +6579,24 @@ if (currentView.app === "gmail") {
                        <>
                          <div style={{ display: 'flex', alignItems: 'center', padding: '12px 12px 8px', borderBottom: '1px solid #091e4221', marginBottom: '8px', position: 'relative' }}>
                            <div style={{ flex: 1, textAlign: 'center', fontWeight: 600, color: '#5e6c84', fontSize: '14px' }}>Add to card</div>
-                           <button onClick={() => setShowAddMenu(false)} style={{ border:'none', background:'none', cursor:'pointer', color:'#42526e', fontSize:'16px', position: 'absolute', right: '12px' }}>✕</button>
+                           <button onClick={(e) => { e.stopPropagation(); setShowAddMenu(false); }} style={{ border:'none', background:'none', cursor:'pointer', color:'#42526e', fontSize:'16px', position: 'absolute', right: '12px' }}>✕</button>
                          </div>
                          <div style={{ padding: '0 8px 12px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                           <div onClick={() => setAddMenuStep("members")} style={{ padding: '8px', borderRadius: '3px', cursor: 'pointer', display: 'flex', gap: '12px', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = '#091e420f'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                           <div onClick={(e) => { e.stopPropagation(); setAddMenuStep("members"); }} style={{ padding: '8px', borderRadius: '3px', cursor: 'pointer', display: 'flex', gap: '12px', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = '#091e420f'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                              <span style={{ fontSize: '16px' }}>👤</span><div><div style={{ fontWeight: 500 }}>Members</div><div style={{ fontSize: '12px', color: '#5e6c84' }}>Assign members</div></div>
                            </div>
-                           <div onClick={() => setAddMenuStep("checklist")} style={{ padding: '8px', borderRadius: '3px', cursor: 'pointer', display: 'flex', gap: '12px', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = '#091e420f'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                           <div onClick={(e) => { e.stopPropagation(); setAddMenuStep("checklist"); }} style={{ padding: '8px', borderRadius: '3px', cursor: 'pointer', display: 'flex', gap: '12px', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = '#091e420f'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                              <span style={{ fontSize: '16px' }}>☑️</span><div><div style={{ fontWeight: 500 }}>Checklist</div><div style={{ fontSize: '12px', color: '#5e6c84' }}>Add subtasks</div></div>
                            </div>
-                           <div style={{ padding: '8px', borderRadius: '3px', cursor: 'pointer', display: 'flex', gap: '12px', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = '#091e420f'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                           <div 
+                             onClick={(e) => { 
+                               e.stopPropagation(); 
+                               setAddMenuStep("attachment");
+                             }} 
+                             style={{ padding: '8px', borderRadius: '3px', cursor: 'pointer', display: 'flex', gap: '12px', alignItems: 'center' }} 
+                             onMouseEnter={e => e.currentTarget.style.background = '#091e420f'} 
+                             onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                           >
                              <span style={{ fontSize: '16px' }}>📎</span><div><div style={{ fontWeight: 500 }}>Attachment</div><div style={{ fontSize: '12px', color: '#5e6c84' }}>Add links, pages, work items, and more</div></div>
                            </div>
                          </div>
@@ -6351,16 +6607,16 @@ if (currentView.app === "gmail") {
                      {addMenuStep === "checklist" && (
                         <>
                           <div style={{ display: 'flex', alignItems: 'center', padding: '12px 12px 8px', borderBottom: '1px solid #091e4221', marginBottom: '8px', position: 'relative' }}>
-                            <button onClick={() => setAddMenuStep("main")} style={{ border:'none', background:'none', cursor:'pointer', color:'#42526e', fontSize:'18px', position: 'absolute', left: '12px' }}>‹</button>
+                            <button onClick={(e) => { e.stopPropagation(); setAddMenuStep("main"); }} style={{ border:'none', background:'none', cursor:'pointer', color:'#42526e', fontSize:'18px', position: 'absolute', left: '12px' }}>‹</button>
                             <div style={{ flex: 1, textAlign: 'center', fontWeight: 600, color: '#5e6c84', fontSize: '14px' }}>Add checklist</div>
-                            <button onClick={() => setShowAddMenu(false)} style={{ border:'none', background:'none', cursor:'pointer', color:'#42526e', fontSize:'16px', position: 'absolute', right: '12px' }}>✕</button>
+                            <button onClick={(e) => { e.stopPropagation(); setShowAddMenu(false); }} style={{ border:'none', background:'none', cursor:'pointer', color:'#42526e', fontSize:'16px', position: 'absolute', right: '12px' }}>✕</button>
                           </div>
                           <div style={{ padding: '0 12px 12px' }}>
                             <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#5e6c84', marginBottom: '4px' }}>Title</label>
-                            <input autoFocus value={newChecklistTitle} onChange={e => setNewChecklistTitle(e.target.value)} style={{ width: '100%', padding: '8px 12px', borderRadius: '3px', border: '2px solid #0079bf', outline: 'none', marginBottom: '16px', color: '#172b4d', fontSize: '14px', boxSizing: 'border-box' }} />
+                            <input autoFocus value={newChecklistTitle} onChange={e => setNewChecklistTitle(e.target.value)} onClick={e => e.stopPropagation()} style={{ width: '100%', padding: '8px 12px', borderRadius: '3px', border: '2px solid #0079bf', outline: 'none', marginBottom: '16px', color: '#172b4d', fontSize: '14px', boxSizing: 'border-box' }} />
 
                             <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#5e6c84', marginBottom: '4px' }}>Copy items from...</label>
-                            <select value={copyFromChecklist} onChange={e => setCopyFromChecklist(e.target.value)} style={{ width: '100%', padding: '8px 12px', borderRadius: '3px', border: '2px solid #dfe1e6', outline: 'none', marginBottom: '16px', background: '#fafbfc', color: '#172b4d', fontSize: '14px', boxSizing: 'border-box' }}>
+                            <select value={copyFromChecklist} onChange={e => setCopyFromChecklist(e.target.value)} onClick={e => e.stopPropagation()} style={{ width: '100%', padding: '8px 12px', borderRadius: '3px', border: '2px solid #dfe1e6', outline: 'none', marginBottom: '16px', background: '#fafbfc', color: '#172b4d', fontSize: '14px', boxSizing: 'border-box' }}>
                               <option value="">(none)</option>
                               {checklists.map(cl => <option key={cl.id} value={cl.id}>{cl.name}</option>)}
                             </select>
@@ -6372,13 +6628,12 @@ if (currentView.app === "gmail") {
                                   const title = newChecklistTitle || "Checklist";
                                   const tempId = "temp-" + Date.now();
                                   
-                                  // ⚡ Optimistic Update
+                                  // Optimistic Update
                                   setChecklists(prev => [...prev, { id: tempId, name: title, checkItems: [] }]);
                                   setShowAddMenu(false);
                                   setNewChecklistTitle("Checklist"); 
                                   setCopyFromChecklist("");
 
-                                  // 🚀 Sync to backend
                                   try {
                                       const res = await fetch("/.netlify/functions/trello-checklists", {
                                           method: "POST",
@@ -6395,14 +6650,96 @@ if (currentView.app === "gmail") {
                           </div>
                         </>
                      )}
+{/* 2.5 ATTACHMENT POPOVER */}
+                     {addMenuStep === "attachment" && (
+                        <>
+                          <div style={{ display: 'flex', alignItems: 'center', padding: '12px 12px 8px', borderBottom: '1px solid #091e4221', marginBottom: '8px', position: 'relative' }}>
+                            <button onClick={(e) => { e.stopPropagation(); setAddMenuStep("main"); }} style={{ border:'none', background:'none', cursor:'pointer', color:'#42526e', fontSize:'18px', position: 'absolute', left: '12px' }}>‹</button>
+                            <div style={{ flex: 1, textAlign: 'center', fontWeight: 600, color: '#5e6c84', fontSize: '14px' }}>Attach</div>
+                            <button onClick={(e) => { e.stopPropagation(); setShowAddMenu(false); }} style={{ border:'none', background:'none', cursor:'pointer', color:'#42526e', fontSize:'16px', position: 'absolute', right: '12px' }}>✕</button>
+                          </div>
+                          
+                          <div style={{ padding: '0 12px 12px' }}>
+                            <div style={{ fontWeight: 600, fontSize: '14px', color: '#172b4d', marginBottom: '4px' }}>Attach a file from your computer</div>
+                            <div style={{ fontSize: '14px', color: '#5e6c84', marginBottom: '12px', lineHeight: 1.4 }}>You can also drag and drop files to upload them.</div>
+                            
+                            <button
+                              className="t-btn-gray"
+                              style={{ width: '100%', justifyContent: 'center', padding: '8px', marginBottom: '16px', fontSize: '14px', fontWeight: 600 }}
+                              onClick={(e) => {
+                                 e.stopPropagation();
+                                 trelloAttachmentRef.current?.click(); // Opens computer files
+                                 setShowAddMenu(false);
+                              }}
+                            >
+                              Choose a file
+                            </button>
 
+                            <hr style={{ border: 'none', borderTop: '1px solid #091e4221', margin: '0 -12px 16px -12px' }} />
+
+                            <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#5e6c84', marginBottom: '4px' }}>Search or paste a link <span style={{color: '#eb5a46'}}>*</span></label>
+                            <input
+                              type="text"
+                              autoFocus
+                              value={attachLink}
+                              onChange={e => setAttachLink(e.target.value)}
+                              onClick={e => e.stopPropagation()}
+                              placeholder="Find recent links or paste a new link"
+                              style={{ width: '100%', padding: '8px 12px', borderRadius: '3px', border: '2px solid #0079bf', outline: 'none', marginBottom: '16px', color: '#172b4d', fontSize: '14px', boxSizing: 'border-box' }}
+                            />
+
+                            <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#5e6c84', marginBottom: '4px' }}>Display text (optional)</label>
+                            <input
+                              type="text"
+                              value={attachName}
+                              onChange={e => setAttachName(e.target.value)}
+                              onClick={e => e.stopPropagation()}
+                              placeholder="Text to display"
+                              style={{ width: '100%', padding: '8px 12px', borderRadius: '3px', border: '2px solid #dfe1e6', outline: 'none', marginBottom: '4px', color: '#172b4d', fontSize: '14px', boxSizing: 'border-box' }}
+                            />
+                            <div style={{ fontSize: '12px', color: '#5e6c84', marginBottom: '16px' }}>Give this link a title or description</div>
+
+                            <button
+                              className="btn-blue"
+                              style={{ padding: '6px 16px', borderRadius: '3px', border: 'none', background: attachLink.trim() ? '#0052cc' : '#091e420f', color: attachLink.trim() ? 'white' : '#a5adba', fontWeight: 500, cursor: attachLink.trim() ? 'pointer' : 'not-allowed' }}
+                              disabled={!attachLink.trim()}
+                              onClick={async (e) => {
+                                 e.stopPropagation();
+                                 if (!attachLink.trim()) return;
+
+                                 triggerSnackbar("Attaching link...");
+                                 setShowAddMenu(false);
+                                 setAttachLink("");
+                                 setAttachName("");
+
+                                 try {
+                                     const res = await fetch("/.netlify/functions/trello-attach-link", {
+                                         method: "POST",
+                                         body: JSON.stringify({ cardId: c.id, url: attachLink, name: attachName })
+                                     });
+                                     if (res.ok) {
+                                         const result = await res.json();
+                                         triggerSnackbar("Link attached successfully!");
+                                         // ⚡ Push instantly to UI
+                                         setCardAttachments(prev => [...prev, result.attachment]);
+                                     } else {
+                                         triggerSnackbar("Failed to attach link");
+                                     }
+                                 } catch(err) { console.error(err); }
+                              }}
+                            >
+                              Insert
+                            </button>
+                          </div>
+                        </>
+                     )}
                      {/* 3. MEMBERS ASSIGNMENT POPOVER */}
                      {addMenuStep === "members" && (
                         <>
                           <div style={{ display: 'flex', alignItems: 'center', padding: '12px 12px 8px', borderBottom: '1px solid #091e4221', marginBottom: '8px', position: 'relative' }}>
-                            <button onClick={() => setAddMenuStep("main")} style={{ border:'none', background:'none', cursor:'pointer', color:'#42526e', fontSize:'18px', position: 'absolute', left: '12px' }}>‹</button>
+                            <button onClick={(e) => { e.stopPropagation(); setAddMenuStep("main"); }} style={{ border:'none', background:'none', cursor:'pointer', color:'#42526e', fontSize:'18px', position: 'absolute', left: '12px' }}>‹</button>
                             <div style={{ flex: 1, textAlign: 'center', fontWeight: 600, color: '#5e6c84', fontSize: '14px' }}>Members</div>
-                            <button onClick={() => setShowAddMenu(false)} style={{ border:'none', background:'none', cursor:'pointer', color:'#42526e', fontSize:'16px', position: 'absolute', right: '12px' }}>✕</button>
+                            <button onClick={(e) => { e.stopPropagation(); setShowAddMenu(false); }} style={{ border:'none', background:'none', cursor:'pointer', color:'#42526e', fontSize:'16px', position: 'absolute', right: '12px' }}>✕</button>
                           </div>
                           <div style={{ padding: '0 12px 12px', maxHeight: '300px', overflowY: 'auto' }}>
                             <div style={{ fontWeight: 600, fontSize: '12px', color: '#5e6c84', marginBottom: '8px' }}>Board members</div>
@@ -6471,11 +6808,11 @@ if (currentView.app === "gmail") {
                <div>
                   <h3 className="trello-group-label">Members</h3>
                   <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                     {(c.members || []).map((m, i) => {
-                        const img = avatarFor(m);
-                        
-                        // ⚡ FIX: Calculate 2-letter initials (e.g. "Ofentse Moagi" -> "OM")
-                        const initials = m.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+                     {(c.members || []).map((m, i) => {
+                        const img = avatarFor(m);
+                        
+                        // ⚡ FIX: Safe string calculation prevents crashes on empty or weird member IDs
+                        const initials = String(m || "U").split(' ').map(n => n?.[0] || "").join('').substring(0, 2).toUpperCase();
                         
                         return (
                            <div 
@@ -7141,7 +7478,148 @@ if (currentView.app === "gmail") {
                
                {/* 🗑️ BANNER REMOVED */}
             </div>
+{/* 📎 ATTACHMENTS RENDERER */}
+            {cardAttachments.length > 0 && (
+              <div className="trello-section" style={{ position: 'relative', marginTop: '24px', paddingLeft: '40px' }}>
+                
+                {/* 🛡️ FIX: Absolute position on the icon prevents "ttachments" text clipping */}
+                <div style={{ position: 'absolute', left: '0px', top: '2px', color: '#42526e' }}>
+                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+                </div>
+                
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                   <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#172b4d', margin: 0 }}>Attachments</h3>
+                   <button className="t-btn-gray" style={{ padding: '6px 12px', fontSize: '14px' }} onClick={(e) => { e.stopPropagation(); setShowAddMenu(true); setAddMenuStep("attachment"); }}>Add</button>
+                </div>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                   
+                   {/* 🔗 1. LINKS SECTION */}
+                   {cardAttachments.filter(a => a.isUpload === false).length > 0 && (
+                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                       <div style={{ fontSize: '14px', fontWeight: 600, color: '#5e6c84', marginBottom: '4px' }}>Links</div>
+                       {cardAttachments.filter(a => a.isUpload === false).map(att => (
+                         <div key={att.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', background: '#fafbfc', border: '1px solid #dfe1e6', borderRadius: '4px' }}>
+                           {/* Sleek Blue Link Icon */}
+                           <div style={{ color: '#0052cc', display: 'grid', placeItems: 'center', flexShrink: 0, width: '24px', height: '24px', background: '#e6fcff', borderRadius: '4px' }}>
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/></svg>
+                           </div>
+                           <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                               <a href={att.url} target="_blank" rel="noopener noreferrer" style={{ color: '#0052cc', fontWeight: 500, fontSize: '14px', textDecoration: 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }} onMouseEnter={e => e.currentTarget.style.textDecoration = 'underline'} onMouseLeave={e => e.currentTarget.style.textDecoration = 'none'}>
+                                 {att.name || att.url}
+                               </a>
+                               <button onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if(!window.confirm("Delete link?")) return;
+                                  setCardAttachments(prev => prev.filter(a => a.id !== att.id));
+                                  await fetch("/.netlify/functions/trello-attachments", { method: "POST", body: JSON.stringify({ action: 'delete', cardId: c.id, idAttachment: att.id }) });
+                               }} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#42526e', padding: '4px 8px', borderRadius: '3px', fontWeight: 'bold' }} onMouseEnter={e => e.currentTarget.style.background = '#091e4214'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                                  •••
+                               </button>
+                           </div>
+                         </div>
+                       ))}
+                     </div>
+                   )}
 
+                   {/* 📁 2. FILES SECTION */}
+                   {cardAttachments.filter(a => a.isUpload !== false).length > 0 && (
+                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                       <div style={{ fontSize: '14px', fontWeight: 600, color: '#5e6c84', marginBottom: '4px' }}>Files</div>
+                       {cardAttachments.filter(a => a.isUpload !== false).map(att => {
+                          const ext = att.name ? att.name.split('.').pop().toLowerCase() : 'file';
+                          
+                          let iconType = 'file';
+                          if (['pdf'].includes(ext)) iconType = 'pdf';
+                          else if (['doc', 'docx', 'rtf', 'txt'].includes(ext)) iconType = 'doc';
+                          else if (['xls', 'xlsx', 'csv'].includes(ext)) iconType = 'xls';
+                          else if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) iconType = 'img';
+
+                          return (
+                            <div key={att.id} style={{ display: 'flex', gap: '16px', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #091e420f' }}>
+                               
+                               {/* Sleek Trello File Thumbnail */}
+                               {iconType === 'img' && att.previews?.length > 0 ? (
+                                   <div style={{ width: '48px', height: '48px', borderRadius: '6px', border: '1px solid #dfe1e6', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0, cursor: 'pointer', background: '#091e420a' }} onClick={(e) => { e.stopPropagation(); setTrelloPreview(att); }}>
+                                     <img src={att.previews[att.previews.length - 1].url} alt={att.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                   </div>
+                               ) : (
+                                   <div style={{ width: '48px', height: '48px', borderRadius: '6px', border: '1px solid #dfe1e6', background: '#f4f5f7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); setTrelloPreview(att); }}>
+                                     <svg viewBox="0 0 24 24" width="30" height="30" style={{ overflow: 'visible' }}>
+                                       {iconType === 'pdf' && (
+                                         <>
+                                           <path fill="#E53935" d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6z" />
+                                           <path fill="rgba(255,255,255,0.3)" d="M14 2v6h6" />
+                                           <text x="11.5" y="16.5" fill="white" fontSize="6.5" fontWeight="bold" textAnchor="middle" fontFamily="sans-serif">PDF</text>
+                                           <rect x="7" y="18" width="9" height="1" fill="white" opacity="0.8" />
+                                         </>
+                                       )}
+                                       {iconType === 'xls' && (
+                                         <>
+                                           <path fill="#0F9D58" d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6z" />
+                                           <path fill="rgba(255,255,255,0.3)" d="M14 2v6h6" />
+                                           <rect x="7" y="11" width="3.5" height="2" fill="white"/>
+                                           <rect x="11.5" y="11" width="4.5" height="2" fill="white"/>
+                                           <rect x="7" y="14" width="3.5" height="2" fill="white"/>
+                                           <rect x="11.5" y="14" width="4.5" height="2" fill="white"/>
+                                           <rect x="7" y="17" width="3.5" height="2" fill="white"/>
+                                           <rect x="11.5" y="17" width="4.5" height="2" fill="white"/>
+                                         </>
+                                       )}
+                                       {iconType === 'doc' && (
+                                         <>
+                                           <path fill="#1A73E8" d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6z" />
+                                           <path fill="rgba(255,255,255,0.3)" d="M14 2v6h6" />
+                                           <rect x="7" y="11" width="10" height="1.5" fill="white"/>
+                                           <rect x="7" y="14" width="10" height="1.5" fill="white"/>
+                                           <rect x="7" y="17" width="6" height="1.5" fill="white"/>
+                                         </>
+                                       )}
+                                       {iconType === 'file' && (
+                                         <>
+                                           <path fill="#5e6c84" d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6z" />
+                                           <path fill="rgba(255,255,255,0.3)" d="M14 2v6h6" />
+                                           <rect x="7" y="12" width="10" height="1.5" fill="white"/>
+                                           <rect x="7" y="16" width="6" height="1.5" fill="white"/>
+                                         </>
+                                       )}
+                                     </svg>
+                                   </div>
+                               )}
+                               
+                               {/* Details & Action Buttons */}
+                               <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
+                                     <div style={{ fontWeight: 600, color: '#172b4d', fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); setTrelloPreview(att); }} onMouseEnter={e => e.currentTarget.style.textDecoration = 'underline'} onMouseLeave={e => e.currentTarget.style.textDecoration = 'none'}>
+                                        {att.name}
+                                     </div>
+                                     <div style={{ color: '#5e6c84', fontSize: '12px' }}>
+                                        Added {timeAgo(att.date)}
+                                     </div>
+                                  </div>
+                                  
+                                  <div style={{ display: 'flex', gap: '4px', flexShrink: 0, paddingLeft: '8px' }}>
+                                     <button onClick={(e) => { e.stopPropagation(); setTrelloPreview(att); }} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#42526e', padding: '6px', borderRadius: '3px' }} onMouseEnter={e => e.currentTarget.style.background = '#091e420f'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="7" y1="17" x2="17" y2="7"></line><polyline points="7 7 17 7 17 17"></polyline></svg>
+                                     </button>
+                                     <button onClick={async (e) => {
+                                        e.stopPropagation();
+                                        if(!window.confirm(`Delete ${att.name}?`)) return;
+                                        setCardAttachments(prev => prev.filter(a => a.id !== att.id));
+                                        await fetch("/.netlify/functions/trello-attachments", { method: "POST", body: JSON.stringify({ action: 'delete', cardId: c.id, idAttachment: att.id }) });
+                                     }} style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#42526e', padding: '6px 10px', borderRadius: '3px', fontWeight: 'bold' }} onMouseEnter={e => e.currentTarget.style.background = '#091e420f'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                                        •••
+                                     </button>
+                                  </div>
+                               </div>
+                            </div>
+                          );
+                       })}
+                     </div>
+                   )}
+                </div>
+              </div>
+            )}
             {/* 🔴 CHECKLISTS RENDERER */}
             {checklists.map(cl => {
               const total = cl.checkItems?.length || 0;
@@ -7215,18 +7693,105 @@ if (currentView.app === "gmail") {
 
          {/* RIGHT COLUMN (40%) */}
          <div className="trello-sidebar-col">
-            <ActivityPane
-                cardId={c.id} 
-                currentUserAvatarUrl="https://trello-avatars.s3.amazonaws.com/cee5b736fb38fc4e0555e8491649392c/50.png" 
-             />
+           <ActivityPane
+                cardId={c.id} 
+                currentUserAvatarUrl="https://trello-avatars.s3.amazonaws.com/cee5b736fb38fc4e0555e8491649392c/50.png" 
+             />
+          </div>
+
+        </div>
+
+        {/* 🟢 HIDDEN TRELLO ATTACHMENT UPLOADER */}
+        <input 
+          type="file" 
+          ref={trelloAttachmentRef} 
+          style={{ display: 'none' }} 
+          onChange={async (e) => {
+             const f = e.target.files?.[0];
+             if (!f) return;
+             if (f.size > 4.5 * 1024 * 1024) {
+               alert("Netlify limit: File must be under 4.5MB.");
+               return;
+             }
+             
+             triggerSnackbar(`Uploading ${f.name} to Trello...`);
+             
+             const reader = new FileReader();
+             reader.readAsDataURL(f);
+             reader.onload = async () => {
+                const base64Data = reader.result.split(",")[1];
+                try {
+                  const res = await fetch("/.netlify/functions/trello-upload", {
+                    method: "POST",
+                    body: JSON.stringify({ cardId: c.id, filename: f.name, mimeType: f.type, fileBase64: base64Data })
+                  });
+                  if (res.ok) {
+                     const result = await res.json();
+                     triggerSnackbar("Attachment saved to Trello!");
+                     // ⚡ Push instantly to UI
+                     setCardAttachments(prev => [...prev, result.attachment]);
+                  } else {
+                     triggerSnackbar("Failed to upload attachment");
+                  }
+                } catch(err) { console.error(err); }
+             };
+             e.target.value = ""; // Reset input
+          }} 
+        />
+
+        {/* 🔍 TRELLO FILE PREVIEW OVERLAY */}
+        {trelloPreview && (
+          <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', background: 'rgba(0,0,0,0.85)', zIndex: 10000, display: 'flex', flexDirection: 'column' }} onClick={() => setTrelloPreview(null)}>
+             
+             {/* Top Bar */}
+             <div style={{ padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: '#fff' }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: '18px', fontWeight: 600 }}>{trelloPreview.name}</div>
+                <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
+                   <a href={trelloPreview.url} download target="_blank" rel="noopener noreferrer" style={{ color: '#fff', textDecoration: 'none', background: 'rgba(255,255,255,0.2)', padding: '8px 20px', borderRadius: '4px', fontWeight: 500, transition: 'background 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.3)'} onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}>
+                     Download
+                   </a>
+                   <button onClick={() => setTrelloPreview(null)} style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '32px', cursor: 'pointer', lineHeight: 1, padding: 0 }}>×</button>
+                </div>
+             </div>
+             
+             {/* Preview Area */}
+             <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '24px', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+                {(() => {
+                   const ext = trelloPreview.name ? trelloPreview.name.split('.').pop().toLowerCase() : '';
+                   const isImg = ['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext);
+                   const isPdf = ext === 'pdf';
+                   const isDocOrXls = ['doc', 'docx', 'xls', 'xlsx', 'csv'].includes(ext);
+                   
+                   // 1. Image: Use the Trello preview thumbnail if available
+                   if (isImg && trelloPreview.previews?.length > 0) {
+                       return <img src={trelloPreview.previews[trelloPreview.previews.length - 1].url} alt={trelloPreview.name} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: '4px' }} />;
+                   }
+                   
+                   // 2. Build the Proxy URL (Bypasses the forced download)
+                   const proxyUrl = `/.netlify/functions/trello-download?url=${encodeURIComponent(trelloPreview.url)}&mimeType=${encodeURIComponent(trelloPreview.mimeType || '')}`;
+                   
+                   // 3. PDF: Display the proxied file directly inline!
+                   if (isPdf) {
+                       return <iframe src={proxyUrl} style={{ width: '100%', height: '100%', maxWidth: '1000px', border: 'none', background: '#fff', borderRadius: '8px' }} />;
+                   }
+                   
+                   // 4. DOC/XLS: Hand the public proxy URL to Google Docs Viewer
+                   if (isDocOrXls) {
+                       const absoluteProxyUrl = `${window.location.origin}${proxyUrl}`;
+                       return <iframe src={`https://docs.google.com/gview?url=${encodeURIComponent(absoluteProxyUrl)}&embedded=true`} style={{ width: '100%', height: '100%', maxWidth: '1000px', border: 'none', background: '#fff', borderRadius: '8px' }} />;
+                   }
+                   
+                   return <div style={{ color: '#fff', fontSize: '18px', background: 'rgba(255,255,255,0.1)', padding: '24px', borderRadius: '8px' }}>Preview not available for this file type. Please download to view.</div>;
+                })()}
+             </div>
           </div>
+        )}
 
-        </div>
-      </div>
-    );
-  }
+      </div>
+    );
+  }
 
-    return <div className="chat-output" />;
+    return <div className="chat-output" />;
      }, [
         currentView,
 
@@ -7269,23 +7834,29 @@ if (currentView.app === "gmail") {
        // Trello
         trelloCard,
         trelloMenuOpen,
+        trelloPreview,
         descEditing,
         descDraft,
-        checklists,
-        newChecklistTitle,
-        copyFromChecklist,
-        showLabelPicker, 
-        showMemberShortcut, // 👈 ADD THIS HERE
-        showMoveSubmenu,
-        moveTab,
-        moveTargetList,
-        moveTargetPos,
-        trelloBuckets,
-        selectedEmailIds,
-        searchQuery,
-        allTrelloLists, // 👈 Fixes the Dropdown options
-        moveListSearch, // 👈 Fixes the Search Bar
-      ]);
+        checklists,
+        cardAttachments, 
+        newChecklistTitle,
+        copyFromChecklist,
+        showLabelPicker, 
+        showMemberShortcut, 
+        showAddMenu,        // ⚡ UNFREEZES THE ADD BUTTON
+        addMenuStep,        // ⚡ UNFREEZES THE MENU NAVIGATION
+        attachLink,         // ⚡ UNFREEZES TYPING THE URL
+        attachName,         // ⚡ UNFREEZES TYPING THE LINK NAME
+        showMoveSubmenu,
+        moveTab,
+        moveTargetList,
+        moveTargetPos,
+        trelloBuckets,
+        selectedEmailIds,
+        searchQuery,
+        allTrelloLists, 
+        moveListSearch, 
+      ]);
 
   return (
   <PasswordGate>
@@ -7610,6 +8181,7 @@ if (currentView.app === "gmail") {
         </div>
       </div>
     )}
+
   </PasswordGate>
   );
 }
