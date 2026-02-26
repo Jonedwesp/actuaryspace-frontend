@@ -1,85 +1,58 @@
-const json = (code, body) => ({
-  statusCode: code,
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(body),
-});
-
+// netlify/functions/trello-set-custom-field.js
 exports.handler = async (event) => {
-  if (event.httpMethod !== "POST") return json(405, { error: "Method Not Allowed" });
-
-  const key = process.env.TRELLO_KEY;
-  const token = process.env.TRELLO_TOKEN;
+  if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method Not Allowed" };
 
   try {
-    const body = JSON.parse(event.body || "{}");
-    const cardId = body.cardId;
-    const fieldName = body.fieldName;
-    
-    // Force valueText to be a string to prevent any unexpected number conversions
-    const valueText = body.valueText !== undefined && body.valueText !== null ? String(body.valueText) : "";
+    const { cardId, fieldName, valueText } = JSON.parse(event.body);
+    const key = process.env.TRELLO_API_KEY || process.env.TRELLO_KEY;
+    const token = process.env.TRELLO_TOKEN;
 
-    if (!cardId || !fieldName) return json(400, { error: "cardId and fieldName required" });
-
-    // 1. Get Card & Board ID
+    // 1. Get Board ID from the Card
     const cardRes = await fetch(`https://api.trello.com/1/cards/${cardId}?fields=idBoard&key=${key}&token=${token}`);
-    const cardJson = await cardRes.json();
-    if (!cardJson.idBoard) return json(404, { error: "Card not found" });
+    const cardData = await cardRes.json();
+    const boardId = cardData.idBoard;
 
-    // 2. Get Custom Fields
-    const cfRes = await fetch(`https://api.trello.com/1/boards/${cardJson.idBoard}/customFields?key=${key}&token=${token}`);
-    const fields = await cfRes.json();
+    // 2. Fetch all Custom Fields on this Board
+    const cfRes = await fetch(`https://api.trello.com/1/boards/${boardId}/customFields?key=${key}&token=${token}`);
+    const cfData = await cfRes.json();
 
-    // 3. Find the Field (Case Insensitive)
-    const field = fields.find(f => f.name.trim().toLowerCase().includes(fieldName.trim().toLowerCase()));
-    
-    if (!field) return json(404, { error: `Field '${fieldName}' not found on board.` });
+    // 3. FUZZY MATCH: Find the field regardless of exact casing or spaces (e.g., "WorkTimerStart" matches "Work Timer Start")
+    const targetName = fieldName.toLowerCase().replace(/\s/g, '');
+    const field = cfData.find(f => f.name.toLowerCase().replace(/\s/g, '') === targetName);
 
-    // 4. Handle "Clear" (No value) - Uses standard PUT to wipe memory cleanly
-    if (valueText === "") {
-      await fetch(`https://api.trello.com/1/cards/${cardId}/customField/${field.id}/item?key=${key}&token=${token}`, { 
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value: "" })
-      });
-      return json(200, { ok: true, cleared: true });
+    if (!field) {
+        console.error(`Trello error: Field '${fieldName}' not found on board.`);
+        return { statusCode: 404, body: JSON.stringify({ ok: false, error: "Field not found" }) };
     }
 
-    // 5. Handle Dropdown Options (Fuzzy Match)
-    if (field.type === "list") {
-      const target = valueText.trim().toLowerCase();
-      
-      // Try exact match first, then fuzzy
-      const option = field.options.find(o => {
-         const optTxt = (o.value.text || "").trim().toLowerCase();
-         return optTxt === target || optTxt.includes(target) || target.includes(optTxt);
-      });
-
-      if (!option) {
-         const validOptions = field.options.map(o => o.value.text).join(", ");
-         return json(400, { error: `Option '${valueText}' not found. Valid options: ${validOptions}` });
-      }
-
-      await fetch(`https://api.trello.com/1/cards/${cardId}/customField/${field.id}/item?key=${key}&token=${token}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ idValue: option.id }),
-      });
-      return json(200, { ok: true, matched: option.value.text });
-    } 
+    // 4. AUTO-FORMAT PAYLOAD: Trello demands text fields be sent as text, and number fields as numbers!
+    let payload = { value: "" }; // Default to clearing the field
     
-    // 6. Handle Text/Number Fields (THE FIX)
-    else {
-      // CRITICAL FIX: Trello requires numbers to be sent as strings to prevent scientific notation conversion!
-      await fetch(`https://api.trello.com/1/cards/${cardId}/customField/${field.id}/item?key=${key}&token=${token}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ value: { [field.type]: valueText } }),
-      });
-      return json(200, { ok: true });
+    if (valueText !== "" && valueText !== null) {
+         if (field.type === "number") {
+             payload = { value: { number: String(valueText) } };
+         } else if (field.type === "text") {
+             payload = { value: { text: String(valueText) } };
+         }
     }
+
+    // 5. Send the exact formatted data to Trello
+    const updateRes = await fetch(`https://api.trello.com/1/cards/${cardId}/customField/${field.id}/item?key=${key}&token=${token}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+
+    if (!updateRes.ok) {
+         const errText = await updateRes.text();
+         console.error("Trello API Rejected Save:", errText);
+         return { statusCode: updateRes.status, body: JSON.stringify({ ok: false, error: errText }) };
+    }
+
+    return { statusCode: 200, body: JSON.stringify({ ok: true }) };
 
   } catch (err) {
-    console.error(err);
-    return json(500, { error: err.message });
+     console.error("Set Custom Field Error:", err);
+     return { statusCode: 500, body: JSON.stringify({ ok: false, error: err.message }) };
   }
 };

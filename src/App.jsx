@@ -1094,8 +1094,23 @@ function getTrelloCoverColor(title) {
 }
 
 const RightPanel = React.memo(function RightPanel() {
-  const [preview, setPreview] = React.useState(null);
-  const [showArchiveModal, setShowArchiveModal] = useState(false);
+  // 👇 HYDRATE FROM CACHE: Gives notifications permanent memory across page refreshes!
+  const knownTrelloCardsRef = useRef(null);
+  useEffect(() => {
+    if (!knownTrelloCardsRef.current) {
+        try {
+            const cache = JSON.parse(localStorage.getItem("TRELLO_CACHE") || "[]");
+            if (cache.length > 0) {
+                const map = new Map();
+                cache.forEach(list => list.cards.forEach(c => map.set(c.id, list.title)));
+                knownTrelloCardsRef.current = map;
+            }
+        } catch(e) {}
+    }
+  }, []);
+
+  const [preview, setPreview] = React.useState(null);
+  const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [archivedCards, setArchivedCards] = useState([]);
   const [archivedLoading, setArchivedLoading] = useState(false);
   const [archiveSearch, setArchiveSearch] = useState(""); // 👈 NEW: Archive Search
@@ -1158,7 +1173,7 @@ const RightPanel = React.memo(function RightPanel() {
   }, []);
 
  // --- DRAG AND DROP STATE ---
-  const knownTrelloCardsRef = useRef(null); // Tracks card locations for notifications
+  
   
   useEffect(() => {
     const handleMemoryUpdate = (e) => {
@@ -1523,41 +1538,64 @@ const RightPanel = React.memo(function RightPanel() {
         if (Date.now() - lastMoveTime.current < 10000 && !force) return;
 
         // --- NOTIFICATION LOGIC ---
-        if (knownTrelloCardsRef.current === null) {
-            // First run: just memorize where everything is silently
+        // 1. If we have NO memory yet, we are just booting up. Memorize silently.
+        if (!hasSnapshotRef.current && (!knownTrelloCardsRef.current || knownTrelloCardsRef.current.size === 0)) {
             const map = new Map();
             mapped.forEach(list => list.cards.forEach(c => map.set(c.id, list.title)));
             knownTrelloCardsRef.current = map;
-        } else {
+            hasSnapshotRef.current = true; 
+            console.log("🛡️ [Notifications] First boot. Memorized board silently.");
+        } 
+        // 2. If we DO have memory, it means we are actively polling. Compare and Notify.
+        else {
+            hasSnapshotRef.current = true; // Ensure shield is permanently off
             const newMap = new Map();
+            
             mapped.forEach(list => {
                 list.cards.forEach(c => {
                     newMap.set(c.id, list.title);
-                    const oldListTitle = knownTrelloCardsRef.current.get(c.id);
+                    
+                    // Look up where the card was 6 seconds ago
+                    const oldListTitle = knownTrelloCardsRef.current ? knownTrelloCardsRef.current.get(c.id) : null;
 
-                    if (!oldListTitle) {
-                        window.dispatchEvent(new CustomEvent("notify", {
-                            detail: {
-                                text: `New card in ${list.title}: ${c.title}`,
-                                alt: "Trello",
-                                icon: trelloIcon,
-                                cardData: c,
-                                timestamp: new Date().toISOString()
-                            }
-                        }));
-                    } else if (oldListTitle !== list.title) {
-                        window.dispatchEvent(new CustomEvent("notify", {
-                            detail: {
-                                text: `Card moved to ${list.title}: ${c.title}`,
-                                alt: "Trello",
-                                icon: trelloIcon,
-                                cardData: c,
-                                timestamp: new Date().toISOString()
-                            }
-                        }));
+                    // 👇 THE SIYA FILTER: Enforce the exact rules
+                    const targetListTitle = list.title.toLowerCase();
+                    const isSiyaList = targetListTitle.includes("siya");
+                    const hasSiyaMember = (c.people || []).some(m => String(m).toLowerCase().includes("siya"));
+                    
+                    // If it lands in a Siya list OR Siya is assigned to it
+                    if (isSiyaList || hasSiyaMember) {
+                        
+                        // Scenario A: Brand new card
+                        if (!oldListTitle && knownTrelloCardsRef.current) {
+                            console.log(`🔔 [Trello Notify] New Card Detected: "${c.title}" in ${list.title}`);
+                            window.dispatchEvent(new CustomEvent("notify", {
+                                detail: {
+                                    text: `New card in ${list.title}: ${c.title}`,
+                                    alt: "Trello",
+                                    icon: trelloIcon,
+                                    cardData: c,
+                                    timestamp: new Date().toISOString()
+                                }
+                            }));
+                        } 
+                        // Scenario B: Card moved from a different list into this one
+                        else if (oldListTitle && oldListTitle !== list.title) {
+                            console.log(`🔔 [Trello Notify] Move Detected! "${c.title}" moved from [${oldListTitle}] to [${list.title}]`);
+                            window.dispatchEvent(new CustomEvent("notify", {
+                                detail: {
+                                    text: `Card moved to ${list.title}: ${c.title}`,
+                                    alt: "Trello",
+                                    icon: trelloIcon,
+                                    cardData: c,
+                                    timestamp: new Date().toISOString()
+                                }
+                            }));
+                        }
                     }
                 });
             });
+            // Overwrite the memory map with the new positions for the next 6-second check
             knownTrelloCardsRef.current = newMap;
         }
         // --- END USER LOGIC ---
@@ -1565,7 +1603,6 @@ const RightPanel = React.memo(function RightPanel() {
         // Only update if data changed (Simple check)
         setTrelloBuckets(prev => {
             if (JSON.stringify(prev) === JSON.stringify(mapped)) return prev;
-            hasSnapshotRef.current = true;
             
             // Broadcast the fresh data to the main App for the Middle Pane to use!
             window.dispatchEvent(new CustomEvent("trelloPolled", { detail: mapped }));
@@ -2064,6 +2101,47 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [notifications, setNotifications] = useState([]);
 
+ // 🟢 RESTORED: The "Ear" that listens for Trello, Gmail, and Chat notifications
+  useEffect(() => {
+    const onNotify = (e) => {
+      const { text, cardData, icon, alt, spaceId, gmailData, timestamp } = e.detail || {};
+      if (!text) return;
+
+      const uniqueId = `notif-${Date.now()}-${Math.random()}`;
+      
+      // 🕒 DYNAMIC TIMESTAMP: Respects original message time vs arrival time
+      let actualDate = new Date();
+      if (gmailData && gmailData.date) {
+        actualDate = new Date(gmailData.date);
+      } else if (timestamp) {
+        actualDate = new Date(timestamp);
+      }
+      
+      const newItem = {
+        id: uniqueId,
+        alt: alt || "System",
+        icon: icon || trelloIcon,
+        text: text, 
+        time: formatUKTimeWithSeconds(actualDate),
+        timestamp: actualDate.toISOString(),
+        cardData,
+        spaceId,
+        gmailData
+      };
+
+      setNotifications((prev) => {
+        // Avoid duplicate IDs (useful during high-frequency polling)
+        if (prev.some(p => p.id === uniqueId || (p.text === text && p.timestamp === newItem.timestamp))) return prev;
+        
+        const nextList = [newItem, ...prev];
+        return nextList.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0, 100);
+      });
+    };
+
+    window.addEventListener("notify", onNotify);
+    return () => window.removeEventListener("notify", onNotify);
+  }, []);
+
   // 🟢 NEW: State for the Gmail-style Snackbar pop-up and Undo tracking
   const [snackbar, setSnackbar] = useState({ show: false, text: "" });
   const [lastAction, setLastAction] = useState(null); // { type: 'delete' | 'restore', ids: [] }
@@ -2324,8 +2402,7 @@ useEffect(() => {
   const seenDriveEmailIdsRef = useRef(new Set());
 
  const handleToggleStar = async (e, msgId, currentStarred) => {
-    // �️ GATEKEEPER: If msgId is missing, STOP. 
-    // This prevents "undefined === undefined" from matching every email.
+    // 🛡️ GATEKEEPER: Ensure we have a valid ID to target
     if (!msgId) {
       console.error("Starring failed: messageId is missing or undefined.");
       return;
@@ -2338,12 +2415,14 @@ useEffect(() => {
     
     const nextStarredState = !currentStarred;
 
-    // 1. Update list strictly using a truthy msgId check
+    // 1. OPTIMISTIC UPDATE: Update the main list immediately
+    // Uses msgId to ensure ONLY the clicked row changes color/state
     setGmailEmails(prev => prev.map(msg => 
       (msg && msg.id === msgId) ? { ...msg, isStarred: nextStarredState } : msg
     ));
 
-    // 2. Update individual view strictly using a truthy msgId check
+    // 2. OPTIMISTIC UPDATE: Update the individual view immediately
+    // Only updates if the currently open email matches the msgId
     setEmail(prev => {
       if (prev && prev.id === msgId) {
         return { ...prev, isStarred: nextStarredState };
@@ -2361,18 +2440,20 @@ useEffect(() => {
 
       if (!response.ok) throw new Error("Sync failed");
 
+      // 3. UI CLEANUP: If we are in the 'Starred' folder and unstar something, hide it from view
       if (!nextStarredState && gmailFolder === "STARRED") {
         setGmailEmails(prev => prev.filter(msg => msg.id !== msgId));
       }
     } catch (err) {
       console.error("Starring sync failed:", err);
-      // Revert main list
+      
+      // 4. REVERT ON ERROR: If the backend fails, flip the stars back to their original state
       setGmailEmails(prev => prev.map(msg => 
         (msg && msg.id === msgId) ? { ...msg, isStarred: currentStarred } : msg
       ));
-      // Revert individual view
       setEmail(prev => (prev && prev.id === msgId) ? { ...prev, isStarred: currentStarred } : prev);
-      alert(`Gmail could not save this star: ${err.message}`);
+      
+      triggerSnackbar("Failed to update star status");
     }
   };
   /* WhatsApp */
@@ -2391,9 +2472,10 @@ useEffect(() => {
  const [gmailError, setGmailError] = useState("");
 const [selectedEmailIds, setSelectedEmailIds] = useState(new Set());
 const [gmailFolder, setGmailFolder] = useState("INBOX"); // Tracks current folder
- const [gmailRefreshTrigger, setGmailRefreshTrigger] = useState(0); // 👈 NEW: Hard refresh trigger
+const [gmailRefreshTrigger, setGmailRefreshTrigger] = useState(0); // 👈 NEW: Hard refresh trigger
 const [gmailPage, setGmailPage] = useState(1);
- const [gmailTotal, setGmailTotal] = useState(0); // Tracks total exact emails
+const [gmailTotal, setGmailTotal] = useState(0); // Tracks total exact emails
+const [gmailPageTokens, setGmailPageTokens] = useState({}); // 👈 NEW: Fast pagination tokens
 
 // NEW: email draft helper state
  const [showDraftPicker, setShowDraftPicker] = useState(false);
@@ -2402,6 +2484,18 @@ const [gmailPage, setGmailPage] = useState(1);
  const [isDraftEnlarged, setIsDraftEnlarged] = useState(false); // 👈 NEW
  const [draftAttachments, setDraftAttachments] = useState([]); // 👈 NEW: Holds email attachments
  const draftFileInputRef = useRef(null); // 👈 NEW: Reference for the hidden file input
+ const [otherContacts, setOtherContacts] = useState({});
+
+useEffect(() => {
+   fetch("/.netlify/functions/gmail-contacts", { credentials: "include" })
+     .then(res => res.json())
+     .then(data => {
+       if (data.ok && data.contacts) {
+         setOtherContacts(data.contacts);
+       }
+     })
+     .catch(err => console.error("Failed to fetch contacts", err));
+ }, []);
 
 
   /* Trello modal */
@@ -2475,13 +2569,21 @@ const [gmailPage, setGmailPage] = useState(1);
         // 2. Sort by newest first
         combined.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
-        // 3. Map to UI format
-        const uiNotifications = combined.map(item => ({
-          ...item,
-          time: formatUKTimeWithSeconds(new Date(item.timestamp))
-        }));
-
-        setNotifications(uiNotifications);
+        // 3. Map to UI format and Filter for NEW items only
+        setNotifications(prev => {
+          const seenIds = new Set(prev.map(p => p.id));
+          const newItems = combined
+            .filter(item => !seenIds.has(item.id))
+            .map(item => ({
+              ...item,
+              time: formatUKTimeWithSeconds(new Date(item.timestamp))
+            }));
+          
+          if (newItems.length === 0) return prev;
+          // Combine and sort to keep the feed fresh
+          const next = [...newItems, ...prev].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+          return next.slice(0, 100); 
+        });
       } catch (err) {
         console.error("Failed to sync inbox:", err);
       }
@@ -2760,25 +2862,32 @@ useEffect(() => {
 
         // 2. Subsequent Runs: If ID changed, it's a NEW message
         if (latestId !== lastSeenMsgIdRef.current) {
-           lastSeenMsgIdRef.current = latestId; // Update tracker
+            const isFirstRun = lastSeenMsgIdRef.current === null;
+            lastSeenMsgIdRef.current = latestId; 
 
-           // Notify if not me
-           if (latestMsg.sender?.name !== gchatMe) {
-             console.log("🔔 [Background] Notification:", latestMsg.text);
-             
-             const sender = latestMsg.sender?.displayName || "Colleague";
-             let preview = latestMsg.text || "";
-             if (!preview && latestMsg.attachment?.length) preview = "Sent a file";
+            // 🛡️ Only notify if NOT the first run AND message is not from Siya
+            if (!isFirstRun && latestMsg.sender?.name !== gchatMe) {
+              // 🧠 INFORMATION DEPTH: Identify the actual sender name vs generic label
+              const senderName = latestMsg.sender?.displayName || "Colleague";
+              let previewText = latestMsg.text || "";
+              
+              // 📎 ATTACHMENT DETAIL: Identify what was sent if text is missing
+              if (!previewText && latestMsg.attachment?.length) {
+                const fileName = latestMsg.attachment[0].contentName || "a file";
+                previewText = `Sent an attachment: ${fileName}`;
+              }
 
-             window.dispatchEvent(new CustomEvent("notify", {
+              window.dispatchEvent(new CustomEvent("notify", {
                 detail: {
-                  text: `${sender}: ${preview}`,
+                  id: latestId, 
+                  text: `${senderName}: ${previewText}`, // Standard informative format
                   alt: "Google Chat",
                   icon: gchatIcon,
-                  spaceId: targetSpaceId
+                  spaceId: targetSpaceId,
+                  timestamp: latestMsg.createTime // Passes the real msg time for the [HH:MM:SS] label
                 }
-             }));
-           }
+              }));
+            }
         }
       } catch (err) {
         console.error("Background poll error", err);
@@ -2879,8 +2988,13 @@ useEffect(() => {
       setGmailLoading(true);
       setGmailError("");
       try {
-        // Updated to pass current page number to the backend
-        const res = await fetch(`/.netlify/functions/gmail-inbox?folder=${gmailFolder}&limit=50&page=${gmailPage}`);
+        // Manage page tokens locally to prevent backend looping
+        let currentToken = "";
+        if (gmailPage > 1) {
+          currentToken = gmailPageTokens[gmailPage] || "";
+        }
+
+        const res = await fetch(`/.netlify/functions/gmail-inbox?folder=${gmailFolder}&limit=50&pageToken=${currentToken}`);
         const json = await res.json().catch(() => ({}));
 
        if (!res.ok || !json.ok) throw new Error(json.error || `HTTP ${res.status}`);
@@ -2888,12 +3002,21 @@ useEffect(() => {
         if (!cancelled) {
           setGmailEmails(json.emails || []);
           setGmailTotal(json.total || 0);
+          
+          if (json.nextPageToken) {
+            setGmailPageTokens(prev => ({ ...prev, [gmailPage + 1]: json.nextPageToken }));
+          }
         }
       } catch (err) {
         if (!cancelled) setGmailError(String(err.message || err));
       } finally {
         if (!cancelled) setGmailLoading(false);
       }
+    }
+
+    // Reset tokens if returning to page 1 (e.g., when switching folders)
+    if (gmailPage === 1) {
+       setGmailPageTokens({});
     }
 
     loadInbox();
@@ -3858,41 +3981,39 @@ const handleStartChat = async () => {
         {gchatLoading && <div className="gchat-muted">Loading…</div>}
         {gchatError && <div className="gchat-error">{gchatError}</div>}
 
-        {!gchatLoading &&
-        !gchatError &&
-        gchatSpaces.map((s) => {
-          // 👇 LOGIC: Check our learned list first. If it's "Direct Message", try the Google name.
-          const learnedName = gchatDmNames[s.id];
-          const isGeneric = !learnedName || learnedName === "Direct Message";
-          
-          const title =
-            s.type === "DIRECT_MESSAGE"
-              ? (isGeneric ? (s.displayName || "Direct Message") : learnedName)
-              : s.displayName || "Unnamed";
+  {!gchatLoading && gchatSpaces.map((s) => {
+            // 🛡️ Logic: If it's a DM, prioritize the learned human name over the generic Space name
+            const learnedName = gchatDmNames[s.id];
+            const title = s.type === "DIRECT_MESSAGE" 
+              ? (learnedName && learnedName !== "Direct Message" ? learnedName : (s.displayName || "Direct Message"))
+              : (s.displayName || "Unnamed");
 
-          return (
-            <button
-              key={s.id}
-              className={`gchat-item ${
-                gchatSelectedSpace?.id === s.id ? "active" : ""
-              }`}
-              style={{
-                width: "100%",
-                display: "flex",
-                gap: "8px",
-                padding: "8px",
-                marginBottom: "4px",
-                textAlign: "left",
-              }}
-              onClick={() => setGchatSelectedSpace(s)}
-            >
-              {/* avatar removed intentionally */}
-              <div className="gchat-item-text">
-                <div className="gchat-item-title">{title}</div>
-              </div>
-            </button>
-          );
-        })}
+            return (
+              <button 
+                key={s.id} 
+                className={`gchat-item ${gchatSelectedSpace?.id === s.id ? "active" : ""}`} 
+                style={{ 
+                  width: "100%", 
+                  display: "flex", 
+                  gap: "8px", 
+                  padding: "8px", 
+                  marginBottom: "4px", 
+                  textAlign: "left",
+                  background: gchatSelectedSpace?.id === s.id ? "#e8f0fe" : "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  borderRadius: "8px"
+                }} 
+                onClick={() => setGchatSelectedSpace(s)}
+              >
+                <div className="gchat-item-text">
+                  <div className="gchat-item-title" style={{ fontWeight: gchatSelectedSpace?.id === s.id ? "600" : "400", color: "#202124" }}>
+                    {title}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
       </div>
 
       {/* RIGHT 3/4 — message thread */}
@@ -3951,207 +4072,84 @@ const handleStartChat = async () => {
 
               {!gchatMsgLoading && !gchatMsgError && (
                 <div className="gchat-msg-list">
-                  {/* src/App.jsx - REPLACING the map inside gchat-msg-list */}
+                  {/* Corrected Google Chat Message List */}
                   {gchatMessages.map((m, idx) => {
                     const msg = normalizeGChatMessage(m);
                     const senderName = msg?.sender?.displayName || "Unknown";
                     const msgId = msg?.name || msg?.id || `${msg?.createTime || "no-ts"}-${idx}`;
                     const avatar = avatarFor(senderName);
-                    const isMine = !!gchatMe && msg?.sender?.name === gchatMe;
+                    
+                    // Identity Logic
+                    const isMine = (!!gchatMe && msg?.sender?.name === gchatMe) || msg?.sender?.email === 'siya@actuaryspace.co.za';
 
-                    // 👇 DETECT ATTACHMENT
-                    const attachment = msg.attachment?.[0] || msg.annotations?.[0]?.userMention?.user ? null : msg.attachment?.[0]; // (simplified check)
-                    // Actually, the GChat API structure for attachments is usually msg.attachment[0].
-                    // Let's check for "attachment" property which we get from our backend or the API.
                     const hasAttachment = msg.attachment && msg.attachment.length > 0;
                     const fileData = hasAttachment ? msg.attachment[0] : null;
-                    
-                    // Clean filename for display
                     const fileName = fileData?.contentName || fileData?.name || "Attachment";
-  
-                    // 👇 Smarter File Type Detection
-                    let fileType = "FILE";
-                    let iconClass = "default"; // For CSS styling
-
                     const ext = fileName.split(".").pop().toLowerCase();
+                    
                     const isVideo = ["mp4", "webm", "ogg", "mov"].includes(ext);
                     const isAudio = ["mp3", "wav", "m4a", "aac"].includes(ext);
 
-                    if (ext === "pdf") {
-                      fileType = "PDF";
-                      iconClass = "pdf";
-                    } else if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) {
-                      fileType = "IMG";
-                      iconClass = "img";
-                    } else if (["xls", "xlsx", "csv"].includes(ext)) {
-                      fileType = "XLS";
-                      iconClass = "xls";
-                    } else if (["doc", "docx"].includes(ext)) {
-                      fileType = "DOC";
-                      iconClass = "doc";
-                    } else if (["zip", "rar"].includes(ext)) {
-                      fileType = "ZIP";
-                      iconClass = "zip";
-                    } else if (isVideo) {
-                      fileType = "VID";
-                      iconClass = "img"; // Use purple/img style for video icon fallback
-                    } else if (isAudio) {
-                      fileType = "AUD";
-                      iconClass = "img"; // Use purple/img style for audio icon fallback
-                    }
+                    let fileType = "FILE";
+                    let iconClass = "default";
+                    if (ext === "pdf") { fileType = "PDF"; iconClass = "pdf"; }
+                    else if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) { fileType = "IMG"; iconClass = "img"; }
+                    else if (["xls", "xlsx", "csv"].includes(ext)) { fileType = "XLS"; iconClass = "xls"; }
+                    else if (["doc", "docx"].includes(ext)) { fileType = "DOC"; iconClass = "doc"; }
 
                     return (
-                      <div
-                        key={msgId}
-                        className={`gchat-msg ${isMine ? "mine" : "theirs"}`}
-                        style={{ position: "relative" }}
-                      >
+                      <div key={msgId} className={`gchat-msg ${isMine ? "mine" : "theirs"}`} style={{ position: "relative" }}>
                         {!isMine && (
                           <div className="gchat-avatar-circle">
-                            {avatar ? (
-                              <img src={avatar} alt={senderName} />
-                            ) : (
-                              <span>{senderName.slice(0, 1).toUpperCase()}</span>
-                            )}
+                            {avatar ? <img src={avatar} alt={senderName} /> : <span>{senderName.slice(0, 1).toUpperCase()}</span>}
                           </div>
                         )}
 
-                        <div
-                          className="gchat-msg-content group"
-                          style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: isMine ? "flex-end" : "flex-start",
-                            position: "relative",
-                            maxWidth: "75%", // Limit width so file cards don't span full screen
-                          }}
-                        >
+                        <div className="gchat-msg-content group" style={{ display: "flex", flexDirection: "column", alignItems: isMine ? "flex-end" : "flex-start", position: "relative", maxWidth: "75%" }}>
                           <div className="gchat-meta">
                             {!isMine && <strong>{senderName}</strong>}
-                            <span className="gchat-time">
-                              {formatGchatTime(msg?.createTime)}
-                            </span>
+                            <span className="gchat-time">{formatGchatTime(msg?.createTime)}</span>
                           </div>
 
-                          {/* 👇 1. RENDER FILE CARD OR INLINE PLAYER (If exists) */}
                           {hasAttachment && (
                             <div style={{ marginBottom: msg?.text ? "8px" : "0" }}>
                               {isVideo ? (
-                                /* A) INLINE VIDEO PLAYER */
                                 <div className="gchat-media-wrap">
-                                  <video
-                                    controls
-                                    src={
-                                      fileData?.attachmentDataRef?.resourceName
-                                        ? `/.netlify/functions/gchat-download?uri=api:${fileData.attachmentDataRef.resourceName}`
-                                        : fileData?.downloadUri
-                                    }
-                                    style={{
-                                      maxWidth: "240px",
-                                      borderRadius: "8px",
-                                      display: "block",
-                                      background: "#000",
-                                    }}
-                                  />
+                                  <video controls src={fileData?.attachmentDataRef?.resourceName ? `/.netlify/functions/gchat-download?uri=api:${fileData.attachmentDataRef.resourceName}` : fileData?.downloadUri} style={{ maxWidth: "240px", borderRadius: "8px", display: "block", background: "#000" }} />
                                 </div>
                               ) : isAudio ? (
-                                /* B) INLINE AUDIO PLAYER */
-                                <div
-                                  className="gchat-media-wrap"
-                                  style={{ width: "240px" }}
-                                >
-                                  <audio
-                                    controls
-                                    src={
-                                      fileData?.attachmentDataRef?.resourceName
-                                        ? `/.netlify/functions/gchat-download?uri=api:${fileData.attachmentDataRef.resourceName}`
-                                        : fileData?.downloadUri
-                                    }
-                                    style={{ width: "100%" }}
-                                  />
+                                <div className="gchat-media-wrap" style={{ width: "240px" }}>
+                                  <audio controls src={fileData?.attachmentDataRef?.resourceName ? `/.netlify/functions/gchat-download?uri=api:${fileData.attachmentDataRef.resourceName}` : fileData?.downloadUri} style={{ width: "100%" }} />
                                 </div>
                               ) : (
-                                /* C) STANDARD FILE CARD (PDF/Docs/Images) */
-                                <div
-                                  className="gchat-file-card"
-                                  style={{ cursor: "pointer" }}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-
-                                    // ✅ FIX: Only use the Proxy if we have the specific Resource ID
-                                    const resName =
-                                      fileData?.attachmentDataRef?.resourceName;
-                                    const directUrl = fileData?.downloadUri;
-
-                                    // ✅ FIX: Use full Netlify Functions path
-                                    const finalUrl = resName
-                                      ? `/.netlify/functions/gchat-download?uri=api:${resName}`
-                                      : directUrl;
-
-                                    // 2. Check the file type
-                                    const extension = fileName
-                                      .split(".")
-                                      .pop()
-                                      .toLowerCase();
-                                    const isViewable = [
-                                      "pdf",
-                                      "png",
-                                      "jpg",
-                                      "jpeg",
-                                      "gif",
-                                      "webp",
-                                    ].includes(extension);
-
-                                    if (isViewable) {
-                                      // SCENARIO A: Viewable -> Open the Preview Modal
-                                      setGchatFilePreview({
-                                        name: fileName,
-                                        url: finalUrl,
-                                        type: iconClass,
-                                      });
-                                    } else {
-                                      // SCENARIO B: Not Viewable (Word/Excel) -> Download Immediately
-                                      const link = document.createElement("a");
-                                      link.href = finalUrl;
-                                      link.setAttribute("download", fileName);
-                                      document.body.appendChild(link);
-                                      link.click();
-                                      document.body.removeChild(link);
-                                    }
-                                  }}
-                                >
-                                  {/* 👇 Dynamic class added here */}
-                                  <div className={`gchat-file-icon ${iconClass}`}>
-                                    {fileType}
-                                  </div>
-                                  <div className="gchat-file-info">
-                                    <div className="gchat-file-name">{fileName}</div>
-                                    {/* ... */}
-                                  </div>
+                                <div className="gchat-file-card" style={{ cursor: "pointer" }} onClick={(e) => {
+                                  e.stopPropagation();
+                                  const finalUrl = fileData?.attachmentDataRef?.resourceName ? `/.netlify/functions/gchat-download?uri=api:${fileData.attachmentDataRef.resourceName}` : fileData?.downloadUri;
+                                  const isViewable = ["pdf", "png", "jpg", "jpeg", "gif", "webp"].includes(ext);
+                                  if (isViewable) { setGchatFilePreview({ name: fileName, url: finalUrl, type: iconClass }); }
+                                  else { window.open(finalUrl, '_blank'); }
+                                }}>
+                                  <div className={`gchat-file-icon ${iconClass}`}>{fileType}</div>
+                                  <div className="gchat-file-info"><div className="gchat-file-name">{fileName}</div></div>
                                 </div>
                               )}
                             </div>
                           )}
 
-                          {/* 👇 2. RENDER TEXT BUBBLE (If exists) - placed below the file */}
                           {(msg?.text || msg?.formattedText) && (
                             <div className="gchat-bubble" style={{ position: "relative" }}>
-                              {/* 👇 Use the helper function here */}
                               {formatChatText(msg?.text || msg?.formattedText)}
                             </div>
                           )}
 
-                          {/* ... (Reaction UI Code remains the same) ... */}
                           {!isMine && (
                             <div className="gchat-react-bar">
-                              {/* ... buttons ... */}
                               <button className="gchat-reaction-pill" onMouseDown={(e) => {e.stopPropagation(); e.preventDefault(); toggleReaction(msgId, "like");}}>👍</button>
                               <button className="gchat-reaction-pill" onMouseDown={(e) => {e.stopPropagation(); e.preventDefault(); toggleReaction(msgId, "heart");}}>❤️</button>
                               <button className="gchat-reaction-pill" onMouseDown={(e) => {e.stopPropagation(); e.preventDefault(); toggleReaction(msgId, "laugh");}}>😆</button>
                             </div>
                           )}
 
-                          {/* ... (Rendered Reactions Code remains the same) ... */}
                           {Array.isArray(reactions[msgId]) && reactions[msgId].length > 0 && (
                             <div className="gchat-reaction-row" style={{ marginTop: 4, display: "flex", gap: 4 }}>
                               {reactions[msgId].map((r) => (
@@ -4161,7 +4159,6 @@ const handleStartChat = async () => {
                               ))}
                             </div>
                           )}
-
                         </div>
                       </div>
                     );
@@ -4368,7 +4365,13 @@ if (currentView.app === "gmail") {
                   /* 3. Navigation Pills Group (Shows when nothing is selected) */
                   <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
                     <button
-                      onClick={() => { setGmailFolder("INBOX"); setGmailPage(1); setGmailEmails([]); setSelectedEmailIds(new Set()); }}
+                      onClick={() => { 
+                        setGmailEmails([]); 
+                        setGmailRefreshTrigger(p => p + 1); 
+                        setGmailFolder("INBOX"); 
+                        setGmailPage(1); 
+                        setSelectedEmailIds(new Set()); 
+                      }}
                       style={{ height: "32px", padding: "0 16px", borderRadius: "100px", fontSize: "14px", fontWeight: 500, cursor: "pointer", background: gmailFolder === "INBOX" ? "#c2e7ff" : "transparent", color: gmailFolder === "INBOX" ? "#001d35" : "#444746", border: "none", display: "flex", alignItems: "center", gap: "10px" }}
                     >
                       {gmailFolder === "INBOX" ? <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5v-3h3.56c.69 1.19 1.97 2 3.44 2s2.75-.81 3.44-2H19v3zm0-5h-4.99c0 1.1-.9 2-2 2s-2-.9-2-2H5V5h14v9z"/></svg> : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 12h-6l-2 3h-4l-2-3H2"></path><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path></svg>}
@@ -4376,7 +4379,13 @@ if (currentView.app === "gmail") {
                     </button>
 
                     <button
-                      onClick={() => { setGmailFolder("STARRED"); setGmailPage(1); setGmailEmails([]); setSelectedEmailIds(new Set()); }}
+                      onClick={() => { 
+                        setGmailEmails([]); 
+                        setGmailRefreshTrigger(p => p + 1); 
+                        setGmailFolder("STARRED"); 
+                        setGmailPage(1); 
+                        setSelectedEmailIds(new Set()); 
+                      }}
                       style={{ height: "32px", padding: "0 16px", borderRadius: "100px", fontSize: "14px", fontWeight: 500, cursor: "pointer", background: gmailFolder === "STARRED" ? "#c2e7ff" : "transparent", color: gmailFolder === "STARRED" ? "#001d35" : "#444746", border: "none", display: "flex", alignItems: "center", gap: "10px" }}
                     >
                       {gmailFolder === "STARRED" ? <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg> : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>}
@@ -4384,7 +4393,13 @@ if (currentView.app === "gmail") {
                     </button>
 
                     <button
-                      onClick={() => { setGmailFolder("SENT"); setGmailPage(1); setGmailEmails([]); setSelectedEmailIds(new Set()); }}
+                      onClick={() => { 
+                        setGmailEmails([]); 
+                        setGmailRefreshTrigger(p => p + 1); 
+                        setGmailFolder("SENT"); 
+                        setGmailPage(1); 
+                        setSelectedEmailIds(new Set()); 
+                      }}
                       style={{ height: "32px", padding: "0 16px", borderRadius: "100px", fontSize: "14px", fontWeight: 500, cursor: "pointer", background: gmailFolder === "SENT" ? "#c2e7ff" : "transparent", color: gmailFolder === "SENT" ? "#001d35" : "#444746", border: "none", display: "flex", alignItems: "center", gap: "10px" }}
                     >
                       {gmailFolder === "SENT" ? <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg> : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>}
@@ -4392,7 +4407,13 @@ if (currentView.app === "gmail") {
                     </button>
 
                     <button
-                      onClick={() => { setGmailFolder("DRAFTS"); setGmailPage(1); setGmailEmails([]); setSelectedEmailIds(new Set()); }}
+                      onClick={() => { 
+                        setGmailEmails([]); 
+                        setGmailRefreshTrigger(p => p + 1); 
+                        setGmailFolder("DRAFTS"); 
+                        setGmailPage(1); 
+                        setSelectedEmailIds(new Set()); 
+                      }}
                       style={{ height: "32px", padding: "0 16px", borderRadius: "100px", fontSize: "14px", fontWeight: 500, cursor: "pointer", background: gmailFolder === "DRAFTS" ? "#c2e7ff" : "transparent", color: gmailFolder === "DRAFTS" ? "#001d35" : "#444746", border: "none", display: "flex", alignItems: "center", gap: "10px" }}
                     >
                       {gmailFolder === "DRAFTS" ? <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg> : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>}
@@ -4400,7 +4421,13 @@ if (currentView.app === "gmail") {
                     </button>
 
                     <button
-                      onClick={() => { setGmailFolder("TRASH"); setGmailPage(1); setGmailEmails([]); setSelectedEmailIds(new Set()); }}
+                      onClick={() => { 
+                        setGmailEmails([]); 
+                        setGmailRefreshTrigger(p => p + 1); 
+                        setGmailFolder("TRASH"); 
+                        setGmailPage(1); 
+                        setSelectedEmailIds(new Set()); 
+                      }}
                       style={{ height: "32px", padding: "0 16px", borderRadius: "100px", fontSize: "14px", fontWeight: 500, cursor: "pointer", background: gmailFolder === "TRASH" ? "#c2e7ff" : "transparent", color: gmailFolder === "TRASH" ? "#001d35" : "#444746", border: "none", display: "flex", alignItems: "center", gap: "10px" }}
                     >
                       {gmailFolder === "TRASH" ? <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg> : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>}
@@ -4409,10 +4436,37 @@ if (currentView.app === "gmail") {
                   </div>
                 )}
 
-                {/* 4. Pagination (Pinned to right) */}
-                <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "#5f6368", fontSize: "13px", marginLeft: "auto", marginRight: "4px" }}>
-                  <span>{`${gmailTotal > 0 ? (gmailPage - 1) * 50 + 1 : 0}–${Math.min(gmailPage * 50, gmailTotal)} of ${gmailTotal.toLocaleString()}`}</span>
-                  <div style={{ display: "flex" }}>
+                {/* 4. Reload & Pagination (Pinned to right) */}
+<div style={{ display: "flex", alignItems: "center", gap: "12px", color: "#5f6368", fontSize: "13px", marginLeft: "auto", marginRight: "4px" }}>
+  
+  {/* 🔄 RELOAD BUTTON */}
+  <button 
+    onClick={() => {
+      setGmailEmails([]); // Clear list for visual feedback
+      setGmailRefreshTrigger(p => p + 1); // Trigger the loader useEffect
+    }}
+    title="Refresh"
+    style={{ 
+      background: "transparent", 
+      border: "none", 
+      cursor: "pointer", 
+      color: "#5f6368", 
+      padding: "6px", 
+      borderRadius: "50%", 
+      display: "grid", 
+      placeItems: "center",
+      transition: "background 0.2s" 
+    }}
+    onMouseEnter={e => e.currentTarget.style.background = "#f1f3f4"}
+    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+  >
+    <svg width="18" height="18" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+    </svg>
+  </button>
+
+  <span>{`${gmailTotal > 0 ? (gmailPage - 1) * 50 + 1 : 0}–${Math.min(gmailPage * 50, gmailTotal)} of ${gmailTotal.toLocaleString()}`}</span>
+  <div style={{ display: "flex" }}>
                     <button onClick={() => { setGmailEmails([]); setGmailPage(p => Math.max(1, p - 1)); }} disabled={gmailPage === 1} style={{ background: "transparent", border: "none", cursor: gmailPage === 1 ? "default" : "pointer", color: gmailPage === 1 ? "#c1c7d0" : "#5f6368", padding: "4px", borderRadius: "50%" }} onMouseEnter={e => gmailPage !== 1 && (e.currentTarget.style.background = "#eee")} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                       <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
                     </button>
@@ -4484,6 +4538,7 @@ if (currentView.app === "gmail") {
                   id: msg.id, subject: msg.subject, fromName, fromEmail,
                   to: msg.to,
                   date: msg.date,
+                  isStarred: msg.isStarred,
                   time: new Date(msg.date).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
                   body: isHtml ? "" : rawBody,
                   bodyHtml: isHtml ? msg.body : "",
@@ -4521,13 +4576,13 @@ if (currentView.app === "gmail") {
               </div>
 
               {/* ⭐ STAR ICON CONTAINER */}
-              <div 
+<div 
   style={{ 
     cursor: "pointer", 
     fontSize: "20px", 
     display: "grid", 
     placeItems: "center",
-    color: email.isStarred ? "#f2d600" : "#c1c7d0",
+    color: msg.isStarred ? "#f2d600" : "#c1c7d0",
     transition: "transform 0.1s ease"
   }}
   onMouseEnter={e => e.currentTarget.style.transform = "scale(1.2)"}
@@ -4535,10 +4590,11 @@ if (currentView.app === "gmail") {
   onClick={(e) => {
     e.preventDefault();
     e.stopPropagation();
-    handleToggleStar(e, email.id, email.isStarred);
+    // ⚡ FIX: Use 'msg' from the .map iterator, not the global 'email' state
+    handleToggleStar(e, msg.id, msg.isStarred);
   }}
 >
-  {email.isStarred ? "★" : "☆"}
+  {msg.isStarred ? "★" : "☆"}
 </div>
        {/* Sender Name */}
               <div style={{ width: "200px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: "#202124" }}>
@@ -4679,13 +4735,57 @@ if (currentView.app === "gmail") {
                     <svg width="14" height="14" viewBox="0 0 24 24"><path fill="currentColor" d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
                   )}
                 </button>
-              <button 
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => { e.stopPropagation(); setSelectedDraftTemplate(null); setDraftPos({x:0, y:0}); setDraftAttachments([]); }} 
-                  style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: "16px", color: "#5f6368" }}
-                >
-                  ✕
-                </button>
+            <button 
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => { 
+                  e.stopPropagation(); 
+                  
+                  // 🟢 AUTO-SAVE DRAFT LOGIC
+                  const currentSubject = document.getElementById("compose-subject")?.value || "";
+                  const bodyText = selectedDraftTemplate?.body || "";
+                  const draftIdToDelete = selectedDraftTemplate?.draftId;
+
+                  // Only save to backend if the user actually typed something
+                  if (draftTo.trim() || currentSubject.trim() || bodyText.trim()) {
+                     triggerSnackbar("Draft saved");
+                     
+                     // Fire and forget background save (0ms UI latency)
+                     fetch("/.netlify/functions/gmail-save-draft", {
+                       method: "POST",
+                       headers: { "Content-Type": "application/json" },
+                       body: JSON.stringify({ 
+                         to: draftTo, 
+                         subject: currentSubject || "New Message", 
+                         body: bodyText.replace(/\*([^*]+)\*/g, "<b>$1</b>")
+                       })
+                     }).then(res => res.json()).then(json => {
+                       if (res.ok && json.ok) {
+                         // Clean up the old draft version if we were editing an existing one
+                         if (draftIdToDelete) {
+                            fetch("/.netlify/functions/gmail-delete", {
+                               method: "POST",
+                               headers: { "Content-Type": "application/json" },
+                               body: JSON.stringify({ messageId: draftIdToDelete })
+                            });
+                         }
+                         if (gmailFolder === "DRAFTS") {
+                            setGmailRefreshTrigger(prev => prev + 1);
+                         }
+                       }
+                     }).catch(err => console.error("Auto-save failed", err));
+                  }
+
+                  // Close UI instantly
+                  setSelectedDraftTemplate(null); 
+                  setDraftPos({x:0, y:0}); 
+                  setDraftAttachments([]); 
+                  setDraftTo("");
+                }} 
+                style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: "16px", color: "#5f6368", padding: "0 4px" }}
+                title="Save & Close"
+              >
+                ✕
+              </button>
               </div>
             </div>
             
@@ -4704,8 +4804,8 @@ if (currentView.app === "gmail") {
                     style={{ flex: 1, border: "none", outline: "none", fontSize: "14px", color: "#202124" }}
                   />
                   
-                  {/* Suggestion Dropdown */}
-                  {draftTo.length > 1 && !draftTo.includes("@") && (
+                {/* Suggestion Dropdown */}
+                  {(draftTo || "").length > 1 && !(draftTo || "").includes("@") && (
                     <div style={{
                       position: "absolute",
                       top: "100%",
@@ -4719,29 +4819,30 @@ if (currentView.app === "gmail") {
                       overflowY: "auto",
                       borderRadius: "4px"
                     }}>
-                      {Object.entries(AC_EMAIL_MAP)
-                        .filter(([name]) => name.toLowerCase().includes(draftTo.toLowerCase()))
+                      {Object.entries({ ...otherContacts, ...AC_EMAIL_MAP })
+                        .filter(([name]) => name.toLowerCase().includes((draftTo || "").toLowerCase()))
                         .map(([name, email]) => (
-                          <div 
-                            key={email}
-                            onClick={() => setDraftTo(email)}
-                            onMouseEnter={(e) => e.currentTarget.style.background = "#f1f3f4"}
-                            onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-                            style={{
-                              padding: "8px 12px",
-                              cursor: "pointer",
-                              display: "flex",
-                              justifyContent: "space-between",
-                              fontSize: "13px"
-                            }}
-                          >
-                            <span style={{ fontWeight: 600 }}>{name}</span>
-                            <span style={{ color: "#5f6368" }}>{email}</span>
-                          </div>
-                        ))
-                      }
-                    </div>
-                  )}
+                              <div 
+                                key={email}
+                                onClick={() => setDraftTo(email)}
+                                onMouseEnter={(e) => e.currentTarget.style.background = "#f1f3f4"}
+                                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                                style={{
+                                  padding: "8px 12px",
+                                  cursor: "pointer",
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  fontSize: "13px",
+                                  color: "#202124"
+                                }}
+                              >
+                                <span style={{ fontWeight: 600 }}>{name}</span>
+                                <span style={{ color: "#5f6368" }}>{email}</span>
+                              </div>
+                            ))
+                          }
+                        </div>
+                      )}
                 </>
               )}
             </div>
@@ -4775,11 +4876,11 @@ if (currentView.app === "gmail") {
 
         {/* Body Container (Scrolls together with Signature) */}
             <div style={{ flex: 1, overflowY: "auto", background: "#fff", display: "flex", flexDirection: "column", position: 'relative' }}>
-              <div style={{ position: 'relative', minHeight: "200px" }}>
+             <div style={{ position: 'relative', minHeight: "200px" }}>
                 {/* Hidden Textarea for Input */}
                 <textarea
                   className="email-draft-textarea"
-                  value={selectedDraftTemplate.body}
+                  value={selectedDraftTemplate.body || ""}
                   onChange={(e) => setSelectedDraftTemplate((prev) => prev ? { ...prev, body: e.target.value } : prev)}
                   style={{ 
                     width: '100%',
@@ -4817,13 +4918,13 @@ if (currentView.app === "gmail") {
                   zIndex: 1,
                   minHeight: "200px"
                 }}>
-                  {selectedDraftTemplate.body.split(/(\*[^*]+\*)/g).map((part, i) => 
+                  {(selectedDraftTemplate.body || "").split(/(\*[^*]+\*)/g).map((part, i) => 
                     part.startsWith('*') && part.endsWith('*') && part.length > 2 
                     ? <strong key={i}>{part.slice(1, -1)}</strong> 
                     : part
                   )}
                   {/* Invisible character to maintain height when trailing newlines exist */}
-                  {selectedDraftTemplate.body.endsWith('\n') ? ' ' : ''}
+                  {(selectedDraftTemplate.body || "").endsWith('\n') ? ' ' : ''}
                 </div>
               </div>
               <EmailSignature />
@@ -4892,75 +4993,7 @@ if (currentView.app === "gmail") {
                   Send
                 </button>
 
-{/* 💾 SAVE AS DRAFT BUTTON */}
-                <button
-                  title="Save to Drafts"
-                  type="button"
-                  onClick={async (e) => {
-                    const btn = e.currentTarget;
-                    const subjElement = document.getElementById("compose-subject");
-                    const currentSubject = subjElement ? subjElement.value : "(No Subject)";
-                    
-                    btn.disabled = true;
-                   try {
-                      const res = await fetch("/.netlify/functions/gmail-save-draft", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ 
-                          to: draftTo, 
-                          subject: currentSubject, 
-                          body: (selectedDraftTemplate?.body || "").replace(/\*([^*]+)\*/g, "<b>$1</b>")
-                        })
-                      });
-                      
-                      let json;
-                      try {
-                        json = await res.json();
-                      } catch (parseErr) {
-                        json = { ok: false, error: "Response was not valid JSON" };
-                      }
 
-                      if (res.ok && json.ok) {
-                        // 🟢 DELETE OLD DRAFT IF WE RESAVED IT
-                        if (selectedDraftTemplate.draftId) {
-                           fetch("/.netlify/functions/gmail-delete", {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ messageId: selectedDraftTemplate.draftId })
-                           });
-                        }
-
-                        window.dispatchEvent(new CustomEvent("notify", { 
-                          detail: { text: "Draft saved successfully", alt: "Gmail", icon: gmailIcon } 
-                        }));
-
-                        // 🔽 TRIGGER SNACKBAR FOR DRAFTS
-                        triggerSnackbar("Added to drafts");
-
-                        if (gmailFolder === "DRAFTS") {
-                          setGmailEmails([]); 
-                          setGmailRefreshTrigger(prev => prev + 1);
-                        }
-
-                        setSelectedDraftTemplate(null);
-                        setDraftTo("");
-                        setDraftAttachments([]);
-                      } else {
-                        alert("Error: " + (json.error || "Save failed"));
-                        btn.disabled = false;
-                      }
-                    } catch (err) {
-                      console.error("Save Draft Error:", err);
-                      alert("Network error: Could not reach the draft server.");
-                      btn.disabled = false;
-                    }
-                  }}
-                  style={{ background: "transparent", border: "none", cursor: "pointer", color: "#5f6368", display: "grid", placeItems: "center", padding: "8px", borderRadius: "50%" }}
-                  onMouseEnter={(ev) => ev.currentTarget.style.background = "#f1f3f4"}
-                  onMouseLeave={(ev) => ev.currentTarget.style.background = "transparent"}
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></svg>
-                </button>
 
                 <button 
                   onClick={() => draftFileInputRef.current?.click()} 
@@ -4986,7 +5019,30 @@ if (currentView.app === "gmail") {
                 />
               </div>
 
-           <button onClick={() => { setSelectedDraftTemplate(null); setDraftTo(""); setDraftAttachments([]); }} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#5f6368" }}>
+           <button 
+                title="Discard draft"
+                onClick={() => { 
+                  // If we were editing an existing draft, delete it from the server
+                  if (selectedDraftTemplate?.draftId) {
+                    fetch("/.netlify/functions/gmail-delete", {
+                       method: "POST",
+                       headers: { "Content-Type": "application/json" },
+                       body: JSON.stringify({ messageId: selectedDraftTemplate.draftId })
+                    }).then(() => {
+                       if (gmailFolder === "DRAFTS") setGmailRefreshTrigger(prev => prev + 1);
+                    });
+                  }
+                  
+                  // Clear UI instantly
+                  setSelectedDraftTemplate(null); 
+                  setDraftTo(""); 
+                  setDraftAttachments([]); 
+                  triggerSnackbar("Draft discarded");
+                }} 
+                style={{ border: "none", background: "transparent", cursor: "pointer", color: "#5f6368", padding: "8px", borderRadius: "50%" }}
+                onMouseEnter={e => e.currentTarget.style.background = "#f1f3f4"}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+              >
                 <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M15 4V3H9v1H4v2h1v13c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V6h1V4h-5zm2 15H7V6h10v13zM9 8h2v9H9zm4 0h2v9h-2z"/></svg>
               </button>
             </div>
@@ -5133,7 +5189,7 @@ if (currentView.app === "gmail") {
   onClick={(e) => {
     e.preventDefault();
     e.stopPropagation();
-    // Use the specific email object properties
+    // ⚡ FIX: Ensure we use the 'email' object currently loaded in the detailed view
     handleToggleStar(e, email.id, email.isStarred);
   }}
 >
@@ -5478,8 +5534,8 @@ if (currentView.app === "gmail") {
                         placeholder={selectedDraftTemplate.isForward ? "To" : "Recipient"}
                       />
                       
-                      {/* Suggestion Dropdown */}
-                      {draftTo.length > 1 && !draftTo.includes("@") && (
+                    {/* Suggestion Dropdown */}
+                      {(draftTo || "").length > 1 && !(draftTo || "").includes("@") && (
                         <div style={{
                           position: "absolute",
                           top: "100%",
@@ -5494,30 +5550,29 @@ if (currentView.app === "gmail") {
                           borderRadius: "4px",
                           marginTop: "12px"
                         }}>
-                          {Object.entries(AC_EMAIL_MAP)
-                            .filter(([name]) => name.toLowerCase().includes(draftTo.toLowerCase()))
+                          {Object.entries({ ...otherContacts, ...AC_EMAIL_MAP })
+                            .filter(([name]) => name.toLowerCase().includes((draftTo || "").toLowerCase()))
                             .map(([name, email]) => (
-                              <div 
-                                key={email}
-                                onClick={() => setDraftTo(email)}
-                                onMouseEnter={(e) => e.currentTarget.style.background = "#f1f3f4"}
-                                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-                                style={{
-                                  padding: "8px 12px",
-                                  cursor: "pointer",
-                                  display: "flex",
-                                  justifyContent: "space-between",
-                                  fontSize: "13px",
-                                  color: "#202124"
-                                }}
-                              >
-                                <span style={{ fontWeight: 600 }}>{name}</span>
-                                <span style={{ color: "#5f6368" }}>{email}</span>
-                              </div>
-                            ))
-                          }
-                        </div>
-                      )}
+                          <div 
+                            key={email}
+                            onClick={() => setDraftTo(email)}
+                            onMouseEnter={(e) => e.currentTarget.style.background = "#f1f3f4"}
+                            onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                            style={{
+                              padding: "8px 12px",
+                              cursor: "pointer",
+                              display: "flex",
+                              justifyContent: "space-between",
+                              fontSize: "13px"
+                            }}
+                          >
+                            <span style={{ fontWeight: 600 }}>{name}</span>
+                            <span style={{ color: "#5f6368" }}>{email}</span>
+                          </div>
+                        ))
+                      }
+                    </div>
+                  )}
                     </>
                   )}
                 </div>
@@ -5529,11 +5584,11 @@ if (currentView.app === "gmail") {
 
              {/* Text Area */}
               <div style={{ maxHeight: "350px", overflowY: "auto", padding: "0 16px" }}>
-                <div style={{ position: 'relative', minHeight: "150px", marginTop: "8px" }}>
+               <div style={{ position: 'relative', minHeight: "150px", marginTop: "8px" }}>
                   <textarea
                     autoFocus
                     className="email-draft-textarea"
-                    value={selectedDraftTemplate.body}
+                    value={selectedDraftTemplate.body || ""}
                     onChange={(e) => setSelectedDraftTemplate((prev) => prev ? { ...prev, body: e.target.value } : prev)}
                     style={{
                       width: "100%", border: "none", outline: "none", minHeight: "150px", fontSize: "14px", resize: "none",
@@ -5549,12 +5604,12 @@ if (currentView.app === "gmail") {
                     fontSize: "14px", fontFamily: "inherit", color: "#202124", whiteSpace: "pre-wrap", wordBreak: "break-word",
                     pointerEvents: "none", zIndex: 1, minHeight: "150px"
                   }}>
-                    {selectedDraftTemplate.body.split(/(\*[^*]+\*)/g).map((part, i) => 
+                    {(selectedDraftTemplate.body || "").split(/(\*[^*]+\*)/g).map((part, i) => 
                       part.startsWith('*') && part.endsWith('*') && part.length > 2 
                       ? <strong key={i}>{part.slice(1, -1)}</strong> 
                       : part
                     )}
-                    {selectedDraftTemplate.body.endsWith('\n') ? ' ' : ''}
+                    {(selectedDraftTemplate.body || "").endsWith('\n') ? ' ' : ''}
                   </div>
                 </div>
                 <EmailSignature />
