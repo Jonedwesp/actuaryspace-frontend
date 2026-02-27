@@ -52,24 +52,25 @@ export async function handler(event) {
     // -----------------------------------------------------------------
 
     // 2. List Spaces (Populates your Sidebar list)
-    const url = new URL("https://chat.googleapis.com/v1/spaces");
-    url.searchParams.set("pageSize", "200");
-    url.searchParams.set("fields", "spaces(name,displayName,spaceType,spaceDetails),nextPageToken");
+    const url = new URL("https://chat.googleapis.com/v1/spaces");
+    url.searchParams.set("pageSize", "200");
+    url.searchParams.set("fields", "spaces(name,displayName,spaceType,spaceDetails,createTime),nextPageToken");
 
-    const res = await fetch(url.toString(), {
-      headers: { "Authorization": `Bearer ${accessToken}` },
-    });
+    const res = await fetch(url.toString(), {
+      headers: { "Authorization": `Bearer ${accessToken}` },
+    });
 
-    const data = await res.json().catch(() => ({}));
-    
-    if (!res.ok) return json(502, { ok: false, where: "list-spaces", data });
+    const data = await res.json().catch(() => ({}));
+    
+    if (!res.ok) return json(502, { ok: false, where: "list-spaces", data });
 
-    const spaces = (data.spaces || []).map((s) => ({
-      id: s.name,
-      displayName: s.displayName || "",
-      type: s.spaceType,
-      details: s.spaceDetails || null,
-    }));
+    const spaces = (data.spaces || []).map((s) => ({
+      id: s.name,
+      displayName: s.displayName || "",
+      type: s.spaceType,
+      details: s.spaceDetails || null,
+      createTime: s.createTime || null,
+    }));
 
     return json(200, { ok: true, spaces });
 

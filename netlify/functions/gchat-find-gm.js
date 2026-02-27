@@ -1,5 +1,11 @@
 import { getAccessToken } from "./_google-creds.js";
 
+// Helper to get name from email prefix if organization lookup fails
+const nameFromEmail = (email) => {
+  const prefix = email.split('@')[0];
+  return prefix.split(/[._]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+};
+
 const KNOWN_USERS_MAP = {
   "jonathan@actuaryconsulting.co.za": "users/109833975621386956073",
   "simone@actuaryconsulting.co.za": "users/116928759608148752435",
@@ -33,46 +39,49 @@ const KNOWN_USERS_MAP = {
 };
 
 export async function handler(event) {
-  // 1. Log the start so the boss can see it in his terminal
   console.log("--- STARTING GCHAT-FIND-GM ---");
 
   try {
-    // 2. Safety parse the body
     let body = {};
     try {
       body = typeof event.body === 'string' ? JSON.parse(event.body) : event.body;
     } catch (e) {
-      console.warn("Body is not JSON. Treating raw body as the email input.");
       body = { email: event.body };
     }
 
     const rawInput = body && body.email ? body.email : event.body;
     const emailInput = (rawInput || "").toLowerCase().trim();
     
-    console.log("Final Resolved Email Input:", emailInput);
-
-    if (!emailInput) {
-      console.error("No email found in request body.");
+    if (!emailInput || !emailInput.includes("@")) {
       return { statusCode: 400, body: JSON.stringify({ error: "Please enter a full email address." }) };
-    }
-    
-    let resourceName = KNOWN_USERS_MAP[emailInput];
-    
-    if (!resourceName) {
-      if (emailInput.includes("@")) {
-        resourceName = `users/${emailInput}`;
-        console.log("User not in map, formatting directly as:", resourceName);
-      } else {
-        console.error(`Invalid input. Not in map and not an email: ${emailInput}`);
-        return { statusCode: 400, body: JSON.stringify({ error: `Please enter a full email address.` }) };
-      }
-    } else {
-      console.log("Found user in map:", resourceName);
     }
 
     const token = await getAccessToken(event);
+    let resourceName = KNOWN_USERS_MAP[emailInput];
+    let displayName = "";
 
-    // 5. Setup the space (Pluralized memberships and added human-only flag)
+    // 🧠 ATTEMPT 1: Get Full Name from organization directory (Most Accurate)
+    const dirRes = await fetch(`https://admin.googleapis.com/admin/directory/v1/users/${encodeURIComponent(emailInput)}`, {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    
+    if (dirRes.ok) {
+      const userData = await dirRes.json();
+      resourceName = `users/${userData.id}`;
+      displayName = userData.name?.fullName; // This is Name + Surname
+      console.log("Directory Lookup Success:", displayName);
+    } 
+    
+    // 🧠 ATTEMPT 2: Fallback to manual map if Directory fails but we have the ID
+    if (!displayName && resourceName) {
+      displayName = nameFromEmail(emailInput);
+    }
+
+    // 🧠 ATTEMPT 3: Exit if user still can't be identified
+    if (!resourceName) {
+      return { statusCode: 404, body: JSON.stringify({ error: "User not found in organization directory." }) };
+    }
+
     const response = await fetch(`https://chat.googleapis.com/v1/spaces:setup`, {
       method: "POST",
       headers: { 
@@ -82,18 +91,21 @@ export async function handler(event) {
       body: JSON.stringify({
         space: { 
           spaceType: "DIRECT_MESSAGE",
-          singleUserBotDm: false // 🛡️ Ensures it looks like a Human DM in Screenshot 5
+          singleUserBotDm: false 
         },
-        memberships: [ { member: { name: resourceName } } ] // 🛡️ Changed to plural 'memberships'
+        memberships: [ { member: { name: resourceName, type: "HUMAN" } } ] 
       })
     });
 
     const result = await response.json();
     
-    // 🛡️ Changed 'data' to 'space' to match App.jsx expectations
+    if (!response.ok) {
+        return { statusCode: response.status, body: JSON.stringify({ ok: false, error: result.error?.message || "Failed to create space." }) };
+    }
+
     return { 
-      statusCode: response.ok ? 200 : response.status, 
-      body: JSON.stringify({ ok: response.ok, space: result }) 
+      statusCode: 200, 
+      body: JSON.stringify({ ok: true, space: result, displayName: displayName }) 
     };
 
   } catch (err) {

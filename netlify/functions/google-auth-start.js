@@ -18,7 +18,9 @@ export async function handler(event) {
     "https://www.googleapis.com/auth/chat.users.readstate",
     "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/directory.readonly",
-    "https://www.googleapis.com/auth/contacts.other.readonly" // 👈 NEW: Required for previously contacted people
+    "https://www.googleapis.com/auth/contacts.other.readonly", // 👈 NEW: Required for previously contacted people
+    // 🟢 NEW: Required for fetching Siya's Google Calendar events
+    "https://www.googleapis.com/auth/calendar.readonly" 
   ];
 
   const rootUrl = "https://accounts.google.com/o/oauth2/v2/auth";

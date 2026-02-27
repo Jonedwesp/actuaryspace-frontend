@@ -43,7 +43,7 @@ export async function handler(event) {
     const accessToken = await getAccessToken(event);
     // 2) List messages
     const url = new URL(`https://chat.googleapis.com/v1/${space}/messages`);
-    url.searchParams.set("pageSize", "50");
+    url.searchParams.set("pageSize", "100"); // ⚡ INCREASED: Fetches more history per click
     url.searchParams.set("orderBy", "createTime desc");
     
     if (pageToken) {
