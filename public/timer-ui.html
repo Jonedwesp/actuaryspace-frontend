@@ -107,10 +107,10 @@
             const offlineData = JSON.parse(offlineStr);
             const sessionMins = Math.max(0, offlineData.stopTime - workTimerStart) / 1000 / 60;
             const recoveredTotal = (workDuration + sessionMins).toFixed(2);
-            
-            try {
-               await setField('WorkDuration', recoveredTotal);
-               await setField('WorkTimerStart', "");
+            
+            try {
+               await setField('[SYSTEM]WorkDuration', recoveredTotal, parseFloat(recoveredTotal));
+               await setField('[SYSTEM]WorkTimerStart', "", null);
                
                workDuration = parseFloat(recoveredTotal);
                workTimerStart = null;
@@ -161,41 +161,41 @@
     }
 
     // 5. Backend Write Helper
-    async function setField(fieldName, valueText) {
-      const res = await fetch('/.netlify/functions/trello-set-custom-field', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cardId, fieldName, valueText: String(valueText) })
-      });
-      if (!res.ok) throw new Error("Network failed");
-      return res;
-    }
+    async function setField(fieldName, valueText, valueNumber = null) {
+      const res = await fetch('/.netlify/functions/trello-set-custom-field', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cardId, fieldName, valueText: String(valueText), valueNumber })
+      });
+      if (!res.ok) throw new Error("Network failed");
+      return res;
+    }
 
     // 6. Button Clicks
-    startBtn.onclick = async () => {
-      setLoadingState(true);
-      const now = Date.now();
-      try {
-        await setField('WorkTimerStart', now);
-        workTimerStart = now;
-        render();
-      } catch (e) {
-        alert('Network Offline: Could not start timer. Please check your connection.');
-      }
-      setLoadingState(false);
-    }
+    startBtn.onclick = async () => {
+      setLoadingState(true);
+      const now = Date.now();
+      try {
+        // ⚡ FIX: Use [SYSTEM] tag and pass the number
+        await setField('[SYSTEM]WorkTimerStart', now, now);
+        workTimerStart = now;
+        render();
+      } catch (e) {
+        alert('Network Offline: Could not start timer. Please check your connection.');
+      }
+      setLoadingState(false);
+    }
 
-    stopBtn.onclick = async () => {
-      setLoadingState(true);
-      const stopTime = Date.now();
-      const sessionMins = (stopTime - workTimerStart) / 1000 / 60;
-      const newTotal = (workDuration + sessionMins).toFixed(2);
+    stopBtn.onclick = async () => {
+      setLoadingState(true);
+      const stopTime = Date.now();
+      const sessionMins = (stopTime - workTimerStart) / 1000 / 60;
+      const newTotal = (workDuration + sessionMins).toFixed(2);
 
-      try {
-        // Attempt normal save
-        await setField('WorkDuration', newTotal);
-        await setField('WorkTimerStart', "");
-        
+      try {
+        // ⚡ FIX: Use [SYSTEM] tags and pass the parsed numbers
+        await setField('[SYSTEM]WorkDuration', newTotal, parseFloat(newTotal));
+        await setField('[SYSTEM]WorkTimerStart', "", null);
         workDuration = parseFloat(newTotal);
         workTimerStart = null;
         render();

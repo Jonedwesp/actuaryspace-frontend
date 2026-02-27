@@ -10,30 +10,16 @@
       // Initialize the Power-Up
       window.TrelloPowerUp.initialize({
         
-        // 1. Right-Sidebar Button (Kept as a backup/alternative)
-        'card-buttons': function(t, options) {
-          return [{
-            icon: 'https://siya.actuaryspace.co.za/favicon.ico', 
-            text: 'WorkFlow Timer',
-            callback: function(t) {
-              return t.popup({
-                title: "WorkFlow Timer",
-                url: './timer-ui.html', 
-                height: 180 
-              });
-            }
-          }];
-        },
-
-        // 2. THE NEW MIDDLE SECTION (Embeds the timer on the face of the card)
+        // THE NEW MIDDLE SECTION (Embeds the timer natively on the face of the card)
         'card-back-section': function(t, options) {
           return {
             title: 'WorkFlow Timer',
-            icon: 'https://siya.actuaryspace.co.za/favicon.ico', // Matches your branding
+            // Pro-tip: Swap this to a .png or .svg if the .ico looks blurry on Mac/Retina screens!
+            icon: 'https://siya.actuaryspace.co.za/favicon.ico', 
             content: {
               type: 'iframe',
-              url: t.signUrl('./timer-ui.html'), // Loads your Yellow/Red buttons directly
-              height: 150 // Adjusts the vertical space it takes up
+              url: t.signUrl('./timer-ui.html'), 
+              height: 110 // 👈 Lowered height so there isn't massive white space below the button
             }
           };
         }

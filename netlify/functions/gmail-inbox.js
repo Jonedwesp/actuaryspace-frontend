@@ -134,18 +134,23 @@ const folder = event.queryStringParameters?.folder || "INBOX";
     
     // ⚡ ACCURATE HISTORICAL COUNTER LOGIC
     if (q && q.trim()) {
-      // 🕵️ FOR SEARCH: resultSizeEstimate is capped. 
-      // To get the TRUE total, we fetch ONLY the message IDs for the entire query.
+      // 🕵️ FOR SEARCH: resultSizeEstimate is usually capped at 500 or 1,000. 
+      // To get the TRUE total, we fetch ONLY message IDs. We've increased this to 25,000 for deep history.
       try {
-        const countUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=10000&fields=messages(id)`;
+        const countUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=25000&fields=messages(id)`;
         const countRes = await request(countUrl, { headers: { Authorization: `Bearer ${token}` } });
         const countData = await countRes.json();
         
-        // The length of the messages array is the real historical count
-        exactTotal = countData.messages ? countData.messages.length : 0;
+        // Count actual IDs found
+        const foundCount = countData.messages ? countData.messages.length : 0;
         
-        // If we hit exactly 10,000, we use the estimate as a fallback for massive inboxes
-        if (exactTotal === 10000) exactTotal = listData.resultSizeEstimate || 10000;
+        // If we hit our 25k limit, use Google's estimate as a fallback. Otherwise, use the precise count.
+        exactTotal = foundCount >= 25000 ? (listData.resultSizeEstimate || 25000) : foundCount;
+        
+        // ⚡ Ensure we never return 0 if messages actually exist in the current page
+        if (exactTotal === 0 && listData.messages?.length > 0) {
+            exactTotal = listData.resultSizeEstimate || listData.messages.length;
+        }
       } catch (e) {
         console.error("Historical count failed, falling back to estimate", e);
         exactTotal = listData.resultSizeEstimate || 0;

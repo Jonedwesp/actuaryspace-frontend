@@ -35,7 +35,7 @@ const EMOJI_MAP = {
 
 export async function handler(event) {
   try {
-    const { space } = event.queryStringParameters || {};
+    const { space, pageToken } = event.queryStringParameters || {};
     if (!space) return json(400, { ok: false, error: "Missing ?space" });
 
     // 🛡️ SECURITY FIX: No longer strictly requiring cookies here.
@@ -45,6 +45,11 @@ export async function handler(event) {
     const url = new URL(`https://chat.googleapis.com/v1/${space}/messages`);
     url.searchParams.set("pageSize", "50");
     url.searchParams.set("orderBy", "createTime desc");
+    
+    if (pageToken) {
+      url.searchParams.set("pageToken", pageToken);
+    }
+
     url.searchParams.set(
       "fields", 
       "messages(name,text,createTime,sender(name,displayName,email,type),emojiReactionSummaries,attachment(name,contentName,contentType,downloadUri,attachmentDataRef)),nextPageToken"
