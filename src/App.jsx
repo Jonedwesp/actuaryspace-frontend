@@ -227,6 +227,26 @@ function formatGchatTime(isoString) {
   })}`;
 }
 
+function formatDividerDate(isoString) {
+  if (!isoString) return "";
+  const d = new Date(isoString);
+  return d.toLocaleDateString("en-US", { weekday: 'long', month: 'short', day: 'numeric' });
+}
+
+function formatLongDate(isoString) {
+  if (!isoString) return "";
+  const d = new Date(isoString);
+  return d.toLocaleDateString("en-US", { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+function getGchatTimezone() {
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString("en-US", { hour: 'numeric', minute: '2-digit' });
+  const offset = -now.getTimezoneOffset() / 60;
+  const tzDisplay = offset >= 0 ? `GMT+${offset}` : `GMT${offset}`;
+  return `${timeStr} ${tzDisplay}`;
+}
+
 function normalizeGChatMessage(m) {
   return m?.message || m;
 }
@@ -351,8 +371,8 @@ const AVATAR_ALIASES = {
   melokuhle: "Melokuhle", mk: "Melokuhle",
   eugene: "Eugene", eu: "Eugene",
   bianca: "Bianca", bi: "Bianca",
-  jonathan: "Jonathan", jw: "Jonathan",
-  bonolo: "Bonolo", bo: "Bonolo",
+ jonathan: "Jonathan", jw: "Jonathan",
+  bonolo: "Bonolo", bo: "Bonolo", users_109833975621386956073: "Bonolo",
   willem: "Willem", wi: "Willem",
   shamiso: "Shamiso", sh: "Shamiso",
   "miné": "Miné", mn: "Miné",
@@ -2791,7 +2811,14 @@ useEffect(() => {
   const [emailIdx, setEmailIdx] = useState(0);
   const [email, setEmail] = useState(EMAIL_THREADS[0]);
   const [emailPreview, setEmailPreview] = useState(null);
-  const [showEmailDetails, setShowEmailDetails] = useState(false); // 👈 NEW: Toggles the "to me" dropdown
+  const [showEmailDetails, setShowEmailDetails] = useState(false);
+
+/* 📅 Calendar State */
+ const [calendarEvents, setCalendarEvents] = useState([]);
+ const [calendarLoading, setCalendarLoading] = useState(false);
+ const [calendarError, setCalendarError] = useState("");
+ const [isMonthView, setIsMonthView] = useState(true); // 🟢 NEW: Tracks if we're in Month or List view
+
 /* Gmail Inbox State */
  const [gmailEmails, setGmailEmails] = useState([]);
  const [gmailLoading, setGmailLoading] = useState(false);
@@ -3145,16 +3172,22 @@ useEffect(() => {
   }, [currentView.app, gchatSpaces]);
 
 // 3. NAME LEARNER (The Fix for Sidebar Mismatch)
-      // Watches the active chat. If the header finds a real name, force-update the sidebar list.
       useEffect(() => {
         if (!gchatSelectedSpace || !gchatMessages.length) return;
         if (gchatSelectedSpace.type !== "DIRECT_MESSAGE") return;
 
+        // 🧠 STALE DATA GUARD: Ensure messages belong to the selected space
+        const firstMsg = gchatMessages[0];
+        const msgSpaceId = firstMsg?.space?.name || firstMsg?.name?.split('/messages/')[0];
+        if (msgSpaceId && msgSpaceId !== gchatSelectedSpace.id) return;
+
         const currentListName = gchatDmNames[gchatSelectedSpace.id];
 
-        // 🤖 CATCH GOOGLE DRIVE BOT: Force the correct name if it's an automated share
-        const isDriveBot = gchatMessages.some(m => m.sender?.type === "BOT" || (m.text?.includes("shared ") && m.text?.includes(" with you")));
-        if (isDriveBot) {
+        // 🧠 IMPROVED DRIVE GUARD: Only rename if the sender is actually a BOT
+        // This prevents human file-sharing from renaming the chat to "Google Drive"
+        const isActualDriveBot = gchatMessages.some(m => m.sender?.type === "BOT");
+        
+        if (isActualDriveBot) {
           if (currentListName !== "Google Drive") {
             setGchatDmNames(prev => {
               const next = { ...prev, [gchatSelectedSpace.id]: "Google Drive" };
@@ -3165,29 +3198,24 @@ useEffect(() => {
           return;
         }
 
-        // 2. Find the REAL name from the messages (Enock, etc.)
+        // 2. Find the REAL name from the messages
         const otherMsg = gchatMessages.find(m => {
           const sName = m.sender?.displayName || "";
           const sEmail = m.sender?.email || "";
-          // 🛑 SHIELD: Ignore anything identifying as Siya or ActuarySpace
           const isSiya = (!!gchatMe && m.sender?.name === gchatMe) ||
                          sEmail.includes('siya@') ||
                          sName.toLowerCase().includes('siya') ||
-                         sName.toLowerCase().includes('siyabonga') ||
                          sName.toLowerCase().includes('actuaryspace');
-          // 🛑 BLOCK IDs: Ensure we only learn human names!
-          return !isSiya && !sName.startsWith("users/");
+          
+          // 🛡️ BOT SHIELD: Don't learn names from bots or system IDs
+          return !isSiya && m.sender?.type === "HUMAN" && !sName.includes("users/");
         });
         
         const realName = otherMsg?.sender?.displayName;
 
-        // 3. If the List says "Direct Message" but the Chat knows "Enock", FIX IT.
-        if (realName && currentListName !== realName && !realName.toLowerCase().includes("actuaryspace") && !realName.toLowerCase().includes("siya") && !realName.startsWith("users/")) {
-          console.log("🧠 Learning Name:", gchatSelectedSpace.id, "->", realName);
-          
+        if (realName && currentListName !== realName && !realName.toLowerCase().includes("actuaryspace") && !realName.startsWith("users/")) {
           setGchatDmNames(prev => {
             const next = { ...prev, [gchatSelectedSpace.id]: realName };
-            // Save to storage so it persists on refresh
             localStorage.setItem("GCHAT_DM_NAMES", JSON.stringify(next));
             return next;
           });
@@ -3201,11 +3229,15 @@ useEffect(() => {
 
   let cancelled = false;
 
- async function fetchLatestAndMerge() {
-    try {
-      setGchatMsgError("");
+  // 🧠 THE CLEANUP FIX: Reset everything immediately when space changes
+  // This prevents the previous chat's data from being processed by the name-learner logic.
+  setGchatMessages([]);
+  setGchatNextPageToken(null);
+  setGchatMsgError("");
+  setGchatMsgLoading(true);
 
-      // 🛡️ Added credentials: "include" so the poll can see Siya's Master Key (cookie)
+  async function fetchLatestAndMerge() {
+    try {
       const res = await fetch(
         `/.netlify/functions/gchat-messages?space=${encodeURIComponent(
           gchatSelectedSpace.id
@@ -3216,75 +3248,64 @@ useEffect(() => {
       const json = await res.json().catch(() => ({}));
 
       if (!res.ok || json.ok !== true) {
-        throw new Error(
-          json?.error || `Failed to load messages (HTTP ${res.status})`
-        );
+        throw new Error(json?.error || `Failed to load messages (HTTP ${res.status})`);
       }
 
-    const incomingRaw = Array.isArray(json.messages) ? json.messages : [];
-      const incoming = incomingRaw.map((m) => normalizeGChatMessage(m));
+      const incomingRaw = Array.isArray(json.messages) ? json.messages : [];
+      const incoming = incomingRaw.map((m) => normalizeGChatMessage(m));
 
-      if (!cancelled) {
+      if (!cancelled) {
+        // Double-check space ID hasn't changed while we were fetching
+        if (gchatSelectedSpace.id !== gchatSelectedSpaceRef.current.id) return;
+
         setGchatMessages((prev) => dedupeMergeMessages(prev, incoming));
         if (json.nextPageToken) setGchatNextPageToken(json.nextPageToken);
 
         setReactions((prev) => {
-          const next = { ...prev };
+          const next = { ...prev };
           const now = Date.now();
-          
-          incoming.forEach((msg) => {
+          incoming.forEach((msg) => {
             const msgId = msg.id || msg.name;
-            
-            // 🛡️ SHIELD: If user just reacted, ignore the server for 15 seconds to prevent flickering
             if (pendingReactionsRef.current.has(msgId)) {
                 if (now < pendingReactionsRef.current.get(msgId)) return;
                 pendingReactionsRef.current.delete(msgId);
             }
 
             let parsedReactions = [];
-            if (msg.reactions && Array.isArray(msg.reactions)) {
-              // 🧠 BULLETPROOF PARSER: Checks both Unicode AND Google's custom names
+            if (msg.reactions && Array.isArray(msg.reactions)) {
               parsedReactions = msg.reactions.map(rx => {
                   const uni = rx.emoji?.unicode || "";
                   const name = (rx.emoji?.name || "").toLowerCase();
-                  
                   if (uni.includes("👍") || name.includes("thumb") || name.includes("+1")) return "like";
                   if (uni.includes("❤️") || uni.includes("❤") || uni === "💖" || name.includes("heart")) return "heart";
                   if (uni.includes("😆") || uni.includes("😂") || uni === "😀" || name.includes("laugh") || name.includes("joy") || name.includes("smile") || name.includes("grin")) return "laugh";
-                  
                   return null;
               }).filter(Boolean);
-            } 
-            
-            // 🧠 THE "FOREVER" FIX: Merge the server's reactions with YOUR permanent memory.
-            // If Google's API drops your reaction, your local memory overrides it and puts it right back!
+            } 
             const mySaved = myReactionsRef.current[msgId] || [];
             next[msgId] = [...new Set([...mySaved, ...parsedReactions])];
-
-          });
-          return next;
-        });
-      }
-    } catch (err) {
+          });
+          return next;
+        });
+      }
+    } catch (err) {
       if (!cancelled) setGchatMsgError(String(err?.message || err));
+    } finally {
+      if (!cancelled) setGchatMsgLoading(false);
     }
   }
-  // reset thread for the newly selected space + do initial load
-  setGchatMessages([]);
-  setGchatMsgLoading(true);
 
-  fetchLatestAndMerge().finally(() => {
-    if (!cancelled) setGchatMsgLoading(false);
-  });
+  fetchLatestAndMerge();
+  const pollId = setInterval(fetchLatestAndMerge, 4000);
 
-  // poll every 4 seconds (tune if you want)
-    const pollId = setInterval(fetchLatestAndMerge, 4000);
-
-    return () => {
-      cancelled = true;
-      clearInterval(pollId);
-    };
-  }, [currentView.app, gchatSelectedSpace?.id]);
+  return () => {
+    cancelled = true;
+    clearInterval(pollId);
+    // 🧠 SAFETY RESET: Ensure nothing lingers when the component unmounts or switches
+    setGchatMessages([]);
+    setGchatMsgLoading(false);
+  };
+}, [currentView.app, gchatSelectedSpace?.id]);
 
   // 🟢 FIXED: Google Chat Background Poller (Stable Version using decoupled Refs)
   useEffect(() => {
@@ -3297,18 +3318,18 @@ useEffect(() => {
 
       let targetSpaceId = lastActiveSpaceRef.current?.id || localStorage.getItem("LAST_ACTIVE_SPACE_ID");
 
-      if (!targetSpaceId) {
-        try {
-          const res = await fetch("/.netlify/functions/gchat-spaces", { credentials: "include" });
-          const json = await res.json().catch(() => ({}));
-          if (json.ok && json.spaces?.length > 0) {
-            targetSpaceId = json.spaces[0].name;
-            localStorage.setItem("LAST_ACTIVE_SPACE_ID", targetSpaceId);
-          }
-        } catch (e) {}
-      }
+      if (!targetSpaceId || targetSpaceId === "undefined") {
+        try {
+          const res = await fetch("/.netlify/functions/gchat-spaces", { credentials: "include" });
+          const json = await res.json().catch(() => ({}));
+          if (json.ok && json.spaces?.length > 0) {
+            targetSpaceId = json.spaces[0].id || json.spaces[0].name;
+            localStorage.setItem("LAST_ACTIVE_SPACE_ID", targetSpaceId);
+          }
+        } catch (e) {}
+      }
 
-      if (!targetSpaceId) return;
+      if (!targetSpaceId || targetSpaceId === "undefined") return;
 
       // 2. VIEW STATE CHECK: Use stable refs so the poller runs continuously without restarts
       const amIWatching = currentViewRef.current?.app === "gchat" && gchatSelectedSpaceRef.current?.id === targetSpaceId;
@@ -3341,9 +3362,9 @@ useEffect(() => {
               const learnedName = gchatDmNamesRef.current[targetSpaceId]; 
               
               // 🧠 MASTER LIST RESOLVER: Map raw IDs to clean names from your gchat-dm-name master list
-              const KNOWN_USERS = {
-                "users/109833975621386956073": "Jonathan Espanol",
-                "users/116928759608148752435": "Simoné Streicher",
+              const KNOWN_USERS = {
+                "users/109833975621386956073": "Bonolo",
+                "users/116928759608148752435": "Simoné Streicher",
                 "users/101273447946115685891": "Tiffany Harzon-Cuyler",
                 "users/110481684541592719996": "Albert Grobler",
                 "users/103060225088465733197": "Tinashe Chikwamba",
@@ -3558,14 +3579,42 @@ useEffect(() => {
     }
 
     // Run immediately if no search, otherwise wait for user to finish typing
-    const delay = searchQuery ? 600 : 0;
-    const timeOutId = setTimeout(loadInbox, delay);
+    const delay = searchQuery ? 600 : 0;
+    const timeOutId = setTimeout(loadInbox, delay);
 
-    return () => { 
-      cancelled = true; 
-      clearTimeout(timeOutId);
-    };
-  }, [currentView.app, gmailFolder, gmailRefreshTrigger, gmailPage, searchQuery]);
+    return () => { 
+      cancelled = true; 
+      clearTimeout(timeOutId);
+    };
+  }, [currentView.app, gmailFolder, gmailRefreshTrigger, gmailPage, searchQuery, isMonthView]);
+
+  // 📅 CALENDAR EVENTS LOADER
+  useEffect(() => {
+    if (currentView.app !== "calendar") return;
+
+    let cancelled = false;
+    setCalendarLoading(true);
+    setCalendarError("");
+
+    fetch("/.netlify/functions/calendar-events", { credentials: "include" })
+      .then(res => res.json())
+      .then(data => {
+        if (cancelled) return;
+        if (data.ok) {
+          setCalendarEvents(data.events || []);
+        } else {
+          setCalendarError(data.error || "Failed to load events");
+        }
+      })
+      .catch(err => {
+        if (!cancelled) setCalendarError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setCalendarLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [currentView.app]);
 
  
     // When we are not looking at an email, the right-panel client files should be empty
@@ -4433,62 +4482,22 @@ if (currentView.app === "gchat") {
 
     // 👇 Standard Chat UI (If no preview is active)
     return (
-      <div className="gchat-shell" style={{ display: "flex", height: "100%" }}>
-      {/* ... sidebar and thread code ... */}
-    {/* LEFT 1/4 — spaces + DMs */}
-      <div
-        className="gchat-sidebar"
-        style={{
-          width: "25%",
-          borderRight: "1px solid #ddd",
-          overflowY: "auto",
-          padding: "8px 0",
-          position: "relative"
-        }}
-        onClick={() => {}}
-      >
-{/* "Start direct message" Button */}
-        <div style={{ padding: "8px 12px 16px 12px" }}>
-          <button 
-            style={{ 
-              width: "100%",
-              padding: "10px 16px",
-              borderRadius: "24px", 
-              background: "#e3e3e3", 
-              color: "#1f1f1f",
-              border: "none",
-              fontSize: "14px", 
-              fontWeight: 500, 
-              cursor: "pointer",
-              textAlign: "center",
-              transition: "background 0.2s ease"
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.background = "#d6d6d6";
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.background = "#e3e3e3";
-            }}
-            onMouseDown={(e) => { e.stopPropagation(); setShowNewChatModal(true); }}
-          >
-            Start direct message
-          </button>
-        </div>
-
-      {/* Modal Overlay */}
+      <div className="gchat-shell" style={{ display: "flex", height: "100%", position: "relative" }}>
+        
+        {/* Modal Overlay - Centered in Middle Panel */}
         {showNewChatModal && (
           <>
             {/* Backdrop for instant close */}
             <div 
-              style={{ position: "fixed", top:0, left:0, width:"100vw", height:"100vh", zIndex: 99 }}
+              style={{ position: "fixed", top:0, left:0, width:"100vw", height:"100vh", zIndex: 9998 }}
               onMouseDown={(e) => { e.stopPropagation(); setNewChatTarget(""); setShowNewChatModal(false); }}
             />
             
             <div 
               style={{
-                position: "absolute", top: "50px", left: "10px", right: "10px",
-                background: "white", padding: "16px", borderRadius: "8px",
-                boxShadow: "0 4px 20px rgba(0,0,0,0.2)", zIndex: 100, border: "1px solid #ddd"
+                position: "fixed", top: "100px", left: "50%", transform: "translateX(-50%)", width: "600px",
+                background: "white", padding: "24px", borderRadius: "12px",
+                boxShadow: "0 12px 40px rgba(0,0,0,0.3)", zIndex: 9999, border: "1px solid #dadce0"
               }}
               onClick={(e) => e.stopPropagation()} 
             >
@@ -4599,10 +4608,53 @@ if (currentView.app === "gchat") {
           </>
         )}
 
-      {/* 🔍 GCHAT SEARCH BAR */}
-        <div style={{ padding: "0 12px", marginBottom: "16px", position: "relative", display: "flex", alignItems: "center" }}>
+      {/* LEFT 1/4 — spaces + DMs */}
+      <div
+        className="gchat-sidebar"
+        style={{
+          width: "25%",
+          borderRight: "1px solid #ddd",
+          overflowY: "auto",
+          padding: "12px", 
+          position: "relative",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center"
+        }}
+        onClick={() => {}}
+      >
+{/* "Start direct message" Button */}
+        <div style={{ width: "100%", paddingBottom: "16px" }}>
+          <button 
+            style={{ 
+              width: "100%",
+              padding: "10px 16px",
+              borderRadius: "24px", 
+              background: "#e3e3e3", 
+              color: "#1f1f1f",
+              border: "none",
+              fontSize: "14px", 
+              fontWeight: 500, 
+              cursor: "pointer",
+              textAlign: "center",
+              transition: "background 0.2s ease"
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.background = "#d6d6d6";
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = "#e3e3e3";
+            }}
+            onMouseDown={(e) => { e.stopPropagation(); setShowNewChatModal(true); }}
+          >
+            Start direct message
+          </button>
+        </div>
+
+     {/* 🔍 GCHAT SEARCH BAR */}
+        <div style={{ width: "100%", marginBottom: "16px", position: "relative", display: "flex", alignItems: "center" }}>
           <svg 
-            style={{ position: "absolute", left: "26px", color: "#444746" }} 
+            style={{ position: "absolute", left: "14px", color: "#444746" }}
             width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
           >
             <circle cx="11" cy="11" r="8"></circle>
@@ -4648,7 +4700,7 @@ if (currentView.app === "gchat") {
 
          // 2. Render each item as its own standalone pill
           return (
-            <div style={{ display: "flex", flexDirection: "column", gap: "3px", padding: "0 0 16px 0", width: "100%", boxSizing: "border-box" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "3px", width: "100%", boxSizing: "border-box" }}>
               {filtered.map((s) => {
                 const learnedName = gchatDmNames[s.id] || "";
                 let title = s.displayName || "Unnamed Space";
@@ -4661,14 +4713,14 @@ if (currentView.app === "gchat") {
 
                 const isActive = gchatSelectedSpace?.id === s.id;
 
-                return (
+               return (
                   <button
                     key={s.id} 
                     className={`gchat-item ${isActive ? "active" : ""}`} 
                     style={{ 
                       width: "100%", 
-                      maxWidth: "100%", // 👈 overrides any CSS restrictions
-                      margin: 0,        // 👈 ensures it sits flush
+                      maxWidth: "100%", 
+                      margin: 0,        
                       boxSizing: "border-box",
                       display: "flex", 
                       alignItems: "center",
@@ -4715,28 +4767,35 @@ if (currentView.app === "gchat") {
             padding: "8px",
           }}
         >
-        <div className="gchat-top-title">
-            {(() => {
-              if (!gchatSelectedSpace) return "Select a space";
-              if (gchatSelectedSpace.type !== "DIRECT_MESSAGE") return gchatSelectedSpace.displayName || "Unnamed Space";
+   <div className="gchat-top-title">
+  {(() => {
+    if (!gchatSelectedSpace) return "Select a space";
+    if (gchatSelectedSpace.type !== "DIRECT_MESSAGE") return gchatSelectedSpace.displayName || "Unnamed Space";
 
-              const spaceKey = gchatSelectedSpace.id || gchatSelectedSpace.name;
-              const cachedName = gchatDmNames[spaceKey] || "";
-              
-              // 1. Use learned name if it is a human string
-              if (cachedName && cachedName !== "Direct Message" && !cachedName.includes("users/")) return cachedName;
-              
-              // 2. Use sniffed name from message thread
-              if (otherPersonName && !otherPersonName.includes("users/")) return otherPersonName;
-              
-              // 3. Fallback to displayName if it is not a resource ID
-              if (gchatSelectedSpace.displayName && gchatSelectedSpace.displayName !== "Direct Message" && !gchatSelectedSpace.displayName.includes("users/")) {
-                return gchatSelectedSpace.displayName;
-              }
+    const spaceKey = gchatSelectedSpace.id || gchatSelectedSpace.name;
+    const cachedName = gchatDmNames[spaceKey] || "";
+    
+    // 🧠 THE IDENTITY FIX: Resolve resource IDs for Bonolo and Repository
+    const KNOWN_USERS = {
+      "users/109833975621386956073": "Bonolo",
+      "users/112422887282158931745": "Repository",
+      "users/115863503558522206541": "Yolandie"
+    };
 
-              return "Direct Message";
-            })()}
-          </div>
+    // 1. Prioritize internal ID map (Fixes Yolandie -> Repository and Jonathan -> Bonolo)
+    if (KNOWN_USERS[cachedName]) return KNOWN_USERS[cachedName];
+    if (KNOWN_USERS[otherPersonName]) return KNOWN_USERS[otherPersonName];
+    if (KNOWN_USERS[gchatSelectedSpace.displayName]) return KNOWN_USERS[gchatSelectedSpace.displayName];
+
+    // 2. Fallback to learned human names
+    if (cachedName && cachedName !== "Direct Message" && !cachedName.includes("users/")) return cachedName;
+    if (otherPersonName && !otherPersonName.includes("users/")) return otherPersonName;
+
+    return gchatSelectedSpace.displayName && !gchatSelectedSpace.displayName.includes("users/") 
+      ? gchatSelectedSpace.displayName 
+      : "Direct Message";
+  })()}
+</div>
         </div>
 
         <div
@@ -4794,49 +4853,96 @@ if (currentView.app === "gchat") {
                     </div>
                   )}
 
-                  {/* 🏁 CONVERSATION START HEADER (Screenshot 10) */}
-                  {!gchatNextPageToken && !gchatMsgLoading && gchatSelectedSpace && (
-                    <div style={{ 
-                      display: 'flex', 
-                      flexDirection: 'column', 
-                      alignItems: 'center', 
-                      padding: '40px 20px 24px 20px', 
-                      textAlign: 'center',
-                      borderBottom: '1px solid #f1f3f4',
-                      marginBottom: '24px'
-                    }}>
-                      {/* 👤 Large Avatar */}
-                      <div style={{ width: '80px', height: '80px', borderRadius: '50%', marginBottom: '16px', overflow: 'hidden', background: '#f1f3f4', display: 'grid', placeItems: 'center' }}>
-                        {(() => {
-                          const name = gchatDmNames[gchatSelectedSpace.id] || gchatSelectedSpace.displayName || "C";
-                          const img = avatarFor(name);
-                          return img ? <img src={img} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: '32px', fontWeight: 'bold', color: '#5f6368' }}>{name[0].toUpperCase()}</span>;
-                        })()}
-                      </div>
+                  {/* 🏁 AUTHENTIC CONVERSATION START HEADER (Replica of Screenshot 23) */}
+                  {!gchatNextPageToken && !gchatMsgLoading && gchatSelectedSpace && (
+                    <div style={{ 
+                      display: 'flex', 
+                      flexDirection: 'column', 
+                      alignItems: 'center', 
+                      padding: '48px 20px 0px 20px', 
+                      textAlign: 'center'
+                    }}>
+                      {/* 👤 Large Avatar */}
+                      <div style={{ width: '80px', height: '80px', borderRadius: '50%', marginBottom: '12px', overflow: 'hidden', background: '#f1f3f4', display: 'grid', placeItems: 'center' }}>
+                        {(() => {
+                          const name = gchatDmNames[gchatSelectedSpace.id] || gchatSelectedSpace.displayName || "C";
+                          const img = avatarFor(name);
+                          return img ? <img src={img} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: '32px', fontWeight: '500', color: '#5f6368' }}>{name[0].toUpperCase()}</span>;
+                        })()}
+                      </div>
 
-                      {/* 📛 Name & Email */}
-                      {(() => {
-                        const name = gchatDmNames[gchatSelectedSpace.id] || gchatSelectedSpace.displayName || "Direct Message";
-                        const email = combinedContacts[name]; 
-                        return (
-                          <>
-                            <div style={{ fontSize: '22px', fontWeight: '500', color: '#1f1f1f', marginBottom: '4px' }}>{name}</div>
-                            {email && <div style={{ fontSize: '14px', color: '#5f6368', marginBottom: '12px' }}>{email}</div>}
-                            
-                            <div style={{ fontSize: '13px', color: '#5f6368', maxWidth: '320px', lineHeight: '1.5' }}>
-                              This is the very beginning of your direct message history with <strong>{name}</strong>.
-                            </div>
-                            
-                            {gchatSelectedSpace.createTime && (
-                              <div style={{ marginTop: '12px', fontSize: '12px', color: '#70757a', background: '#f8f9fa', padding: '4px 12px', borderRadius: '12px' }}>
-                                Conversation started on {new Date(gchatSelectedSpace.createTime).toLocaleDateString("en-US", { month: 'short', day: 'numeric', year: 'numeric' })}
-                              </div>
-                            )}
-                          </>
-                        );
-                      })()}
-                  </div>
-                  )}
+                      {/* 📛 Name & Email Block */}
+                      {(() => {
+                        const name = gchatDmNames[gchatSelectedSpace.id] || gchatSelectedSpace.displayName || "Direct Message";
+                        // ⚡ FIX: Use the combinedContacts lookup with the cleaned name
+                        const emailAddress = combinedContacts[name] || AC_EMAIL_MAP[name]; 
+                        return (
+                          <>
+                            <div style={{ fontSize: '22px', fontWeight: '500', color: '#1f1f1f', marginBottom: '4px', fontFamily: "'Google Sans', Roboto, Arial, sans-serif" }}>{name}</div>
+                            {emailAddress && <div style={{ fontSize: '14px', color: '#444746', marginBottom: '4px' }}>{emailAddress}</div>}
+                            <div style={{ fontSize: '14px', color: '#444746', marginBottom: '24px' }}>{getGchatTimezone()}</div>
+                            
+                            {/* 🕒 Creation Milestone (Moved ABOVE the box) */}
+                            <div style={{ fontSize: '13.5px', color: '#1f1f1f', marginBottom: '24px' }}>
+                              {gchatSelectedSpace.createTime 
+                                ? `You created this chat on ${formatLongDate(gchatSelectedSpace.createTime)}.` 
+                                : `This is the very beginning of your direct message history with ${name}.`}
+                            </div>
+                            
+                            {/* 🕒 HISTORY STATUS BOX (Material Style) */}
+                            <div style={{ 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              gap: '12px', 
+                              background: '#f8f9fa', 
+                              padding: '12px 16px', 
+                              borderRadius: '8px', 
+                              textAlign: 'left',
+                              maxWidth: '400px',
+                              width: 'fit-content',
+                              marginBottom: '40px',
+                              border: '1px solid #f1f3f4'
+                            }}>
+                              <div style={{ color: '#444746', display: 'flex' }}>
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <div style={{ fontSize: '11px', fontWeight: '700', color: '#1f1f1f', letterSpacing: '0.8px', textTransform: 'uppercase' }}>History is on</div>
+                                <div style={{ fontSize: '13px', color: '#444746' }}>Messages are saved.</div>
+                              </div>
+                            </div>
+
+                            {/* 📅 STANDALONE DATE DIVIDER (Full Width Border) */}
+                            <div style={{ 
+                              width: '100%', 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              justifyContent: 'center', 
+                              margin: '10px 0 30px 0',
+                              position: 'relative'
+                            }}>
+                              <div style={{ position: 'absolute', width: '100%', height: '1px', background: '#f1f3f4', zIndex: 1 }}></div>
+                              <div style={{ 
+                                fontSize: '11px', 
+                                fontWeight: '700', 
+                                color: '#444746', 
+                                padding: '0 16px', 
+                                background: '#fff', 
+                                position: 'relative', 
+                                zIndex: 2,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.4px'
+                              }}>
+                                {gchatMessages.length > 0 
+                                  ? formatDividerDate(gchatMessages[0].createTime) 
+                                  : formatDividerDate(new Date().toISOString())}
+                              </div>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  )}
                   {/* 🛡️ PERMANENT SIYA LOCK: Siya (Right) vs Others (Left). Reactions & Hover preserved. */}
                   {gchatMessages.map((m, idx) => {
                     const msg = normalizeGChatMessage(m);
@@ -4852,20 +4958,31 @@ if (currentView.app === "gchat") {
                                    (rawName.toLowerCase().includes("actuaryspace"));
 
                     // 🧠 ENFORCE CORRECT NAME (FALLBACK CHAIN)
-                    let senderName = "Colleague";
-                    const isDriveMsg = msg?.sender?.type === "BOT" || (msg?.text && msg.text.includes("shared ") && msg.text.includes(" with you"));
+let senderName = "Colleague";
+const senderId = msg?.sender?.name || ""; // The unique resource ID
 
-                    if (isDriveMsg) {
-                      senderName = "Google Drive";
-                    } else if (isMine) {
-                      senderName = "Siyabonga Nono";
-                    } else if (rawName && !rawName.includes("users/")) {
-                      senderName = rawName;
-                    } else if (cachedName && !cachedName.includes("users/") && cachedName !== "Direct Message") {
-                      senderName = cachedName;
-                    } else if (gchatSelectedSpace?.displayName && !gchatSelectedSpace.displayName.includes("users/") && gchatSelectedSpace.displayName !== "Direct Message") {
-                      senderName = gchatSelectedSpace.displayName;
-                    }
+// 🧠 THE IDENTITY FIX: Prioritize ID resolution for Bonolo and Repository
+const KNOWN_USERS = {
+  "users/109833975621386956073": "Bonolo Mokatse",
+  "users/112422887282158931745": "Repository",
+  "users/115863503558522206541": "Yolandie"
+};
+
+const isDriveMsg = msg?.sender?.type === "BOT" || (msg?.text && msg.text.includes("shared ") && msg.text.includes(" with you"));
+
+if (KNOWN_USERS[senderId]) {
+  senderName = KNOWN_USERS[senderId]; // Fixed identities resolved first
+} else if (isDriveMsg) {
+  senderName = "Google Drive";
+} else if (isMine) {
+  senderName = "Siyabonga Nono";
+} else if (rawName && !rawName.includes("users/")) {
+  senderName = rawName;
+} else if (cachedName && !cachedName.includes("users/") && cachedName !== "Direct Message") {
+  senderName = cachedName;
+} else if (gchatSelectedSpace?.displayName && !gchatSelectedSpace.displayName.includes("users/") && gchatSelectedSpace.displayName !== "Direct Message") {
+  senderName = gchatSelectedSpace.displayName;
+}
 
                     const msgId = msg?.name || msg?.id || `msg-${idx}`;
                     const avatar = isDriveMsg ? "https://ssl.gstatic.com/images/branding/product/1x/drive_2020q4_48dp.png" : avatarFor(senderName);
@@ -8260,35 +8377,228 @@ if (currentView.app === "gmail") {
                    return <div style={{ color: '#fff', fontSize: '18px', background: 'rgba(255,255,255,0.1)', padding: '24px', borderRadius: '8px' }}>Preview not available for this file type. Please download to view.</div>;
                 })()}
              </div>
-          </div>
-        )}
+         </div>
+        )}
 
       </div>
     );
   }
 
-    return <div className="chat-output" />;
-     }, [
-        currentView,
+  // 🟢 NEW: CALENDAR VIEW RENDERER with True Month/Grid View
+  if (currentView.app === "calendar") {
+    const currentMonthName = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
-        // WhatsApp
-        waChats,
+    // 📅 1. GENERATE THE CALENDAR MATRIX (42 cells / 6 rows to perfectly fit any month)
+    const today = new Date();
+    const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const startingDayOfWeek = firstDayOfMonth.getDay(); // 0 (Sun) to 6 (Sat)
+    const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    
+    const calendarGrid = [];
+    
+    // A. Padding days from the previous month
+    for (let i = 0; i < startingDayOfWeek; i++) {
+      calendarGrid.push({ date: new Date(today.getFullYear(), today.getMonth(), 1 - (startingDayOfWeek - i)), isCurrentMonth: false });
+    }
+    // B. Actual days of the current month
+    for (let i = 1; i <= daysInMonth; i++) {
+      calendarGrid.push({ date: new Date(today.getFullYear(), today.getMonth(), i), isCurrentMonth: true });
+    }
+    // C. Padding days for the next month to complete the 42-cell grid
+    const remainingDays = 42 - calendarGrid.length; 
+    for (let i = 1; i <= remainingDays; i++) {
+      calendarGrid.push({ date: new Date(today.getFullYear(), today.getMonth() + 1, i), isCurrentMonth: false });
+    }
 
-      // Google Chat (IMPORTANT — this is the fix)
-       gchatSpaces,
-       gchatLoading,
-       gchatError,
-       gchatSelectedSpace,
-       gchatMessages,
-       gchatMsgLoading,
-       gchatMsgError,
-       gchatDmNames,
-       gchatMe,
-       gchatSearchQuery,
+    // Helper to match events to specific dates
+    const isSameDay = (d1, d2) => d1.getDate() === d2.getDate() && d1.getMonth() === d2.getMonth() && d1.getFullYear() === d2.getFullYear();
 
-        // Email
-        email,
-        emailPreview,
+    return (
+      <div style={{ padding: "24px", background: "#fff", height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", borderLeft: "1px solid #e6e6e6", borderRight: "1px solid #e6e6e6" }}>
+        
+        {/* Header */}
+        <div style={{ marginBottom: "24px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <h2 style={{ margin: 0, fontSize: "22px", color: "#202124", fontWeight: 400, fontFamily: "'Google Sans', Roboto, sans-serif", display: "flex", alignItems: "center", gap: "12px" }}>
+            <CalendarIcon />
+            {isMonthView ? currentMonthName : "Upcoming Agenda"}
+          </h2>
+          
+          <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+            {/* Toggle Buttons */}
+            <div style={{ display: 'flex', gap: '4px', background: '#f1f3f4', borderRadius: '8px', padding: '4px' }}>
+              <button 
+                onClick={() => setIsMonthView(false)} 
+                style={{ padding: '6px 16px', background: !isMonthView ? '#fff' : 'transparent', color: !isMonthView ? '#1a73e8' : '#5f6368', border: 'none', cursor: 'pointer', borderRadius: '4px', fontWeight: 500, fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: !isMonthView ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+                List
+              </button>
+              <button 
+                onClick={() => setIsMonthView(true)} 
+                style={{ padding: '6px 16px', background: isMonthView ? '#fff' : 'transparent', color: isMonthView ? '#1a73e8' : '#5f6368', border: 'none', cursor: 'pointer', borderRadius: '4px', fontWeight: 500, fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: isMonthView ? '0 1px 2px rgba(0,0,0,0.1)' : 'none' }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                Month
+              </button>
+            </div>
+
+            <button 
+              onClick={() => setCurrentView({ app: "calendar", contact: null })}
+              style={{ background: "transparent", border: "none", color: "#1a73e8", cursor: "pointer", fontWeight: 500, fontSize: "14px", display: "flex", alignItems: "center", gap: "6px" }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        {/* Status Indicators */}
+        {calendarLoading && <div style={{ color: "#5f6368", padding: "16px 0", fontSize: "14px", textAlign: "center" }}>Loading your schedule...</div>}
+        {calendarError && <div style={{ color: "#d93025", padding: "16px 0", fontSize: "14px", textAlign: "center" }}>Error: {calendarError}</div>}
+
+        {/* Event List / Grid */}
+        {!calendarLoading && !calendarError && (
+          isMonthView ? (
+            // 🟢 AUTHENTIC GOOGLE CALENDAR GRID VIEW
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', border: '1px solid #dadce0', borderRadius: '8px', overflow: 'hidden', background: '#dadce0', gap: '1px' }}>
+              
+              {/* Day Headers */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', background: '#fff', gap: '1px' }}>
+                {['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map(day => (
+                  <div key={day} style={{ padding: '8px 0', textAlign: 'center', fontSize: '11px', fontWeight: 500, color: '#70757a' }}>{day}</div>
+                ))}
+              </div>
+
+              {/* Grid Cells */}
+              <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gridTemplateRows: 'repeat(6, 1fr)', background: '#dadce0', gap: '1px' }}>
+                {calendarGrid.map((dayObj, idx) => {
+                  const isToday = isSameDay(dayObj.date, today);
+                  const isFirstDayOfMonth = dayObj.date.getDate() === 1;
+                  
+                  // Extract events for this specific square
+                  const dayEvents = calendarEvents.filter(ev => {
+                    const start = ev.start.dateTime ? new Date(ev.start.dateTime) : new Date(ev.start.date);
+                    return isSameDay(start, dayObj.date);
+                  });
+
+                  return (
+                    <div key={idx} style={{ background: '#fff', minHeight: '100px', display: 'flex', flexDirection: 'column', padding: '4px' }}>
+                      
+                      {/* Date Number */}
+                      <div style={{ textAlign: 'center', marginBottom: '4px' }}>
+                        <span style={{ 
+                          display: 'inline-flex', justifyContent: 'center', alignItems: 'center', width: '24px', height: '24px', 
+                          borderRadius: '50%', background: isToday ? '#1a73e8' : 'transparent', 
+                          color: isToday ? '#fff' : (dayObj.isCurrentMonth ? '#3c4043' : '#70757a'),
+                          fontSize: '12px', fontWeight: isToday ? 600 : 400
+                        }}>
+                          {isFirstDayOfMonth && !isToday ? `${dayObj.date.toLocaleString('en-US', {month: 'short'})} 1` : dayObj.date.getDate()}
+                        </span>
+                      </div>
+
+                      {/* Events inside the square */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', overflowY: 'auto' }}>
+                        {dayEvents.map(ev => {
+                          const isAllDay = !ev.start.dateTime;
+                          const timeStr = isAllDay ? "" : new Date(ev.start.dateTime).toLocaleTimeString("en-US", { hour: 'numeric', minute: '2-digit' }).toLowerCase().replace(' ', '');
+                          
+                          // Style 1: Solid block for All-Day Events
+                          if (isAllDay) {
+                            return (
+                              <div key={ev.id} title={ev.summary} style={{ background: '#1a73e8', color: '#fff', padding: '2px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer' }}>
+                                {ev.summary}
+                              </div>
+                            );
+                          } 
+                          // Style 2: Dot + Time for specific meetings
+                          else {
+                            return (
+                              <div key={ev.id} title={`${timeStr} ${ev.summary}`} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#3c4043', padding: '2px 4px', borderRadius: '4px', cursor: 'pointer' }} onMouseEnter={e => e.currentTarget.style.background = '#f1f3f4'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#039be5', flexShrink: 0 }}></div>
+                                <span style={{ fontWeight: 500 }}>{timeStr}</span>
+                                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.summary}</span>
+                              </div>
+                            );
+                          }
+                        })}
+                      </div>
+
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            // 🟢 ORIGINAL LIST VIEW (Unchanged)
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              {calendarEvents.length === 0 && !calendarLoading && !calendarError && (
+                <div style={{ color: "#5f6368", padding: "32px 0", fontStyle: "italic", textAlign: "center", background: "#ffffff", borderRadius: "8px", border: "1px solid #dadce0" }}>
+                  No upcoming events for the next 7 days.
+                </div>
+              )}
+              {calendarEvents.map(ev => {
+                const start = ev.start.dateTime ? new Date(ev.start.dateTime) : new Date(ev.start.date);
+                const end = ev.end.dateTime ? new Date(ev.end.dateTime) : new Date(ev.end.date);
+                const isAllDay = !ev.start.dateTime;
+
+                const dayStr = start.toLocaleDateString("en-GB", { weekday: 'long', month: 'short', day: 'numeric' });
+                const timeStr = isAllDay ? "All Day" : `${start.toLocaleTimeString("en-US", { hour: 'numeric', minute: '2-digit' })} - ${end.toLocaleTimeString("en-US", { hour: 'numeric', minute: '2-digit' })}`;
+
+                return (
+                  <div 
+                    key={ev.id} 
+                    style={{ display: "flex", gap: "16px", marginBottom: "12px", padding: "16px", borderRadius: "8px", border: "1px solid #dadce0", background: "#ffffff", transition: "box-shadow 0.2s, border-color 0.2s" }} 
+                    onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 1px 3px rgba(60,64,67,0.15)"; e.currentTarget.style.borderColor = "#c2e7ff"; }} 
+                    onMouseLeave={e => { e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.borderColor = "#dadce0"; }}
+                  >
+                    <div style={{ width: "130px", flexShrink: 0 }}>
+                      <div style={{ fontWeight: 600, color: "#1a73e8", fontSize: "14px" }}>{dayStr}</div>
+                      <div style={{ color: "#5f6368", fontSize: "13px", marginTop: "6px" }}>{timeStr}</div>
+                    </div>
+                    
+                    <div style={{ width: "4px", background: "#4285F4", borderRadius: "4px" }}></div>
+                    
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 500, color: "#202124", fontSize: "15px", marginBottom: "6px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {ev.summary || "(No title)"}
+                      </div>
+                      
+                      {ev.location && (
+                        <div style={{ fontSize: "13px", color: "#5f6368", display: "flex", alignItems: "center", gap: "6px", marginBottom: "8px" }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+                          {ev.location}
+                        </div>
+                      )}
+                      
+                      {ev.hangoutLink && (
+                        <a href={ev.hangoutLink} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: "6px", marginTop: "4px", padding: "6px 16px", background: "#1a73e8", color: "#fff", textDecoration: "none", borderRadius: "100px", fontSize: "13px", fontWeight: 500, transition: "background 0.2s" }} onMouseEnter={e => e.currentTarget.style.background = "#1557b0"} onMouseLeave={e => e.currentTarget.style.background = "#1a73e8"}>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4zM14 13h-3v3H9v-3H6v-2h3V8h2v3h3v2z"/></svg>
+                          Join Meet
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )
+        )}
+      </div>
+    );
+  }
+
+  return <div className="chat-output" />;
+}, [
+  currentView,
+  // 🟢 NEW: Calendar state dependencies
+  calendarEvents,
+  calendarLoading,
+  calendarError,
+  isMonthView,
+
+       // Email
+       email,
+       emailPreview,
         showDraftPicker,
         selectedDraftTemplate,
         draftTo,
@@ -8429,28 +8739,31 @@ if (currentView.app === "gmail") {
               Connect / Reconnect Google
             </a>
 
-            {/* 👇 NEW: Close App Button (Only shows when in an app) */}
-            {currentView.app !== "none" && (
-              <button
-                onClick={() => setCurrentView({ app: "none", contact: null })}
-                style={{
-                  width: "32px", height: "32px", borderRadius: "50%",
-                  border: "1px solid #dadce0", background: "white",
-                  display: "grid", placeItems: "center", cursor: "pointer",
-                  color: "#5f6368", fontSize: "18px", fontWeight: "300"
-                }}
-                title="Close App"
-              >
-                ×
-              </button>
-            )}
-          </div>
-        </div>
+       {/* 👇 NEW: Close App Button (Only shows when in an app) */}
+            {currentView.app !== "none" && (
+              <button
+                onClick={() => setCurrentView({ app: "none", contact: null })}
+                style={{
+                  width: "32px", height: "32px", borderRadius: "50%",
+                  border: "1px solid #dadce0", background: "white",
+                  display: "grid", placeItems: "center", cursor: "pointer",
+                  color: "#5f6368", fontSize: "18px", fontWeight: "300"
+                }}
+                title="Close App"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        </div>
 
-        <div className="middle-content">{middleContent}</div>
+        {/* 👇 Removes the left gap specifically when GChat is open */}
+        <div className="middle-content" style={{ paddingLeft: currentView.app === "gchat" ? "0" : undefined }}>
+          {middleContent}
+        </div>
 
-        <input
-          ref={fileInputRef}
+        <input
+          ref={fileInputRef}
           type="file"
           /* 👇 1. Allow Images, PDF, Excel, Word, AUDIO, VIDEO */
           accept="application/pdf, image/png, image/jpeg, .xlsx, .xls, .docx, .doc, audio/*, video/*"

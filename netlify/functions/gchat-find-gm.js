@@ -8,6 +8,7 @@ const nameFromEmail = (email) => {
 
 const KNOWN_USERS_MAP = {
   "jonathan@actuaryconsulting.co.za": "users/109833975621386956073",
+  "bonolo@actuaryconsulting.co.za" : "users/109833975621386956073",
   "simone@actuaryconsulting.co.za": "users/116928759608148752435",
   "tiffany@actuaryconsulting.co.za": "users/101273447946115685891",
   "albert@actuaryconsulting.co.za": "users/110481684541592719996",
@@ -36,6 +37,7 @@ const KNOWN_USERS_MAP = {
   "repository@actuaryconsulting.co.za": "users/112422887282158931745",
   "ryan@actuaryconsulting.co.za": "users/117124449099034019701",
   "siyolise@actuaryconsulting.co.za": "users/112417469383977278282",
+  
 };
 
 export async function handler(event) {
