@@ -8,7 +8,6 @@ const nameFromEmail = (email) => {
 
 const KNOWN_USERS_MAP = {
   "jonathan@actuaryconsulting.co.za": "users/109833975621386956073",
-  "bonolo@actuaryconsulting.co.za" : "users/109833975621386956073",
   "simone@actuaryconsulting.co.za": "users/116928759608148752435",
   "tiffany@actuaryconsulting.co.za": "users/101273447946115685891",
   "albert@actuaryconsulting.co.za": "users/110481684541592719996",

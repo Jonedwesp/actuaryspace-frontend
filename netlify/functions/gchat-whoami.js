@@ -25,11 +25,20 @@ export async function handler(event) {
 
     const chatName = `users/${userJson.id}`;
 
+    // 🕵️ IDENTITY PROBE LOGGING
+    // This will output to your Netlify function logs when anyone logs in.
+    console.log("--- IDENTITY PROBE START ---");
+    console.log("User Email:", userJson.email);
+    console.log("Numerical ID:", userJson.id);
+    console.log("Full Resource Name:", chatName);
+    console.log("--- IDENTITY PROBE END ---");
+
     return json(200, { 
       ok: true, 
       name: userJson.name || "Siyabonga Nono", 
       email: userJson.email,
-      picture: userJson.picture
+      picture: userJson.picture,
+      resourceName: chatName // Added to response for easy frontend viewing
     });
 
   } catch (err) {
