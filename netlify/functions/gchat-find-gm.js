@@ -8,6 +8,7 @@ const nameFromEmail = (email) => {
 
 const KNOWN_USERS_MAP = {
   "jonathan@actuaryconsulting.co.za": "users/109833975621386956073",
+  "bonolo@actuaryconsulting.co.za" : "users/114414123510536881172",
   "simone@actuaryconsulting.co.za": "users/116928759608148752435",
   "tiffany@actuaryconsulting.co.za": "users/101273447946115685891",
   "albert@actuaryconsulting.co.za": "users/110481684541592719996",
@@ -61,24 +62,64 @@ export async function handler(event) {
     let resourceName = KNOWN_USERS_MAP[emailInput];
     let displayName = "";
 
-    // 🧠 ATTEMPT 1: Get Full Name from organization directory (Most Accurate)
-    const dirRes = await fetch(`https://admin.googleapis.com/admin/directory/v1/users/${encodeURIComponent(emailInput)}`, {
-      headers: { "Authorization": `Bearer ${token}` }
-    });
+    // 🧠 ATTEMPT 1: Prioritize the Master Identity Map (Guarantees Full Name)
+    // We create a reverse lookup to find the name from the email
+    const REVERSE_ID_MAP = {
+      "jonathan@actuaryconsulting.co.za": "Jonathan Espanol",
+      "bonolo@actuaryconsulting.co.za": "Bonolo Mokatse",
+      "simone@actuaryconsulting.co.za": "Simoné Streicher",
+      "tiffany@actuaryconsulting.co.za": "Tiffany Harzon-Cuyler",
+      "albert@actuaryconsulting.co.za": "Albert Grobler",
+      "tinashe@actuaryconsulting.co.za": "Tinashe Chikwamba",
+      "ethan@actuaryconsulting.co.za": "Ethan Maburutse",
+      "mine@actuaryconsulting.co.za": "Miné Moolman",
+      "bianca@actuaryconsulting.co.za": "Bianca Wiid",
+      "alicia.o@actuaryconsulting.co.za": "Alicia Oberholzer",
+      "leonah@actuaryconsulting.co.za": "Leonah Marewangepo",
+      "eugene@actuaryconsulting.co.za": "Eugene Cloete",
+      "alicia.k@actuaryconsulting.co.za": "Alicia Kotzé",
+      "songeziwe@actuaryconsulting.co.za": "Songeziwe Chiya",
+      "bonisa@actuaryconsulting.co.za": "Bonisa Mqonqo",
+      "cameron@actuaryconsulting.co.za": "Cameron Curtis",
+      "shamiso@actuaryconsulting.co.za": "Shamiso Hapaguti",
+      "waldo@actuaryconsulting.co.za": "Waldo Jenkins",
+      "melvin@actuaryconsulting.co.za": "Melvin Smith",
+      "yolandie@actuaryconsulting.co.za": "Yolandie",
+      "enock@actuaryconsulting.co.za": "Enock Kazembe",
+      "matthew@actuaryconsulting.co.za": "Matthew Darch",
+      "martin@actuaryconsulting.co.za": "Martin Otto",
+      "melokuhle@actuaryconsulting.co.za": "Melokuhle Mabuza",
+      "willem@actuaryconsulting.co.za": "Willem Havenga",
+      "jennifer@actuaryconsulting.co.za": "Jennifer Mouton",
+      "conah@actuaryconsulting.co.za": "Conah MacFarlane",
+      "repository@actuaryconsulting.co.za": "Repository",
+      "ryan@actuaryconsulting.co.za": "Robyn Anderson",
+      "siyolise@actuaryconsulting.co.za": "Siyolise Mazwi"
+    };
+
+    if (REVERSE_ID_MAP[emailInput]) {
+      displayName = REVERSE_ID_MAP[emailInput];
+    }
+
+    // 🧠 ATTEMPT 2: Get from organization directory if not in our map
+    if (!displayName) {
+      const dirRes = await fetch(`https://admin.googleapis.com/admin/directory/v1/users/${encodeURIComponent(emailInput)}`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      
+      if (dirRes.ok) {
+        const userData = await dirRes.json();
+        resourceName = `users/${userData.id}`;
+        displayName = userData.name?.fullName;
+      } 
+    }
     
-    if (dirRes.ok) {
-      const userData = await dirRes.json();
-      resourceName = `users/${userData.id}`;
-      displayName = userData.name?.fullName; // This is Name + Surname
-      console.log("Directory Lookup Success:", displayName);
-    } 
-    
-    // 🧠 ATTEMPT 2: Fallback to manual map if Directory fails but we have the ID
+    // 🧠 ATTEMPT 3: Last resort - Email prefix
     if (!displayName && resourceName) {
       displayName = nameFromEmail(emailInput);
     }
 
-    // 🧠 ATTEMPT 3: Exit if user still can't be identified
+    // 🧠 ATTEMPT 4: Exit if user still can't be identified
     if (!resourceName) {
       return { statusCode: 404, body: JSON.stringify({ error: "User not found in organization directory." }) };
     }

@@ -248,6 +248,7 @@ const folder = event.queryStringParameters?.folder || "INBOX";
 
     return {
         id: msg.id,
+        messageId: getH("Message-ID") || "", // 👈 NEW: Extract the universal Message-ID
         snippet: msgData.snippet || "",
         body: decodedBody || msgData.snippet || "", 
         subject: getH("Subject") || "(No Subject)",
@@ -255,7 +256,7 @@ const folder = event.queryStringParameters?.folder || "INBOX";
         to: getH("To") || "",
         cc: getH("Cc") || "", 
         date: getH("Date") || "",
-        labelIds: msgData.labelIds || [], // ⚡ FIX: Explicitly send label IDs to the frontend
+        labelIds: msgData.labelIds || [],
         isUnread: msgData.labelIds?.includes("UNREAD") || false,
         isStarred: msgData.labelIds?.includes("STARRED") || false,
         attachments: typeMap.attachments

@@ -35,15 +35,25 @@ exports.handler = async function(event, context) {
     const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
     
     // 5. Fetch a larger window to populate the 30-day grid
-    const now = new Date();
-    const timeMin = new Date(now.getFullYear(), now.getMonth(), 1); // Start of current month
-    const timeMax = new Date(now.getFullYear(), now.getMonth() + 2, 0); // End of next month
+    // 1. Catch the dynamic dates sent by the frontend's Left/Right arrows
+    const timeMinParam = event.queryStringParameters?.timeMin;
+    const timeMaxParam = event.queryStringParameters?.timeMax;
 
+    // 2. Set up a safety fallback (defaults to this month -> next month)
+    const now = new Date();
+    const defaultTimeMin = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    const defaultTimeMax = new Date(now.getFullYear(), now.getMonth() + 2, 0).toISOString();
+
+    // 3. Choose the frontend dates if they exist, otherwise use the fallback
+    const finalTimeMin = timeMinParam || defaultTimeMin;
+    const finalTimeMax = timeMaxParam || defaultTimeMax;
+
+    // 4. Request the events from Google using those dynamic dates
     const response = await calendar.events.list({
       calendarId: 'primary',
-      timeMin: timeMin.toISOString(),
-      timeMax: timeMax.toISOString(),
-      maxResults: 250, // ⚡ Increased limit to ensure we get the whole month
+      timeMin: finalTimeMin,
+      timeMax: finalTimeMax,
+      maxResults: 2500, // 👈 Increased to handle heavy historic months safely
       singleEvents: true,
       orderBy: 'startTime',
     });
