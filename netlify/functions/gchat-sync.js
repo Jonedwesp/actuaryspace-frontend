@@ -5,40 +5,50 @@ export async function handler(event) {
     const accessToken = await getAccessToken(event);
 
     // 1. Get recent spaces
-    const spaceRes = await fetch("https://chat.googleapis.com/v1/spaces?pageSize=10", {
+    const spaceRes = await fetch("https://chat.googleapis.com/v1/spaces?pageSize=20", {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
     const spaceData = await spaceRes.json();
 
-    // 2. Fetch the latest message for each space to get real sender info
+    // 2. Fetch latest messages (increased buffer)
     const notificationPromises = (spaceData.spaces || []).map(async (s) => {
       try {
-        const msgRes = await fetch(`https://chat.googleapis.com/v1/${s.name}/messages?pageSize=1`, {
+        // Fetch last 3 messages to catch rapid-fire unread texts
+        const msgRes = await fetch(`https://chat.googleapis.com/v1/${s.name}/messages?pageSize=3`, {
           headers: { Authorization: `Bearer ${accessToken}` }
         });
         const msgData = await msgRes.json();
-        const latestMsg = msgData.messages?.[0];
+        const messages = msgData.messages || [];
 
-        if (!latestMsg) return null;
+        // Map all incoming unread messages in this space
+        return messages.filter(m => {
+          const sName = (m.sender?.displayName || "").toLowerCase();
+          const sEmail = (m.sender?.email || "").toLowerCase();
+          return !(sEmail.includes("siya@") || sName.includes("siyabonga"));
+        }).map(m => {
+          const senderName = m.sender?.displayName || "Colleague";
+          let snippet = m.text || "";
+          if (!snippet && m.attachment?.length) snippet = "Sent an attachment";
 
-        const senderName = latestMsg.sender?.displayName || "Someone";
-        let snippet = latestMsg.text || "";
-        if (!snippet && latestMsg.attachment?.length) snippet = "Sent an attachment";
-
-        return {
-          id: latestMsg.name,
-          spaceId: s.name,
-          type: "chat",
-          title: s.type === "DIRECT_MESSAGE" ? senderName : s.displayName,
-          text: `${senderName}: ${snippet}`,
-          timestamp: latestMsg.createTime,
-        };
+          return {
+            id: m.name, 
+            spaceId: s.name,
+            type: "chat",
+            title: s.type === "DIRECT_MESSAGE" ? senderName : (s.displayName || "Group Chat"),
+            text: snippet,
+            senderName: senderName,
+            timestamp: m.createTime,
+          };
+        });
       } catch (e) {
         return null;
       }
     });
 
-    const notifications = (await Promise.all(notificationPromises)).filter(Boolean);
+    // Flatten the array of arrays into a single list of unread messages
+    const notifications = (await Promise.all(notificationPromises))
+      .filter(Boolean)
+      .flat();
 
     return {
       statusCode: 200,

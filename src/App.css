@@ -1602,7 +1602,7 @@ html, body {
 
 .gchat-item {
   width: 100%;
-  max-width: 92%;
+  max-width: 100%;
   margin: 4px auto;
   padding: 4px 10px;
   min-height: 28px;
@@ -1721,7 +1721,7 @@ html, body {
   max-width: 520px;
   width: fit-content;
   position: relative;
-  transition: background 0.15s ease;
+  transition: none !important; /* ⚡ INSTANT RESPONSE: Removes all animation delays */
   
   /* 👇 FIXES THE BLOB: Preserves spaces and newlines */
   white-space: pre-wrap; 
@@ -1732,8 +1732,14 @@ html, body {
   background: #d2e3fc;
 }
 
+/* ⚡ INSTANT DARKEN: Applies brightness filter immediately when hovering over sent messages */
+.gchat-msg.mine:hover .gchat-bubble {
+  filter: brightness(0.82) !important;
+}
+
 .gchat-msg.theirs .gchat-bubble:hover {
   background: #e5e7eb;
+  transition: none !important;
 }
 
 /* ===== Google Chat reactions ===== */

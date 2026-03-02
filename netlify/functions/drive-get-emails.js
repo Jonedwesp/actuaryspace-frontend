@@ -1,4 +1,3 @@
-// netlify/functions/drive-get-emails.js
 import { getAccessToken } from "./_sa-token.js";
 
 export async function handler() {

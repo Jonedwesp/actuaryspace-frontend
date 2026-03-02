@@ -1,94 +1,62 @@
-import { getAccessToken } from "./_sa-token.js";
+const admin = require("firebase-admin");
 
-export const handler = async function(event, context) {
-  const messageId = event.queryStringParameters?.messageId;
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    }),
+  });
+}
 
-  if (!messageId) {
-    return { statusCode: 400, body: JSON.stringify({ error: "Missing messageId parameter" }) };
-  }
+const db = admin.firestore();
+
+exports.handler = async (event) => {
+  const messageId = event.queryStringParameters.messageId;
+  if (!messageId) return { statusCode: 400, body: JSON.stringify({ ok: false }) };
 
   try {
-    // 1. Get Auth Token for Firestore
-    const token = await getAccessToken(["https://www.googleapis.com/auth/datastore"]);
+    const snapshot = await db.collection("extractions")
+      .where("messageId", "==", messageId)
+      .limit(1)
+      .get();
 
-    // 2. Query Firestore for the specific messageId
-    const projectId = "payslip-ai-extraction";
-    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:runQuery`;
+    if (snapshot.empty) return { statusCode: 200, body: JSON.stringify({ ok: false }) };
 
-    const queryBody = {
-      structuredQuery: {
-        from: [{ collectionId: "batch_summary_DEV" }],
-        where: {
-          fieldFilter: {
-            field: { fieldPath: "messageId" },
-            op: "EQUAL",
-            value: { stringValue: messageId }
-          }
-        },
-        limit: 1
-      }
-    };
+    const doc = snapshot.docs[0];
+    const data = doc.data();
 
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${token}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(queryBody)
+    // 🧠 LOGIC: Group identification counts and status by original filename
+    // Note: This assumes your n8n workflow populates 'fileMetadata' or similar
+    const fileResults = (data.fileMetadata || []).map(file => {
+      const counts = [];
+      if (file.payslipCount > 0) counts.push(`${file.payslipCount} payslip${file.payslipCount > 1 ? 's' : ''}`);
+      if (file.ipCount > 0) counts.push(`${file.ipCount} IP`);
+      if (file.idCount > 0) counts.push(`${file.idCount} ID`);
+      if (file.birthCertCount > 0) counts.push(`${file.birthCertCount} Birth Cert`);
+
+      return {
+        fileName: file.originalName,
+        foundDocs: counts.length > 0 ? counts : [],
+        status: file.processingStatus || "Extracting..."
+      };
     });
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      throw new Error(`Firestore Error: ${JSON.stringify(data)}`);
-    }
-
-    // Firestore returns [{readTime}] if no document is found
-    if (!data || data.length === 0 || !data[0].document) {
-       return {
-         statusCode: 200,
-         body: JSON.stringify({ found: false })
-       };
-    }
-
-    // 3. Extract and clean the fields for the frontend
-    const doc = data[0].document;
-    const rawFields = doc.fields || {};
-    
-    const unwrap = (val) => {
-        if (!val) return null;
-        if (val.stringValue !== undefined) return val.stringValue;
-        if (val.integerValue !== undefined) return parseInt(val.integerValue, 10);
-        if (val.nullValue !== undefined) return null;
-        return val; 
-    };
-
-    const result = {
-        found: true,
-        batchId: unwrap(rawFields.batchId),
-        status: unwrap(rawFields.status),
-        totalPages: unwrap(rawFields.totalPages),
-        pagesProcessed: unwrap(rawFields.pagesProcessed),
-        classificationStatus: unwrap(rawFields.classificationStatus),
-        payslipStatus: unwrap(rawFields.payslipProcessingStatus),
-        ipStatus: unwrap(rawFields.ipReportProcessingStatus),
-        saIdStatus: unwrap(rawFields.saIdProcessingStatus),
-        birthCertStatus: unwrap(rawFields.birthCertProcessingStatus),
-        deathCertStatus: unwrap(rawFields.deathCertProcessingStatus),
-        bankStatus: unwrap(rawFields.bankStatementProcessingStatus)
-    };
 
     return {
       statusCode: 200,
-      body: JSON.stringify(result)
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ok: true,
+        batchId: doc.id,
+        status: data.status,
+        totalPages: data.totalPages,
+        pagesProcessed: data.pagesProcessed,
+        fileResults: fileResults, // 👈 Feeds the per-file UI
+        extractedData: data.extractedData || {}
+      })
     };
-
   } catch (error) {
-    console.error("Firestore Poller Error:", error);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: error.message })
-    };
+    return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
   }
 };
