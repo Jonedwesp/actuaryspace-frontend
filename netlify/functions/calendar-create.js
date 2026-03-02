@@ -1,6 +1,7 @@
 const { google } = require('googleapis');
+const cookie = require('cookie');
 
-exports.handler = async (event, context) => {
+exports.handler = async function(event, context) {
   // 1. Only allow POST requests
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
@@ -10,33 +11,37 @@ exports.handler = async (event, context) => {
     // 2. Parse the event data sent from your React app
     const data = JSON.parse(event.body);
 
-    // Note: You must initialize your Google Auth client here using your existing 
-    // credentials setup (the same way you do in your `calendar-events.js` file).
-    const auth = new google.auth.OAuth2(
+    // 3. EXCACT MATCH: Parse cookies for your specific auth token
+    const cookies = event.headers.cookie ? cookie.parse(event.headers.cookie) : {};
+    let refreshToken = cookies.AS_GCHAT_RT || process.env.AS_GCHAT_RT; 
+
+    if (!refreshToken) {
+      return { statusCode: 401, body: JSON.stringify({ ok: false, error: "Not authenticated. Missing AS_GCHAT_RT" }) };
+    }
+
+    try { refreshToken = decodeURIComponent(refreshToken); } catch (e) {}
+    refreshToken = decodeURIComponent(refreshToken);
+
+    // 4. Setup the Google Auth Client
+    const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
       process.env.GOOGLE_REDIRECT_URI
     );
-    auth.setCredentials({
-      refresh_token: process.env.GOOGLE_REFRESH_TOKEN 
-    });
+    oauth2Client.setCredentials({ refresh_token: refreshToken });
 
-    const calendar = google.calendar({ version: 'v3', auth });
+    // 5. Initialize the Calendar API
+    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 
-    // 3. Format the event for Google
+    // 6. Format the event for Google
     const googleEvent = {
       summary: data.summary,
       location: data.location,
       description: data.description,
-      start: {
-        dateTime: data.start.dateTime,
-        timeZone: 'Africa/Johannesburg', // Using your local timezone
-      },
-      end: {
-        dateTime: data.end.dateTime,
-        timeZone: 'Africa/Johannesburg',
-      },
+      start: data.start, // Uses the +02:00 time string you generate in App.jsx
+      end: data.end,
       attendees: data.attendees,
+      
       // 🟢 This block tells Google to automatically generate a Meet link!
       conferenceData: {
         createRequest: {
@@ -46,7 +51,7 @@ exports.handler = async (event, context) => {
       },
     };
 
-    // 4. Send it to Google Calendar
+    // 7. Send it to Google Calendar
     const response = await calendar.events.insert({
       calendarId: 'primary',
       conferenceDataVersion: 1, // Required to make the Meet link work
@@ -54,7 +59,7 @@ exports.handler = async (event, context) => {
       resource: googleEvent,
     });
 
-    // 5. Send the real event (with the Meet link and ID) back to the website
+    // 8. Send the real event (with the Meet link) back to the website
     return {
       statusCode: 200,
       body: JSON.stringify({ ok: true, event: response.data }),

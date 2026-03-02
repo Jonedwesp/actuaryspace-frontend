@@ -1200,9 +1200,9 @@ function getTrelloCoverColor(title) {
   return null;
 }
 
-const RightPanel = React.memo(function RightPanel() {
-  // 👇 HYDRATE FROM CACHE: Gives notifications permanent memory across page refreshes!
-  const knownTrelloCardsRef = useRef(null);
+const RightPanel = React.memo(function RightPanel({ filteredGchatSpaces, gchatLoading, gchatError, gchatDmNames, gchatSelectedSpace, setGchatSelectedSpace, unreadGchatSpaces, setUnreadGchatSpaces, gchatSpaceTimes }) {
+  // 👇 HYDRATE FROM CACHE: Gives notifications permanent memory across page refreshes!
+  const knownTrelloCardsRef = useRef(null);
   const immuneCardsRef = useRef(new Map()); // 🛡️ NEW: Memory shield to stop echoes
   useEffect(() => {
     if (!knownTrelloCardsRef.current) {
@@ -2581,13 +2581,13 @@ const [gchatSelectedSpace, setGchatSelectedSpace] = useState(null);
  const [gchatMsgLoading, setGchatMsgLoading] = useState(false);
   const [gchatMsgError, setGchatMsgError] = useState("");
 const [gchatComposer, setGchatComposer] = useState("");
- const [editingMsgId, setEditingMsgId] = useState(null);
-  const [editValue, setEditValue] = useState("");
-  const [msgToDelete, setMsgToDelete] = useState(null);
+const [editingMsgId, setEditingMsgId] = useState(null);
+const [editValue, setEditValue] = useState("");
+const [msgToDelete, setMsgToDelete] = useState(null);
 const [gchatDmNames, setGchatDmNames] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("GCHAT_DM_NAMES") || "{}"); }
-    catch { return {}; }
-  });
+  try { return JSON.parse(localStorage.getItem("GCHAT_DM_NAMES") || "{}"); }
+  catch { return {}; }
+});
   const [gchatAutoScroll, setGchatAutoScroll] = useState(true);
   const [gchatSearchQuery, setGchatSearchQuery] = useState("");
   const [isChatSearchOpen, setIsChatSearchOpen] = useState(false);
@@ -3129,9 +3129,28 @@ useEffect(() => {
       }
 
       if (chatData && chatData.ok && Array.isArray(chatData.notifications)) {
-        const chatNotifs = chatData.notifications.map(n => {
+        // 🔵 Step 1: Initialize counters for sidebar bubbles
+        const newUnreadCounts = {};
+        const chatNotifs = [];
+        
+        // 🟢 GCHAT LOGIC FIX: Initialize sound memory if null
+        const isFirstRun = seenGchatIdsRef.current === null;
+        if (isFirstRun) {
+          seenGchatIdsRef.current = new Set();
+        }
+
+        chatData.notifications.forEach(n => {
           const sid = n.spaceId || n.space?.name;
           const ts = n.timestamp || n.createTime || new Date().toISOString();
+          const msgId = n.id || n.name || `chat-${sid}-${ts}`;
+
+          // 🔵 Step 2: Increment the unread count for this space bubble
+          newUnreadCounts[sid] = (newUnreadCounts[sid] || 0) + 1;
+
+          // 🛡️ SOUND TRACKING: Add to sound memory so it doesn't ding twice
+          seenGchatIdsRef.current.add(msgId);
+
+          // 🔵 Step 3: Resolve Name & Snippet for the UI Panel
           let senderLabel = n.title || "Colleague";
           let cleanText = n.text || "";
           
@@ -3144,44 +3163,59 @@ useEffect(() => {
             cleanText = cleanText.replace("Someone:", `${senderLabel}:`);
           }
 
-          return {
+          chatNotifs.push({
             ...n,
-            // 🛡️ STABLE ID: Forces GChat items to be unique so they show up in the panel
-            id: n.id || n.name || `chat-${sid}-${ts}`,
+            id: msgId,
             alt: "Google Chat",
             icon: gchatIcon,
             text: cleanText.length > 60 ? cleanText.substring(0, 57) + "..." : cleanText,
             timestamp: ts,
             spaceId: sid
-          };
+          });
         });
+
+        // 🔵 Step 4: Sync the calculated bubbles to the sidebar state
+        setUnreadGchatSpaces(prev => {
+          const next = { ...prev, ...newUnreadCounts };
+          localStorage.setItem("GCHAT_UNREAD_SPACES", JSON.stringify(next));
+          return next;
+        });
+        
         combined = [...combined, ...chatNotifs];
+        
+        if (isFirstRun) {
+          isInitialGchatSyncRef.current = false;
+        }
       }
 
-      setNotifications(prev => {
-        const existingIds = new Set(prev.map(p => p.id));
-        const newItems = combined.filter(item => !existingIds.has(item.id));
-        
-        if (newItems.length > 0 && !isInitialGchatSyncRef.current) {
-          const hasNewEmail = newItems.some(item => item.alt === "Gmail");
-          new Audio(hasNewEmail ? GMAIL_SOUND_DATA : GCHAT_SOUND_DATA).play().catch(() => {});
-        }
+      // Update the notifications array
+      if (combined.length > 0) {
+        setNotifications(prev => {
+          const existingIds = new Set(prev.map(p => p.id));
+          const newItems = combined.filter(item => !existingIds.has(item.id));
+          
+          if (newItems.length > 0 && !isInitialGchatSyncRef.current) {
+            // Play correct sound based on the items injected
+            const hasNewEmail = newItems.some(item => item.alt === "Gmail");
+            const hasNewChat = newItems.some(item => item.alt === "Google Chat");
+            if (hasNewEmail) new Audio(GMAIL_SOUND_DATA).play().catch(() => {});
+            else if (hasNewChat) new Audio(GCHAT_SOUND_DATA).play().catch(() => {});
+          }
 
-        if (newItems.length === 0) return prev;
+          if (newItems.length === 0) return prev;
 
-        const mappedNew = newItems.map(item => ({
-          ...item,
-          time: formatNotificationDate(item.timestamp)
-        }));
+          const mappedNew = newItems.map(item => ({
+            ...item,
+            time: formatNotificationDate(item.timestamp)
+          }));
 
-        const next = [...mappedNew, ...prev].sort((a, b) => {
-          return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+          const next = [...mappedNew, ...prev].sort((a, b) => {
+            return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+          });
+          
+          return next.slice(0, 100);
         });
-        
-        return next.slice(0, 100);
-      });
-
-      isInitialGchatSyncRef.current = false;
+      }
 
     } catch (err) {
       console.error("Sync error:", err);
@@ -3191,7 +3225,39 @@ useEffect(() => {
   syncAllNotifications();
   const interval = setInterval(syncAllNotifications, 5000);
   return () => clearInterval(interval);
-}, []); // 🔄 CHANGED: Removed [gchatSpaces] so it starts polling immediately
+}, []);
+
+// 🟢 GLOBAL NOTIFICATION LISTENER (Fixes Calendar, Trash, and Trello Notifications)
+useEffect(() => {
+  const handleNotify = (e) => {
+    const n = e.detail;
+    if (!n) return;
+    
+    setNotifications(prev => {
+      const id = n.id || `notif-${Date.now()}-${Math.random()}`;
+      if (prev.some(p => p.id === id)) return prev;
+
+      // Ensure appropriate sound fires
+      if (n.alt === "Gmail") new Audio(GMAIL_SOUND_DATA).play().catch(() => {});
+      else if (n.alt === "Google Chat") new Audio(GCHAT_SOUND_DATA).play().catch(() => {});
+      else if (n.alt === "Trello" || n.alt === "Calendar") new Audio(TRELLO_SOUND_DATA).play().catch(() => {});
+
+      const mapped = {
+        ...n,
+        id,
+        time: formatNotificationDate(n.timestamp || new Date().toISOString())
+      };
+      
+      const next = [mapped, ...prev].sort((a, b) => {
+        return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+      });
+      return next.slice(0, 100);
+    });
+  };
+
+  window.addEventListener("notify", handleNotify);
+  return () => window.removeEventListener("notify", handleNotify);
+}, []);
 
   // 1. GLOBAL IDENTITY LOADER (Runs once on mount, regardless of view)
 useEffect(() => {
@@ -4987,7 +5053,7 @@ if (currentView.app === "gchat") {
                 spaceTime = (new Date(cachedTime) > new Date(apiTime)) ? cachedTime : apiTime;
               }
 
-              return (
+            return (
                 <button
                   key={s.id}
                   className={`gchat-item ${isActive ? "active" : ""}`}
@@ -5327,13 +5393,13 @@ if (currentView.app === "gchat") {
                     .gchat-hover-actions { opacity: 0; pointer-events: none; transition: opacity 0.1s ease-in-out; }
                     .gchat-msg-content:hover .gchat-hover-actions { opacity: 1; pointer-events: auto; }
                   `}</style>
-                  {gchatMessages
-                    .filter(m => {
-                      if (!debouncedChatSearchText.trim()) return true;
-                      const msg = normalizeGChatMessage(m);
-                      return (msg.text || "").toLowerCase().includes(debouncedChatSearchText.toLowerCase());
-                    })
-                    .map((m, idx) => {
+                  {gchatMessages.filter(m => {
+                    if (!debouncedChatSearchText.trim()) return true;
+                    const msg = normalizeGChatMessage(m);
+                    // 🔍 IMPROVED: Check both text and formattedText to ensure no results are missed
+                    const content = ((msg.text || "") + " " + (msg.formattedText || "")).toLowerCase();
+                    return content.includes(debouncedChatSearchText.toLowerCase());
+                  }).map((m, idx) => {
                     const msg = normalizeGChatMessage(m);
                     const rawName = msg?.sender?.displayName || "";
                     const spaceKey = gchatSelectedSpace?.id || gchatSelectedSpace?.name || "";
@@ -9258,17 +9324,25 @@ if (currentView.app === "gmail") {
         gchatMsgLoading,
         gchatMsgError,
         gchatSelectedSpace,
-        gchatDmNames,
-        gchatFilePreview,
-      ]);
+         gchatDmNames,
+         gchatFilePreview,
+         debouncedChatSearchText, // 👈 THE FIX: This tells React to refresh the view when you stop typing
+       ]);
 
-  return (
+return (
   <PasswordGate>
     <div className="app">
+      
+      {/* 🔵 THE BLUE CIRCLE */}
+      <div className="top-left-brand-circle"></div>
+
+      {/* ⬜ THE LIGHT GREY RECTANGLE (Text Removed) */}
+      <div className="top-left-brand-rectangle"></div>
+
       {/* LEFT */}
       <div className="left-panel">
         <div className="panel-title">Notifications</div>
-       <div className="notifications">
+        <div className="notifications">
           {notifications.map((n) => (
             <div
               className={`notification ${n.alt.toLowerCase().replace(/\s/g, '-')}`}
@@ -9575,9 +9649,9 @@ if (currentView.app === "gmail") {
       )}
       </div>
       {/* RIGHT */}
-      <RightPanel />
+  <RightPanel />
 
-      {/* 👇 NEW: Google Calendar Style Event Details Modal */}
+      {/* 👇 NEW: Google Calendar Style Event Details Modal */}
       {selectedEvent && (
         <div className="cal-modal-overlay" onClick={() => setSelectedEvent(null)}>
           <div className="cal-modal-container" onClick={(e) => e.stopPropagation()}>
@@ -9766,44 +9840,58 @@ if (currentView.app === "gmail") {
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
               <button 
                 onClick={async () => {
-                  // Construct the payload for the real API
+                  // 1. Format guests properly (Google rejects empty arrays)
+                  const guestsList = newEventDraft.guests 
+                    ? newEventDraft.guests.split(',').map(g => ({ email: g.trim() })).filter(g => g.email) 
+                    : [];
+
+                  // 2. Construct the payload with strict South African Timezone (+02:00)
                   const newEventData = {
                     summary: newEventDraft.summary || "(No title)",
                     location: newEventDraft.location,
                     description: newEventDraft.description,
-                    start: { dateTime: `${newEventDraft.date}T${newEventDraft.startTime}:00` },
-                    end: { dateTime: `${newEventDraft.date}T${newEventDraft.endTime}:00` },
-                    attendees: newEventDraft.guests ? newEventDraft.guests.split(',').map(g => ({ email: g.trim() })) : []
+                    start: { dateTime: `${newEventDraft.date}T${newEventDraft.startTime}:00+02:00` },
+                    end: { dateTime: `${newEventDraft.date}T${newEventDraft.endTime}:00+02:00` }
                   };
 
-                  // 1. Optimistic Update (Draw a temporary block on the screen instantly)
+                  // Only attach attendees if the user actually typed something
+                  if (guestsList.length > 0) {
+                    newEventData.attendees = guestsList;
+                  }
+
+                  // 3. Optimistic Update (Draw a temporary block instantly on your screen)
                   const tempId = "temp-" + Date.now();
                   setCalendarEvents(prev => [...prev, { ...newEventData, id: tempId }]);
                   setShowCreateModal(false);
 
-                  // 2. Actually send it to Google via your new backend
+                  // 4. Send to Google via your new backend
                   try {
                     const res = await fetch("/.netlify/functions/calendar-create", {
                       method: "POST",
+                      credentials: "include", // 👈 THIS IS THE FIX
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify(newEventData)
                     });
                     const json = await res.json();
 
                     if (json.ok && json.event) {
-                      // 3. Swap the temporary block with the REAL Google event (which now has the Meet link!)
+                      // Swap the temporary block with the REAL Google event (which now has the Meet link!)
                       setCalendarEvents(prev => prev.map(ev => ev.id === tempId ? json.event : ev));
-                      triggerSnackbar("Event added to Google Calendar!");
+                      
+                      // Show success message at the bottom of the screen
+                      if (typeof triggerSnackbar === 'function') {
+                        triggerSnackbar("Event added to Google Calendar!");
+                      }
                     } else {
                       throw new Error(json.error || "Failed to sync");
                     }
                   } catch (e) {
                     console.error("Failed to save event to server", e);
-                    // Revert the optimistic UI if it failed
+                    // Remove the fake event from the screen if the server rejected it
                     setCalendarEvents(prev => prev.filter(ev => ev.id !== tempId));
-                    alert("Failed to create event on Google Calendar.");
+                    alert("Failed to create event on Google Calendar. Check console for details.");
                   }
-                }}
+                }} 
                 style={{ background: '#0b57d0', color: 'white', border: 'none', borderRadius: '24px', padding: '10px 24px', fontSize: '14px', fontWeight: 500, cursor: 'pointer', transition: 'background 0.2s' }}
                 onMouseEnter={e => e.currentTarget.style.background = '#0842a0'}
                 onMouseLeave={e => e.currentTarget.style.background = '#0b57d0'}

@@ -88,10 +88,12 @@ html, body {
   grid-template-rows: auto 1fr auto;  /* title | content | bar */
   overflow: hidden;                   /* panel itself won’t scroll */
 }
+
 .middle-content {
   min-height: 0;                      /* allow content to shrink */
   overflow: hidden;                   /* child sections manage their own scroll */
-  border-right: 1px solid #dadce0; /* Thin grey line */
+  /* 🎯 REMOVE OR COMMENT OUT THIS LINE BELOW */
+  /* border-right: 1px solid #dadce0; */ 
 }
 .chat-output { flex: 1; overflow-y: auto; padding-bottom: 1rem; }
 
@@ -1642,6 +1644,11 @@ html, body {
   text-overflow: ellipsis;
 }
 
+/* 🟢 UNREAD PILL STYLE: Forces black text for unread chats to increase visibility */
+.gchat-item.unread:not(.active) .gchat-item-title {
+  color: #000 !important;
+}
+
 /* ===== Google Chat font (Google-like) ===== */
 .gchat-shell,
 .gchat-shell * {
@@ -2762,3 +2769,48 @@ html, body {
 .cal-modal-description { font-size: 14px; color: #3c4043; line-height: 1.5; word-break: break-word; }
 .cal-footer-row { align-items: center; margin-bottom: 0; margin-top: 8px; }
 .cal-modal-cal-name { font-size: 12px; color: #70757a; }
+
+/* 🔵 THE BLUE CIRCLE (Top Left) */
+.top-left-brand-circle {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  width: 94px;  /* 2.5cm diameter */
+  height: 94px;
+  background-color: #0079bf; /* Actuary Blue */
+  border-radius: 50%;
+  z-index: 1001; /* Sits above the panels */
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+/* 🎯 SHIFTING THE CONTENT DOWN */
+.left-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+  min-height: 0;
+  /* This pushes 'Notifications' and the list below the circle */
+  padding-top: 130px !important; 
+}
+
+/* ⬜ THE LIGHT GREY RECTANGLE */
+.top-left-brand-rectangle {
+  position: absolute;
+  top: 16px;        /* 🎯 Matches the circle's top perfectly now */
+  left: 125px;      /* Positioned to the right of the circle */
+  
+  /* 📏 Dimensions */
+  height: 94px;     /* 🎯 Matches the circle's height exactly */
+  /* Width = Left Column (20vw) minus the circle's offset and a small margin */
+  width: calc(20vw - 141px); 
+  
+  background-color: #f1f3f4;
+  border-radius: 12px; /* Slightly more rounded to match the larger scale */
+  z-index: 1001;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  
+  /* 🚫 No text styles needed anymore */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
