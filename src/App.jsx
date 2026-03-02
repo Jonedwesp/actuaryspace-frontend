@@ -1,6 +1,8 @@
 // src/App.jsx
 // --- Top of App.jsx ---
 
+import agentDonnaPic from "./assets/Agent Donna.png";
+import notebookLMPic from "./assets/NotebookLM.png";
 import logo from "./assets/Actuary Consulting.png";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
@@ -9333,13 +9335,17 @@ return (
   <PasswordGate>
     <div className="app">
       
-      {/* 🔵 THE BLUE CIRCLE */}
-      <div className="top-left-brand-circle"></div>
+      {/* 🤖 AI IDENTITY STACK (Increased height to 110px) */}
+      <div className="brand-stack">
+        <div className="brand-rect" title="Agent Donna" style={{ height: '130px', overflow: 'hidden', borderRadius: '12px' }}>
+          <img src={agentDonnaPic} alt="Agent Donna" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+        </div>
+        <div className="brand-rect" title="NotebookLM / Storyteller" style={{ height: '130px', overflow: 'hidden', borderRadius: '12px' }}>
+          <img src={notebookLMPic} alt="NotebookLM" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+        </div>
+      </div>
 
-      {/* ⬜ THE LIGHT GREY RECTANGLE (Text Removed) */}
-      <div className="top-left-brand-rectangle"></div>
-
-      {/* LEFT */}
+      {/* LEFT PANEL */}
       <div className="left-panel">
         <div className="panel-title">Notifications</div>
         <div className="notifications">
@@ -9354,7 +9360,6 @@ return (
               <span style={{ flex: 1, paddingRight: "8px", lineHeight: "1.4" }}>
                 [{n.time}] {n.text}
               </span>
-              {/* FIX: Removed the redundant app name chips from the right side */}
               <button
                 className="notif-close"
                 title="Dismiss"
@@ -9371,86 +9376,95 @@ return (
       </div>
 
      {/* MIDDLE */}
-      <div
-        className={`middle-panel ${
-          currentView.app === "email" && emailPreview ? "has-email-preview" : ""
-        }`}
-      >
-    <div className="panel-title" style={{ 
-  display: "flex", 
-  alignItems: "center", 
-  justifyContent: "space-between", 
-  paddingRight: "24px", 
-  paddingLeft: "12px",
-  position: "relative" 
-}}>
-          
-  {/* LEFT SIDE: App Buttons */}
-  <div style={{ display: "flex", alignItems: "center", gap: "12px", zIndex: 2 }}>
-    <button className="connect-google-btn" onClick={() => { setGchatSelectedSpace(null); setInputValue(""); setCurrentView({ app: "gchat", contact: null }); }}>
-      <img src={gchatIcon} alt="GChat" />
-      Google Chat
-    </button>
-
-    <button className="connect-google-btn" onClick={() => { setInputValue(""); setCurrentView({ app: "gmail", contact: null }); }}>
-      <img src={gmailIcon} alt="Gmail" />
-      Gmail
-    </button>
-
-    <button className="connect-google-btn" onClick={() => { setInputValue(""); setCurrentView({ app: "calendar", contact: null }); }}>
-      <CalendarIcon />
-      Calendar
-    </button>
-  </div>
-
-  {/* 🎯 CENTER LOGO */}
-  <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", zIndex: 1, pointerEvents: "none" }}>
-    <img src={logo} alt="Actuary Consulting" style={{ height: "42px", width: "auto", objectFit: "contain" }} />
-  </div>
-
-  {/* RIGHT SIDE: Status + Connect + Close */}
-  <div style={{ display: "flex", alignItems: "center", gap: "8px", zIndex: 2 }}>
-    
-    {/* 🟢/🔴 STATUS INDICATOR MOCKUP */}
-    <button
-      className="connect-google-btn"
-      onClick={() => setSystemStatus(prev => prev === "good" ? "bad" : "good")} // Click to toggle for the mockup
-      style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}
-      title={systemStatus === "good" ? "All systems operational" : "Connection or Rate Limit issue detected"}
-    >
-      <div style={{
-        width: "10px",
-        height: "10px",
-        borderRadius: "50%",
-        backgroundColor: systemStatus === "good" ? "#34A853" : "#EA4335", // Green vs Red
-        boxShadow: systemStatus === "good" ? "0 0 6px #34A853" : "0 0 8px #EA4335", // Glow effect
-        transition: "all 0.3s ease"
-      }}></div>
-      <span style={{ fontSize: "12px", fontWeight: 500 }}>
-        {systemStatus === "good" ? "System: Good" : "System: Alert"}
-      </span>
-    </button>
-
-    <a href="/.netlify/functions/google-auth-start" className="connect-google-btn">
-      Connect / Reconnect Google
-    </a>
-
-    {currentView.app !== "none" && (
-      <button
-        onClick={() => setCurrentView({ app: "none", contact: null })}
-        style={{
-          width: "32px", height: "32px", borderRadius: "50%",
-          border: "1px solid #dadce0", background: "white",
-          display: "grid", placeItems: "center", cursor: "pointer",
-          color: "#5f6368", fontSize: "18px", fontWeight: "300"
-        }}
-        title="Close App"
+      <div
+        className={`middle-panel ${
+          currentView.app === "email" && emailPreview ? "has-email-preview" : ""
+        }`}
       >
-        ×
-      </button>
-    )}
-  </div>
-</div>
+        <div className="panel-title" style={{ 
+          display: "flex", 
+          alignItems: "center", 
+          justifyContent: "space-between", 
+          paddingRight: "24px", 
+          paddingLeft: "12px",
+          position: "relative" 
+        }}>
+          
+          {/* LEFT SIDE: App Buttons */}
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", zIndex: 2 }}>
+            <button className="connect-google-btn" onClick={() => { setGchatSelectedSpace(null); setInputValue(""); setCurrentView({ app: "gchat", contact: null }); }}>
+              <img src={gchatIcon} alt="Google Chat" />
+              Google Chat
+            </button>
+
+            <button className="connect-google-btn" onClick={() => { setInputValue(""); setCurrentView({ app: "gmail", contact: null }); }}>
+              <img src={gmailIcon} alt="Gmail" />
+              Gmail
+            </button>
+
+            <button className="connect-google-btn" onClick={() => { setInputValue(""); setCurrentView({ app: "calendar", contact: null }); }}>
+              <CalendarIcon />
+              Calendar
+            </button>
+          </div>
+
+          {/* 🎯 CENTER LOGO */}
+          <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", zIndex: 1, pointerEvents: "none" }}>
+            <img src={logo} alt="Actuary Consulting" style={{ height: "42px", width: "auto", objectFit: "contain" }} />
+          </div>
+
+          {/* RIGHT SIDE: Productivity -> Status -> Reconnect -> Close */}
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", zIndex: 2 }}>
+            
+            <button
+              className="connect-google-btn"
+              onClick={() => {
+                setInputValue("");
+                setCurrentView({ app: "productivity", contact: null }); 
+              }}
+              type="button"
+            >
+              <span style={{ fontSize: '16px' }}>📊</span>
+              Productivity
+            </button>
+
+            <button
+              className="connect-google-btn"
+              onClick={() => setSystemStatus(prev => prev === "good" ? "bad" : "good")}
+              style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}
+              title={systemStatus === "good" ? "All systems operational" : "Connection issue detected"}
+            >
+              <div style={{
+                width: "10px", height: "10px", borderRadius: "50%",
+                backgroundColor: systemStatus === "good" ? "#34A853" : "#EA4335",
+                boxShadow: systemStatus === "good" ? "0 0 6px #34A853" : "0 0 8px #EA4335",
+                transition: "all 0.3s ease"
+              }}></div>
+              <span style={{ fontSize: "12px", fontWeight: 500 }}>
+                {systemStatus === "good" ? "System: Good" : "System: Alert"}
+              </span>
+            </button>
+
+            <a href="/.netlify/functions/google-auth-start" className="connect-google-btn">
+              Reconnect
+            </a>
+
+            {currentView.app !== "none" && (
+              <button
+                onClick={() => setCurrentView({ app: "none", contact: null })}
+                style={{
+                  width: "32px", height: "32px", borderRadius: "50%",
+                  border: "1px solid #dadce0", background: "white",
+                  display: "grid", placeItems: "center", cursor: "pointer",
+                  color: "#5f6368", fontSize: "18px", fontWeight: "300"
+                }}
+                title="Close App"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        </div>
 
         {/* 👇 Removes the left gap specifically when GChat is open */}
         <div className="middle-content" style={{ paddingLeft: currentView.app === "gchat" ? "0" : undefined }}>

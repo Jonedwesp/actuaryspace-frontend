@@ -39,7 +39,7 @@ html, body {
   padding: 0;
   scrollbar-width: thin;
   scrollbar-color: #ccc transparent;
-  border-right: 1px solid #dadce0; /* Thin grey line */
+  /* border-right: 1px solid #dadce0; */ /* ❌ REMOVED */
 }
 
 .notification {
@@ -2770,47 +2770,100 @@ html, body {
 .cal-footer-row { align-items: center; margin-bottom: 0; margin-top: 8px; }
 .cal-modal-cal-name { font-size: 12px; color: #70757a; }
 
-/* 🔵 THE BLUE CIRCLE (Top Left) */
-.top-left-brand-circle {
+/* 🤖 AI IDENTITY STACK */
+.brand-stack {
   position: absolute;
   top: 16px;
   left: 16px;
-  width: 94px;  /* 2.5cm diameter */
-  height: 94px;
-  background-color: #0079bf; /* Actuary Blue */
-  border-radius: 50%;
-  z-index: 1001; /* Sits above the panels */
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  
+  /* 🎯 CHANGE THIS LINE TO ADJUST WIDTH */
+  width: calc(20% - 40px); /* Increase the '40px' to make it narrower */
+  
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 1001;
 }
 
-/* 🎯 SHIFTING THE CONTENT DOWN */
+.brand-rect {
+  height: 130px; /* 🎯 Updated to your latest preferred height */
+  background-color: #f1f3f4;
+  border-radius: 12px;
+  
+  /* 🎯 NEW: Thin light grey border for definition */
+  border: 1px solid #e2e2e2; 
+  
+  /* 🎯 NEW: Light shadow focused on the bottom and right for "breadth" */
+  box-shadow: 4px 4px 10px rgba(0, 0, 0, 0.1); 
+  
+  overflow: hidden;    
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.brand-rect img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover; /* 🎯 Fills the entire rectangle without stretching */
+  padding: 0;        /* 🎯 Removed padding so image hits the edges */
+}
+
 .left-panel {
   display: flex;
   flex-direction: column;
   padding: 1rem;
   min-height: 0;
-  /* This pushes 'Notifications' and the list below the circle */
-  padding-top: 130px !important; 
+  padding-top: 310px !important; 
+  /* 🏁 This ensures the line runs top-to-bottom without gaps */
+  border-right: 1px solid #dadce0; 
 }
 
-/* ⬜ THE LIGHT GREY RECTANGLE */
-.top-left-brand-rectangle {
-  position: absolute;
-  top: 16px;        /* 🎯 Matches the circle's top perfectly now */
-  left: 125px;      /* Positioned to the right of the circle */
-  
-  /* 📏 Dimensions */
-  height: 94px;     /* 🎯 Matches the circle's height exactly */
-  /* Width = Left Column (20vw) minus the circle's offset and a small margin */
-  width: calc(20vw - 141px); 
-  
-  background-color: #f1f3f4;
-  border-radius: 12px; /* Slightly more rounded to match the larger scale */
-  z-index: 1001;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-  
-  /* 🚫 No text styles needed anymore */
+/* ⌨️ TYPEWRITER WELCOME AREA */
+.welcome-container {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   justify-content: center;
+  align-items: center;
+  height: 100%;
+  background-color: #fff; /* Matches your clean middle pane */
+}
+
+.welcome-text-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start; /* 🎯 Indented on the left */
+  color: #bdc1c6; /* Light grey */
+  font-family: 'Inter', sans-serif;
+}
+
+.welcome-line-1 {
+  font-size: 1.2rem;
+  font-weight: 400;
+  margin-bottom: 8px;
+  overflow: hidden;
+  white-space: nowrap;
+  border-right: 2px solid transparent; /* Cursor effect */
+  animation: typing 1.5s steps(30, end) forwards;
+}
+
+.welcome-line-2 {
+  font-size: 2.2rem; /* 🎯 Bigger than line 1 */
+  font-weight: 500;
+  overflow: hidden;
+  white-space: nowrap;
+  border-right: 2px solid transparent;
+  opacity: 0;
+  animation: typing 2s steps(40, end) 1.5s forwards, blink-caret 0.75s step-end infinite 3.5s;
+}
+
+/* Typing Animation */
+@keyframes typing {
+  from { width: 0; opacity: 1; }
+  to { width: 100%; opacity: 1; }
+}
+
+@keyframes blink-caret {
+  from, to { border-color: transparent }
+  50% { border-color: #bdc1c6; }
 }
