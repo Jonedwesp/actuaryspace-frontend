@@ -52,27 +52,62 @@ export async function handler(event) {
     // -----------------------------------------------------------------
 
     // 2. List Spaces (Populates your Sidebar list)
-    const url = new URL("https://chat.googleapis.com/v1/spaces");
-    url.searchParams.set("pageSize", "200");
-    url.searchParams.set("fields", "spaces(name,displayName,spaceType,spaceDetails,createTime),nextPageToken");
+    const url = new URL("https://chat.googleapis.com/v1/spaces");
+    url.searchParams.set("pageSize", "100"); // Reduced page size to avoid timeout
+    // 🛡️ REFINED FIELDS: Only request fields guaranteed to exist to avoid 500 errors
+    url.searchParams.set("fields", "spaces(name,displayName,spaceType,createTime,lastActiveTime),nextPageToken");
 
-    const res = await fetch(url.toString(), {
-      headers: { "Authorization": `Bearer ${accessToken}` },
-    });
+    const res = await fetch(url.toString(), {
+      headers: { "Authorization": `Bearer ${accessToken}` },
+    });
 
-    const data = await res.json().catch(() => ({}));
-    
-    if (!res.ok) return json(502, { ok: false, where: "list-spaces", data });
+    const data = await res.json().catch(() => ({}));
+    
+    if (!res.ok) {
+      console.error("LIST SPACES FAIL:", data);
+      return json(502, { ok: false, where: "list-spaces", data });
+    }
 
-    const spaces = (data.spaces || []).map((s) => ({
-      id: s.name,
-      displayName: s.displayName || "",
-      type: s.spaceType,
-      details: s.spaceDetails || null,
-      createTime: s.createTime || null,
-    }));
+    const rawSpaces = data.spaces || [];
 
-    return json(200, { ok: true, spaces });
+    // 🚀 STABLE SYNC: Fetch Read State with specific error handling for each request
+    const spacesWithReadState = await Promise.all(rawSpaces.map(async (s) => {
+      const spaceName = s.name; // e.g. "spaces/AAAA..."
+      const lastActive = s.lastActiveTime || s.createTime;
+      
+      try {
+        // Correct resource path: users/me/spaces/ID/spaceReadState
+        const rsUrl = `https://chat.googleapis.com/v1/users/me/${spaceName}/spaceReadState`;
+        
+        const rsRes = await fetch(rsUrl, {
+          headers: { "Authorization": `Bearer ${accessToken}` }
+        });
+        
+        const rsData = await rsRes.json();
+        
+        return {
+          id: spaceName,
+          displayName: s.displayName || "",
+          type: s.spaceType,
+          createTime: s.createTime || null,
+          lastActiveTime: lastActive,
+          // 🛡️ serverLastReadTime is the "Server Truth" we need for bolding
+          serverLastReadTime: rsData.lastReadTime || s.createTime
+        };
+      } catch (e) {
+        console.warn(`ReadState fetch failed for ${spaceName}:`, e.message);
+        return {
+          id: spaceName,
+          displayName: s.displayName || "",
+          type: s.spaceType,
+          createTime: s.createTime || null,
+          lastActiveTime: lastActive,
+          serverLastReadTime: s.createTime
+        };
+      }
+    }));
+
+    return json(200, { ok: true, spaces: spacesWithReadState });
 
   } catch (err) {
     console.error("GCHAT-SPACES ERROR:", err.message);

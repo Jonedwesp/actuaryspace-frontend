@@ -8,13 +8,17 @@ exports.handler = async (event) => {
     const { spaceId } = JSON.parse(event.body);
     const accessToken = await getAccessToken(event);
 
+    // Ensure spaceId is in the correct format for the URL path
+    const cleanSpaceId = spaceId.replace('spaces/', '');
+
     const postData = JSON.stringify({
       lastReadTime: new Date().toISOString()
     });
 
     const options = {
       hostname: 'chat.googleapis.com',
-      path: `/v1/${spaceId}/members/me?updateMask=lastReadTime`,
+      // Targeting the official spaceReadState resource for the user
+      path: `/v1/users/me/spaces/${cleanSpaceId}/spaceReadState?updateMask=lastReadTime`,
       method: 'PATCH',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
