@@ -10,21 +10,34 @@ export async function handler(event) {
     });
     const spaceData = await spaceRes.json();
 
-    // 2. Fetch latest messages (increased buffer)
     const notificationPromises = (spaceData.spaces || []).map(async (s) => {
       try {
-        // Fetch last 3 messages to catch rapid-fire unread texts
+        // 2. Fetch the user's membership to get 'lastReadTime'
+        const memRes = await fetch(`https://chat.googleapis.com/v1/${s.name}/members/me`, {
+          headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        const memData = await memRes.json();
+        const lastReadTime = new Date(memData.lastReadTime || 0).getTime();
+
+        // 3. Fetch last 3 messages
         const msgRes = await fetch(`https://chat.googleapis.com/v1/${s.name}/messages?pageSize=3`, {
           headers: { Authorization: `Bearer ${accessToken}` }
         });
         const msgData = await msgRes.json();
         const messages = msgData.messages || [];
 
-        // Map all incoming unread messages in this space
+        // 4. Filter: Only newer than lastReadTime AND not sent by Siya
         return messages.filter(m => {
+          const createTime = new Date(m.createTime).getTime();
           const sName = (m.sender?.displayName || "").toLowerCase();
           const sEmail = (m.sender?.email || "").toLowerCase();
-          return !(sEmail.includes("siya@") || sName.includes("siyabonga"));
+          
+          // Strict identity check to exclude Siya's own messages from unread counts
+          const isFromSiya = sEmail.includes("siya@") || 
+                             sName.includes("siyabonga") || 
+                             m.sender?.name === memData.name; // Checks against Siya's unique resource ID
+          
+          return createTime > lastReadTime && !isFromSiya;
         }).map(m => {
           const senderName = m.sender?.displayName || "Colleague";
           let snippet = m.text || "";
@@ -45,7 +58,6 @@ export async function handler(event) {
       }
     });
 
-    // Flatten the array of arrays into a single list of unread messages
     const notifications = (await Promise.all(notificationPromises))
       .filter(Boolean)
       .flat();

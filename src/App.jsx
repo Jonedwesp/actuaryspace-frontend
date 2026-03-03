@@ -2230,43 +2230,57 @@ const RightPanel = React.memo(function RightPanel({ filteredGchatSpaces, gchatLo
   );
 });
 
-// 👇 NEW: Text Formatter for GChat (Bolding + Links + Newlines)
-function formatChatText(text) {
-  if (!text) return "";
-  
-  // 1. Split by newlines, URLs, and *bold* markers
-  // Regex captures: (\n) OR (http...) OR (*bold*)
-  const parts = text.split(/(\n|https?:\/\/[^\s]+|\*[^*]+\*)/g);
+// 👇 NEW: Text Formatter for GChat (Bolding + Links + Newlines + Highlights)
+function formatChatText(text, highlightQuery = "") {
+  if (!text) return "";
+ 
+  // Helper to safely highlight matched text
+  const renderHighlight = (str) => {
+    if (!highlightQuery.trim()) return str;
+    // Escape regex special characters from the query
+    const regex = new RegExp(`(${highlightQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    const chunks = str.split(regex);
+    return chunks.map((chunk, j) => 
+      chunk.toLowerCase() === highlightQuery.toLowerCase() ? (
+        <mark key={j} style={{ backgroundColor: "#fff000", color: "#000", borderRadius: "2px", padding: "0 2px" }}>{chunk}</mark>
+      ) : chunk
+    );
+  };
 
-  return parts.map((part, i) => {
-    // A. Handle Newlines
-    if (part === "\n") return <br key={i} />;
-    
-    // B. Handle URLs
-    if (part.match(/^https?:\/\//)) {
-      return (
-        <a 
-          key={i} 
-          href={part} 
-          target="_blank" 
-          rel="noopener noreferrer" 
-          style={{ color: "#1a73e8", textDecoration: "underline", wordBreak: "break-all" }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {part}
-        </a>
-      );
-    }
-    
-    // C. Handle *Bold*
-    if (part.startsWith("*") && part.endsWith("*") && part.length > 2) {
-      return <strong key={i}>{part.slice(1, -1)}</strong>;
-    }
+  // 1. Split by newlines, URLs, and *bold* markers
+  // Regex captures: (\n) OR (http...) OR (*bold*)
+  const parts = text.split(/(\n|https?:\/\/[^\s]+|\*[^*]+\*)/g);
 
-    // D. Plain Text
-        return part;
-      });
-    }
+  return parts.map((part, i) => {
+    if (!part) return null;
+    // A. Handle Newlines
+    if (part === "\n") return <br key={i} />;
+   
+    // B. Handle URLs
+    if (part.match(/^https?:\/\//)) {
+      return (
+        <a
+          key={i}
+          href={part}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: "#1a73e8", textDecoration: "underline", wordBreak: "break-all" }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {part}
+        </a>
+      );
+    }
+   
+    // C. Handle *Bold*
+    if (part.startsWith("*") && part.endsWith("*") && part.length > 2) {
+      return <strong key={i}>{renderHighlight(part.slice(1, -1))}</strong>;
+    }
+
+    // D. Plain Text (now wrapped in highlight function)
+    return <span key={i}>{renderHighlight(part)}</span>;
+  });
+}
 
 const EmailSignature = () => (
   <div style={{ padding: "0 16px 24px 16px", fontFamily: "Verdana, Arial, sans-serif", fontSize: "13px", color: "#3c4043", lineHeight: "1.6", cursor: "default" }}>
@@ -2542,12 +2556,15 @@ export default function App() {
   const nextIdRef = useRef(0);
   const rotateIdxRef = useRef(0);
   const emailRotateRef = useRef(0);
-  const chatTextareaRef = useRef(null);
+const chatTextareaRef = useRef(null);
   const fileInputRef = useRef(null);
   const seenGmailIdsRef = useRef(null); // 👇 NEW: Track seen Gmail IDs to avoid spamming notifications
-  const seenGchatIdsRef = useRef(null); // 🟢 NEW: Track seen GChat IDs like Gmail
-  
-  const [showPlusMenu, setShowPlusMenu] = useState(false);
+  const seenGchatIdsRef = useRef(null); // 🟢 NEW: Track seen GChat IDs like Gmail
+  
+  // 👇 NEW: Permanent dismiss memory
+  const dismissedNotifsRef = useRef(new Set(JSON.parse(localStorage.getItem("DISMISSED_NOTIFS") || "[]")));
+
+  const [showPlusMenu, setShowPlusMenu] = useState(false);
 
  /* Google Chat */
   const gchatBodyRef = useRef(null);
@@ -3190,13 +3207,14 @@ useEffect(() => {
         }
       }
 
-      // Update the notifications array
-      if (combined.length > 0) {
-        setNotifications(prev => {
-          const existingIds = new Set(prev.map(p => p.id));
-          const newItems = combined.filter(item => !existingIds.has(item.id));
-          
-          if (newItems.length > 0 && !isInitialGchatSyncRef.current) {
+   // Update the notifications array
+      if (combined.length > 0) {
+        setNotifications(prev => {
+          const existingIds = new Set(prev.map(p => p.id));
+          // 👇 NEW: Also filter out anything that has been permanently dismissed
+          const newItems = combined.filter(item => !existingIds.has(item.id) && !dismissedNotifsRef.current.has(item.id));
+          
+          if (newItems.length > 0 && !isInitialGchatSyncRef.current) {
             // Play correct sound based on the items injected
             const hasNewEmail = newItems.some(item => item.alt === "Gmail");
             const hasNewChat = newItems.some(item => item.alt === "Google Chat");
@@ -3231,15 +3249,18 @@ useEffect(() => {
 
 // 🟢 GLOBAL NOTIFICATION LISTENER (Fixes Calendar, Trash, and Trello Notifications)
 useEffect(() => {
-  const handleNotify = (e) => {
-    const n = e.detail;
-    if (!n) return;
-    
-    setNotifications(prev => {
-      const id = n.id || `notif-${Date.now()}-${Math.random()}`;
-      if (prev.some(p => p.id === id)) return prev;
+  const handleNotify = (e) => {
+    const n = e.detail;
+    if (!n) return;
+    
+    setNotifications(prev => {
+      const id = n.id || `notif-${Date.now()}-${Math.random()}`;
+      if (prev.some(p => p.id === id)) return prev;
 
-      // Ensure appropriate sound fires
+      // 👇 NEW: Ignore if permanently dismissed
+      if (dismissedNotifsRef.current.has(id)) return prev;
+
+      // Ensure appropriate sound fires
       if (n.alt === "Gmail") new Audio(GMAIL_SOUND_DATA).play().catch(() => {});
       else if (n.alt === "Google Chat") new Audio(GCHAT_SOUND_DATA).play().catch(() => {});
       else if (n.alt === "Trello" || n.alt === "Calendar") new Audio(TRELLO_SOUND_DATA).play().catch(() => {});
@@ -4201,7 +4222,7 @@ const onNotificationClick = async (n) => {
   }
 };
 
-  /* dismiss notif */
+/* dismiss notif */
   const dismissNotification = (n) => {
     // If it's a real Gmail notification, mark it as read in the background
     if (n.alt === "Gmail" && n.gmailData?.id) {
@@ -4217,6 +4238,11 @@ const onNotificationClick = async (n) => {
 
     // Remove from UI (handles both objects and raw IDs just in case)
     const idToRemove = typeof n === "string" ? n : n.id;
+    
+    // 👇 NEW: Remember we dismissed this forever across reloads
+    dismissedNotifsRef.current.add(idToRemove);
+    localStorage.setItem("DISMISSED_NOTIFS", JSON.stringify(Array.from(dismissedNotifsRef.current)));
+
     setNotifications((prev) => prev.filter((x) => x.id !== idToRemove));
   };
 
@@ -5057,35 +5083,67 @@ if (currentView.app === "gchat") {
 
             return (
                 <button
-                  key={s.id}
-                  className={`gchat-item ${isActive ? "active" : ""}`}
-                  style={{
-                    width: "100%",
-                    maxWidth: "100%",
-                    margin: 0,
-                    boxSizing: "border-box",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "8px 16px",
-                    textAlign: "left",
-                    background: isActive ? "#c2e7ff" : "#f1f3f4",
-                    color: isActive ? "#001d35" : "#202124",
-                    border: isActive ? "1px solid #c2e7ff" : "1px solid #dadce0",
-                    cursor: "pointer",
-                    borderRadius: "24px",
-                    transition: "all 0.2s",
-                    fontSize: "13px"
-                  }}
-                  onClick={() => {
-                    setGchatSelectedSpace(s);
-                    setUnreadGchatSpaces(prev => {
-                      const next = { ...prev };
-                      delete next[s.id];
-                      delete next[s.name];
-                      return next;
-                    });
-                  }}
+  key={s.id}
+  className={`gchat-item ${isActive ? "active" : ""}`}
+  style={{
+    width: "100%",
+    maxWidth: "100%",
+    margin: 0,
+    boxSizing: "border-box",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: "8px 16px",
+    textAlign: "left",
+    background: isActive ? "#c2e7ff" : "#f1f3f4",
+    color: isActive ? "#001d35" : "#202124",
+    border: isActive ? "1px solid #c2e7ff" : "1px solid #dadce0",
+    cursor: "pointer",
+    borderRadius: "24px",
+    transition: "all 0.2s",
+    fontSize: "13px"
+  }}
+  onClick={async () => {
+    const spaceId = s.id || s.name;
+    
+    // 1. Set the selected space
+    setGchatSelectedSpace(s);
+
+    // 2. Clear local counts immediately so the blue bubble disappears at 0ms
+    setUnreadGchatSpaces(prev => {
+      const next = { ...prev };
+      delete next[spaceId];
+      delete next[s.id];
+      delete next[s.name];
+      return next;
+    });
+
+    // 3. Remove all pending notifications for this specific chat from the left panel
+    setNotifications(prev => prev.filter(n => n.spaceId !== spaceId));
+
+    // 4. Update memory ref so the next background poll doesn't "re-read" old messages
+    if (seenGchatIdsRef.current) {
+        gchatMessages.forEach(m => seenGchatIdsRef.current.add(m.name || m.id));
+    }
+
+    // 5. Tell the Google API that Siya has read this chat
+    try {
+      const res = await fetch("/.netlify/functions/gchat-mark-read", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ spaceId })
+      });
+      const json = await res.json();
+      
+      // If successful, force a local refresh of space times to prevent rubber-banding
+      if (json.ok) {
+        setGchatSpaceTimes(prev => ({ ...prev, [spaceId]: new Date().toISOString() }));
+      }
+    } catch (err) {
+      console.error("Failed to sync read status to Google:", err);
+    }
+  }}
                   onMouseEnter={e => !isActive && (e.currentTarget.style.background = "#e8eaed")}
                   onMouseLeave={e => !isActive && (e.currentTarget.style.background = "#f1f3f4")}
                 >
@@ -5543,22 +5601,22 @@ if (KNOWN_USERS[senderId]) {
                                       // 🟢 INSTANT DARKEN: Target only SENT (Mine) messages for the darker shade
                                       filter: (hoveredMsgId === msgId && isMine) ? "brightness(0.82)" : "none"
                                     }}>
-                                      {hasAttachment && !msg.isDeletedLocally && msg.text !== "Message deleted by its author" && (
-                                        <div style={{ marginBottom: msg?.text ? "8px" : "0" }}>
-                                          <div className="gchat-file-card" onClick={(e) => {
-                                            e.stopPropagation();
-                                            const finalUrl = fileData?.attachmentDataRef?.resourceName ? `/.netlify/functions/gchat-download?uri=api:${fileData.attachmentDataRef.resourceName}` : fileData?.downloadUri;
-                                            const isViewable = ["pdf", "png", "jpg", "jpeg", "gif", "webp"].includes(ext);
-                                            if (isViewable) { setGchatFilePreview({ name: fileName, url: finalUrl, type: iconClass }); }
-                                            else { window.open(finalUrl, '_blank'); }
-                                          }}>
-                                            <div className={`gchat-file-icon ${iconClass}`}>{fileType}</div>
-                                            <div className="gchat-file-info"><div className="gchat-file-name">{fileName}</div></div>
-                                          </div>
-                                        </div>
-                                      )}
-                                      {(msg?.text || msg?.formattedText) && formatChatText(msg?.text || msg?.formattedText)}
-                                    </div>
+                                     {hasAttachment && !msg.isDeletedLocally && msg.text !== "Message deleted by its author" && (
+                                        <div style={{ marginBottom: msg?.text ? "8px" : "0" }}>
+                                          <div className="gchat-file-card" onClick={(e) => {
+                                            e.stopPropagation();
+                                            const finalUrl = fileData?.attachmentDataRef?.resourceName ? `/.netlify/functions/gchat-download?uri=api:${fileData.attachmentDataRef.resourceName}` : fileData?.downloadUri;
+                                            const isViewable = ["pdf", "png", "jpg", "jpeg", "gif", "webp"].includes(ext);
+                                            if (isViewable) { setGchatFilePreview({ name: fileName, url: finalUrl, type: iconClass }); }
+                                            else { window.open(finalUrl, '_blank'); }
+                                          }}>
+                                            <div className={`gchat-file-icon ${iconClass}`}>{fileType}</div>
+                                            <div className="gchat-file-info"><div className="gchat-file-name">{fileName}</div></div>
+                                          </div>
+                                        </div>
+                                      )}
+                                      {(msg?.text || msg?.formattedText) && formatChatText(msg?.text || msg?.formattedText, debouncedChatSearchText)}
+                                    </div>
                                   )}
                                   
                                   {/* Reaction Chips Row */}
@@ -8393,12 +8451,12 @@ if (currentView.app === "gmail") {
                            }));
 
                            try {
-                              // ⚡ FIX: Sending both valueText AND valueNumber prevents Trello from rejecting the data format!
+                              // ⚡ FIX: Removed valueNumber so Trello strictly registers this as a Text field
                               await fetch("/.netlify/functions/trello-set-custom-field", {
-                                 method: "POST", body: JSON.stringify({ cardId: c.id, fieldName: "[SYSTEM]WorkDuration", valueText: String(newTotal), valueNumber: parseFloat(newTotal) })
+                                 method: "POST", body: JSON.stringify({ cardId: c.id, fieldName: "[SYSTEM]WorkDuration", valueText: String(newTotal) })
                               });
                               await fetch("/.netlify/functions/trello-set-custom-field", {
-                                 method: "POST", body: JSON.stringify({ cardId: c.id, fieldName: "[SYSTEM]WorkTimerStart", valueText: "", valueNumber: null })
+                                 method: "POST", body: JSON.stringify({ cardId: c.id, fieldName: "[SYSTEM]WorkTimerStart", valueText: "" })
                               });
                            } catch(err) { console.error("WorkFlow Timer Stop Failed", err); }
                         }}
@@ -8426,9 +8484,9 @@ if (currentView.app === "gmail") {
                            }));
                            
                            try {
-                              // ⚡ FIX: Sending both valueText AND valueNumber
+                              // ⚡ FIX: Removed valueNumber so Trello strictly registers this as a Text field
                               await fetch("/.netlify/functions/trello-set-custom-field", {
-                                 method: "POST", body: JSON.stringify({ cardId: c.id, fieldName: "[SYSTEM]WorkTimerStart", valueText: String(now), valueNumber: now })
+                                 method: "POST", body: JSON.stringify({ cardId: c.id, fieldName: "[SYSTEM]WorkTimerStart", valueText: String(now) })
                               });
                            } catch(err) { console.error("WorkFlow Timer Start Failed", err); }
                         }}
@@ -9319,17 +9377,35 @@ if (currentView.app === "gmail") {
         showNewChatModal,
         newChatTarget,
 
-        // 🟢 NEW: Google Chat state dependencies
-        gchatMessages,
-        gchatLoadingOlder,
-        gchatNextPageToken,
-        gchatMsgLoading,
-        gchatMsgError,
-        gchatSelectedSpace,
-         gchatDmNames,
-         gchatFilePreview,
-         debouncedChatSearchText, // 👈 THE FIX: This tells React to refresh the view when you stop typing
-       ]);
+   // 🟢 NEW: Google Chat state dependencies
+        gchatMessages,
+        gchatLoadingOlder,
+        gchatNextPageToken,
+        gchatMsgLoading,
+        gchatMsgError,
+        gchatSelectedSpace,
+        gchatDmNames,
+        gchatFilePreview,
+        debouncedChatSearchText, // 👈 THE FIX: This tells React to refresh the view when you stop typing
+        gchatSearchQuery,
+        debouncedGchatSearchQuery,
+        chatSearchText,
+        isChatSearchOpen,
+        gchatSpaces,
+        unreadGchatSpaces,
+        gchatSpaceTimes,
+        hoveredMsgId,
+        reactions,
+        editingMsgId,
+        msgToDelete,
+        pendingUpload,
+        isRecording,
+        inputValue,
+        showPlusMenu,
+        systemStatus,
+        batchStatus,
+        reviewingDoc,
+       ]);
 
 return (
   <PasswordGate>
