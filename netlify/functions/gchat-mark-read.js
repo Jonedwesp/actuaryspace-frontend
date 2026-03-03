@@ -1,4 +1,4 @@
-const { google } = require('googleapis');
+const https = require('https');
 const { getAccessToken } = require('./_google-creds');
 
 exports.handler = async (event) => {
@@ -6,24 +6,59 @@ exports.handler = async (event) => {
 
   try {
     const { spaceId } = JSON.parse(event.body);
-    const auth = await getAccessToken(event);
-    const chat = google.chat({ version: 'v1', auth });
+    const accessToken = await getAccessToken(event);
 
-    // Updates the read state for the current user in the specified space
-    await chat.spaces.members.patch({
-      name: `${spaceId}/members/me`,
-      updateMask: 'lastReadTime',
-      requestBody: {
-        lastReadTime: new Date().toISOString()
-      }
+    const postData = JSON.stringify({
+      lastReadTime: new Date().toISOString()
     });
 
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ ok: true })
+    const options = {
+      hostname: 'chat.googleapis.com',
+      path: `/v1/${spaceId}/members/me?updateMask=lastReadTime`,
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData)
+      }
     };
+
+    return new Promise((resolve) => {
+      const req = https.request(options, (res) => {
+        let responseBody = '';
+        res.on('data', (chunk) => { responseBody += chunk; });
+        res.on('end', () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            resolve({
+              statusCode: 200,
+              body: JSON.stringify({ ok: true })
+            });
+          } else {
+            console.error("Google API Error:", responseBody);
+            resolve({
+              statusCode: res.statusCode,
+              body: JSON.stringify({ ok: false, error: `API returned ${res.statusCode}` })
+            });
+          }
+        });
+      });
+
+      req.on('error', (err) => {
+        console.error("HTTPS Request Error:", err.message);
+        resolve({
+          statusCode: 500,
+          body: JSON.stringify({ ok: false, error: err.message })
+        });
+      });
+
+      req.write(postData);
+      req.end();
+    });
   } catch (err) {
-    console.error("Mark read error:", err);
-    return { statusCode: 500, body: JSON.stringify({ ok: false, error: err.message }) };
+    console.error("Handler Error:", err.message);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ ok: false, error: err.message })
+    };
   }
 };

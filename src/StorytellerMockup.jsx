@@ -1,15 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import Lottie from 'lottie-react';
-
-// A clean "thinking dots" animation JSON for the demo
-const pulseAnimation = {
-  "v": "5.5.2", "fr": 60, "ip": 0, "op": 60, "w": 100, "h": 100, "nm": "Loading", "ddd": 0, "assets": [],
-  "layers": [
-    { "ddd": 0, "ind": 1, "ty": 4, "nm": "Dot 3", "sr": 1, "ks": { "o": { "a": 1, "k": [{ "t": 20, "s": [30] }, { "t": 35, "s": [100] }, { "t": 50, "s": [30] }] }, "p": { "a": 0, "k": [80, 50, 0] } }, "shapes": [{ "ty": "el", "sz": { "a": 0, "k": [20, 20] }, "p": { "a": 0, "k": [0, 0] } }, { "ty": "fl", "c": { "a": 0, "k": [0, 0.83, 1, 1] } }] },
-    { "ddd": 0, "ind": 2, "ty": 4, "nm": "Dot 2", "sr": 1, "ks": { "o": { "a": 1, "k": [{ "t": 10, "s": [30] }, { "t": 25, "s": [100] }, { "t": 40, "s": [30] }] }, "p": { "a": 0, "k": [50, 50, 0] } }, "shapes": [{ "ty": "el", "sz": { "a": 0, "k": [20, 20] }, "p": { "a": 0, "k": [0, 0] } }, { "ty": "fl", "c": { "a": 0, "k": [0, 0.83, 1, 1] } }] },
-    { "ddd": 0, "ind": 3, "ty": 4, "nm": "Dot 1", "sr": 1, "ks": { "o": { "a": 1, "k": [{ "t": 0, "s": [30] }, { "t": 15, "s": [100] }, { "t": 30, "s": [30] }] }, "p": { "a": 0, "k": [20, 50, 0] } }, "shapes": [{ "ty": "el", "sz": { "a": 0, "k": [20, 20] }, "p": { "a": 0, "k": [0, 0] } }, { "ty": "fl", "c": { "a": 0, "k": [0, 0.83, 1, 1] } }] }
-  ]
-};
 
 const StorytellerMockup = ({ isLiveCallActive }) => {
   const [statusIndex, setStatusIndex] = useState(0);
@@ -62,7 +51,10 @@ const StorytellerMockup = ({ isLiveCallActive }) => {
 return (
     <div className="storyteller-container">
       {!isLiveCallActive ? null : (
-        <div className="story-active-content">
+     <div className="story-active-content">
+          <svg className="notebook-doodle" viewBox="0 0 50 50">
+            <path className="path" d="M25 5 Q25 25 45 25 Q25 25 25 45 Q25 25 5 25 Q25 25 25 5 Z" fill="none" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"></path>
+          </svg>
           <div className="typewriter-wrap">
             <span className="typewriter-text">{displayText}</span>
           </div>
@@ -78,6 +70,30 @@ return (
           display: flex;
           align-items: center;
           margin-top: 4px;
+          gap: 8px;
+        }
+     .notebook-doodle {
+          animation: rotate 6s linear infinite, breathe 2s ease-in-out infinite;
+          width: 16px;
+          height: 16px;
+          flex-shrink: 0;
+          transform-origin: center;
+        }
+
+        @keyframes breathe {
+          0%, 100% { transform: scale(0.85); opacity: 0.7; }
+          50% { transform: scale(1.15); opacity: 1; }
+        }
+
+        .notebook-doodle .path {
+          stroke: #5f6368;
+          stroke-linecap: round;
+          animation: dash 1.5s ease-in-out infinite, colorShift 4s infinite;
+        }
+
+        @keyframes colorShift {
+          0%, 100% { stroke: #5f6368; }
+          50% { stroke: #1a73e8; }
         }
         .typewriter-wrap {
           font-family: Arial, sans-serif;
@@ -88,7 +104,18 @@ return (
           font-weight: 500;
           display: flex;
           align-items: center;
-          gap: 8px;
+        }
+        @keyframes rotate {
+          100% { transform: rotate(360deg); }
+        }
+        @keyframes dash {
+          0% { stroke-dasharray: 1, 150; stroke-dashoffset: 0; }
+          50% { stroke-dasharray: 90, 150; stroke-dashoffset: -35; }
+          100% { stroke-dasharray: 90, 150; stroke-dashoffset: -124; }
+        }
+        @keyframes colorShift {
+          0%, 100% { stroke: #5f6368; }
+          50% { stroke: #1a73e8; }
         }
       `}</style>
     </div>
