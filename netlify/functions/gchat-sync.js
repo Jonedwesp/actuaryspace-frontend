@@ -26,18 +26,26 @@ export async function handler(event) {
         const msgData = await msgRes.json();
         const messages = msgData.messages || [];
 
-        // 4. Filter: Only newer than lastReadTime AND not sent by Siya
+        // 4. Filter: Detect unread based strictly on server lastReadTime
+        if (messages.length === 0) return [];
+
+        const lastRead = new Date(memData.lastReadTime || 0).getTime();
+
+        // 🛡️ Map messages that were created AFTER Siya last read the chat AND were NOT sent by Siya
         return messages.filter(m => {
           const createTime = new Date(m.createTime).getTime();
           const sName = (m.sender?.displayName || "").toLowerCase();
           const sEmail = (m.sender?.email || "").toLowerCase();
-          
-          // Strict identity check to exclude Siya's own messages from unread counts
+          const senderId = m.sender?.name || "";
+
           const isFromSiya = sEmail.includes("siya@") || 
                              sName.includes("siyabonga") || 
-                             m.sender?.name === memData.name; // Checks against Siya's unique resource ID
+                             sName.includes("actuaryspace") ||
+                             senderId === memData.name ||
+                             senderId === "users/112417469383977278282";
           
-          return createTime > lastReadTime && !isFromSiya;
+          // Must be newer than server read-receipt AND not sent by Siya
+          return createTime > lastRead && !isFromSiya;
         }).map(m => {
           const senderName = m.sender?.displayName || "Colleague";
           let snippet = m.text || "";

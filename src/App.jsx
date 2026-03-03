@@ -6,6 +6,7 @@ import notebookLMPic from "./assets/NotebookLM.png";
 import logo from "./assets/Actuary Consulting.png";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
+import StorytellerMockup from "./StorytellerMockup";
 
 // --- Performance Hook: Debounce ---
 function useDebounce(value, delay) {
@@ -2460,6 +2461,7 @@ function GChatEditBox({ initialText, onSave, onCancel }) {
 
 /* ---------- app ---------- */
 export default function App() {
+  const [isLiveCallActive, setIsLiveCallActive] = useState(false);
   const [systemStatus, setSystemStatus] = useState("good"); // Mockup state: "good" or "bad"
   const [currentView, setCurrentView] = useState({ app: "none", contact: null });
   const [isGchatSoundEnabled, setIsGchatSoundEnabled] = useState(false);
@@ -3163,8 +3165,32 @@ useEffect(() => {
           const ts = n.timestamp || n.createTime || new Date().toISOString();
           const msgId = n.id || n.name || `chat-${sid}-${ts}`;
 
-          // 🔵 Step 2: Increment the unread count for this space bubble
-          newUnreadCounts[sid] = (newUnreadCounts[sid] || 0) + 1;
+          // 🔵 Step 2: Accurate Unread Counter (Mirrors Google Chat)
+          const lastReadTime = gchatSpaceTimes[sid] ? new Date(gchatSpaceTimes[sid]).getTime() : 0;
+          const msgTime = new Date(ts).getTime();
+
+          const isCurrentlyViewing = gchatSelectedSpaceRef.current?.id === sid;
+          
+          // 🛡️ INITIAL LOAD SHIELD: If this is the very first sync, memorize the counts 
+          // but don't show notifications. This prevents the "Blast" of 30 pings on login.
+          const isFirstSync = isInitialGchatSyncRef.current;
+
+          if (msgTime > lastReadTime && !isCurrentlyViewing) {
+            newUnreadCounts[sid] = (newUnreadCounts[sid] || 0) + 1;
+            
+            // Only add to the notification panel if it's NOT the first boot
+            if (!isFirstSync) {
+              chatNotifs.push({
+                ...n,
+                id: msgId,
+                alt: "Google Chat",
+                icon: gchatIcon,
+                text: cleanText.length > 60 ? cleanText.substring(0, 57) + "..." : cleanText,
+                timestamp: ts,
+                spaceId: sid
+              });
+            }
+          }
 
           // 🛡️ SOUND TRACKING: Add to sound memory so it doesn't ding twice
           seenGchatIdsRef.current.add(msgId);
@@ -4640,31 +4666,47 @@ const handleUpdateGChatMessage = async (messageId, newText) => {
       }
 
       if (json.ok && json.message) {
-        const me = json.message?.sender?.name;
-        if (me && !gchatMe) {
-          setGchatMe(me);
-          localStorage.setItem("GCHAT_ME", me);
-        }
+        const me = json.message?.sender?.name;
+        if (me && !gchatMe) {
+          setGchatMe(me);
+          localStorage.setItem("GCHAT_ME", me);
+        }
         
-        // 🧠 FORCE IDENTITY ON OUTGOING MESSAGE IMMEDIATELY
         if (json.message.sender) {
           json.message.sender.displayName = "Siyabonga Nono";
         }
         
-        setGchatMessages((prev) => {
-            const merged = dedupeMergeMessages(prev, [json.message]);
-            if (merged.length > 0) {
-                const latestMsg = merged[merged.length - 1];
-                if (latestMsg?.createTime) {
-                    setTimeout(() => {
-                        setGchatSpaceTimes(t => ({ ...t, [gchatSelectedSpace.id]: latestMsg.createTime }));
-                    }, 0);
-                }
-            }
-            return merged;
+        const spaceId = gchatSelectedSpace.id;
+        // 🚀 FORCE READ: Use a 10s future buffer to account for server latency.
+        // This ensures the local dashboard ignores the message Siya just sent.
+        const futureBuffer = new Date(Date.now() + 10000).toISOString();
+
+        setGchatSpaceTimes(prev => {
+          const next = { ...prev, [spaceId]: futureBuffer };
+          localStorage.setItem("GCHAT_SPACE_TIMES", JSON.stringify(next));
+          return next;
         });
-        setInputValue(""); 
-      }
+        
+        // Immediately clear the blue bubble count for this specific space
+        setUnreadGchatSpaces(prev => {
+           const next = { ...prev };
+           delete next[spaceId];
+           delete next[gchatSelectedSpace.name];
+           return next;
+        });
+
+        // Clear unread state locally just in case a race condition happened
+        setUnreadGchatSpaces(prev => {
+          const next = { ...prev };
+          delete next[spaceId];
+          return next;
+        });
+
+        setGchatMessages((prev) => {
+            return dedupeMergeMessages(prev, [json.message]);
+        });
+        setInputValue(""); 
+      }
 
     } catch (err) {
       console.error("gchat-send/upload failed:", err);
@@ -5109,7 +5151,7 @@ if (currentView.app === "gchat") {
     // 1. Set the selected space
     setGchatSelectedSpace(s);
 
-    // 2. Clear local counts immediately so the blue bubble disappears at 0ms
+    // 2. Clear local counts immediately
     setUnreadGchatSpaces(prev => {
       const next = { ...prev };
       delete next[spaceId];
@@ -5118,30 +5160,32 @@ if (currentView.app === "gchat") {
       return next;
     });
 
-    // 3. Remove all pending notifications for this specific chat from the left panel
+    // 3. Update the Time Memory so the Poller ignores messages prior to this click
+    const nowIso = new Date().toISOString();
+    setGchatSpaceTimes(prev => {
+      const next = { ...prev, [spaceId]: nowIso };
+      localStorage.setItem("GCHAT_SPACE_TIMES", JSON.stringify(next));
+      return next;
+    });
+
+    // 4. Remove notifications from the feed
     setNotifications(prev => prev.filter(n => n.spaceId !== spaceId));
 
-    // 4. Update memory ref so the next background poll doesn't "re-read" old messages
+    // 5. Update the "Seen IDs" to include all messages currently in view
     if (seenGchatIdsRef.current) {
-        gchatMessages.forEach(m => seenGchatIdsRef.current.add(m.name || m.id));
+      gchatMessages.forEach(m => seenGchatIdsRef.current.add(m.name || m.id));
     }
 
-    // 5. Tell the Google API that Siya has read this chat
+    // 6. Final Sync to Google Server
     try {
-      const res = await fetch("/.netlify/functions/gchat-mark-read", {
+      await fetch("/.netlify/functions/gchat-mark-read", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ spaceId })
       });
-      const json = await res.json();
-      
-      // If successful, force a local refresh of space times to prevent rubber-banding
-      if (json.ok) {
-        setGchatSpaceTimes(prev => ({ ...prev, [spaceId]: new Date().toISOString() }));
-      }
     } catch (err) {
-      console.error("Failed to sync read status to Google:", err);
+      console.error("Mark read sync failed:", err);
     }
   }}
                   onMouseEnter={e => !isActive && (e.currentTarget.style.background = "#e8eaed")}
@@ -9411,12 +9455,16 @@ return (
   <PasswordGate>
     <div className="app">
       
-      {/* 🤖 AI IDENTITY STACK (Increased height to 110px) */}
-      <div className="brand-stack">
-        <div className="brand-rect" title="Agent Donna" style={{ height: '130px', overflow: 'hidden', borderRadius: '12px' }}>
+   {/* 🤖 AI IDENTITY STACK */}
+      <div className="brand-stack" style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
+        <div className="brand-rect" title="Agent Donna" style={{ height: '85px', overflow: 'hidden', borderRadius: '12px' }}>
           <img src={agentDonnaPic} alt="Agent Donna" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
         </div>
-        <div className="brand-rect" title="NotebookLM / Storyteller" style={{ height: '130px', overflow: 'hidden', borderRadius: '12px' }}>
+
+        {/* 🪄 NEW: Storyteller Mockup */}
+        <StorytellerMockup isLiveCallActive={isLiveCallActive} />
+
+        <div className="brand-rect" title="NotebookLM / Storyteller" style={{ height: '85px', overflow: 'hidden', borderRadius: '12px' }}>
           <img src={notebookLMPic} alt="NotebookLM" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
         </div>
       </div>
@@ -10008,12 +10056,19 @@ function LiveTimer({ startTime, duration }) {
     return () => clearInterval(interval);
   }, []);
 
-  let baseMinutes = parseFloat(duration || "0");
+  // 🛡️ Safely extract value even if it's trapped in a Trello API object
+  const extractVal = (v) => {
+    if (!v) return 0;
+    if (typeof v === "object") return parseFloat(v.text || v.number || v.value?.text || v.value?.number || 0);
+    return parseFloat(v);
+  };
+
+  let baseMinutes = extractVal(duration);
   if (baseMinutes > 1000000) baseMinutes = 0;
   let currentSessionMinutes = 0;
 
   if (startTime) {
-    const start = parseFloat(startTime);
+    const start = extractVal(startTime);
     if (start > 1000000000000) {
       const diff = Math.max(0, now - start);
       currentSessionMinutes = diff / 1000 / 60;
