@@ -1,9 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import Lottie from 'lottie-react';
 
+// A clean "thinking dots" animation JSON for the demo
 const pulseAnimation = {
-  "v": "5.5.7", "fr": 60, "ip": 0, "op": 60, "w": 100, "h": 100, "nm": "Pulse", "ddd": 0, "assets": [], 
-  "layers": [{ "ddd": 0, "ind": 1, "ty": 4, "nm": "Shape", "sr": 1, "ks": { "o": { "a": 1, "k": [{ "t": 0, "s": [30] }, { "t": 30, "s": [100] }, { "t": 60, "s": [30] }] } }, "shapes": [] }] 
+  "v": "5.5.2", "fr": 60, "ip": 0, "op": 60, "w": 100, "h": 100, "nm": "Loading", "ddd": 0, "assets": [],
+  "layers": [
+    { "ddd": 0, "ind": 1, "ty": 4, "nm": "Dot 3", "sr": 1, "ks": { "o": { "a": 1, "k": [{ "t": 20, "s": [30] }, { "t": 35, "s": [100] }, { "t": 50, "s": [30] }] }, "p": { "a": 0, "k": [80, 50, 0] } }, "shapes": [{ "ty": "el", "sz": { "a": 0, "k": [20, 20] }, "p": { "a": 0, "k": [0, 0] } }, { "ty": "fl", "c": { "a": 0, "k": [0, 0.83, 1, 1] } }] },
+    { "ddd": 0, "ind": 2, "ty": 4, "nm": "Dot 2", "sr": 1, "ks": { "o": { "a": 1, "k": [{ "t": 10, "s": [30] }, { "t": 25, "s": [100] }, { "t": 40, "s": [30] }] }, "p": { "a": 0, "k": [50, 50, 0] } }, "shapes": [{ "ty": "el", "sz": { "a": 0, "k": [20, 20] }, "p": { "a": 0, "k": [0, 0] } }, { "ty": "fl", "c": { "a": 0, "k": [0, 0.83, 1, 1] } }] },
+    { "ddd": 0, "ind": 3, "ty": 4, "nm": "Dot 1", "sr": 1, "ks": { "o": { "a": 1, "k": [{ "t": 0, "s": [30] }, { "t": 15, "s": [100] }, { "t": 30, "s": [30] }] }, "p": { "a": 0, "k": [20, 50, 0] } }, "shapes": [{ "ty": "el", "sz": { "a": 0, "k": [20, 20] }, "p": { "a": 0, "k": [0, 0] } }, { "ty": "fl", "c": { "a": 0, "k": [0, 0.83, 1, 1] } }] }
+  ]
 };
 
 const StorytellerMockup = ({ isLiveCallActive }) => {
@@ -34,17 +39,17 @@ const StorytellerMockup = ({ isLiveCallActive }) => {
     return () => clearInterval(interval);
   }, [isLiveCallActive]);
 
-  useEffect(() => {
+ useEffect(() => {
     if (!isLiveCallActive) return;
 
     let currentStepText = statusSteps[statusIndex];
-    let charIndex = 0;
+    let localText = "";
     setDisplayText("");
     
     const typingInterval = setInterval(() => {
-      if (charIndex < currentStepText.length) {
-        setDisplayText((prev) => prev + currentStepText.charAt(charIndex));
-        charIndex++;
+      if (localText.length < currentStepText.length) {
+        localText += currentStepText.charAt(localText.length);
+        setDisplayText(localText);
       } else {
         setIsTyping(false);
         clearInterval(typingInterval);
@@ -54,99 +59,37 @@ const StorytellerMockup = ({ isLiveCallActive }) => {
     return () => clearInterval(typingInterval);
   }, [statusIndex, isLiveCallActive]);
 
-  return (
-    <div className={`storyteller-container ${isLiveCallActive ? 'active' : 'idle'}`}>
-      <div className="story-header">
-        <div className={`status-dot ${isLiveCallActive ? 'live' : ''}`} />
-        <span className="story-label">STORYTELLER AI</span>
-      </div>
-
-      {!isLiveCallActive ? (
-        <div className="story-idle-content">
-          <p>Awaiting live audio context...</p>
-        </div>
-      ) : (
+return (
+    <div className="storyteller-container">
+      {!isLiveCallActive ? null : (
         <div className="story-active-content">
-          <div className="lottie-wrap">
-            <Lottie animationData={pulseAnimation} loop={true} />
-          </div>
           <div className="typewriter-wrap">
             <span className="typewriter-text">{displayText}</span>
-            <span className={`cursor ${isTyping ? 'visible' : 'blink'}`}>|</span>
           </div>
         </div>
       )}
 
       <style jsx>{`
         .storyteller-container {
-          padding: 12px;
-          border-radius: 12px;
-          background: #f8f9fa;
-          border: 1px solid #dadce0;
-          transition: all 0.4s ease;
-          min-height: 80px;
-          display: flex;
-          flex-direction: column;
-          justify-content: center;
-        }
-        .storyteller-container.active {
-          background: #e8f0fe;
-          border: 1px solid #1a73e8;
-          box-shadow: 0 2px 10px rgba(26, 115, 232, 0.15);
-        }
-        .story-header {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          margin-bottom: 8px;
-        }
-        .status-dot {
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          background: #9aa0a6;
-        }
-        .status-dot.live {
-          background: #ea4335;
-          box-shadow: 0 0 6px #ea4335;
-          animation: pulse 2s infinite;
-        }
-        .story-label {
-          font-size: 11px;
-          font-weight: 700;
-          letter-spacing: 0.8px;
-          color: #5f6368;
-        }
-        .storyteller-container.active .story-label {
-          color: #1a73e8;
-        }
-        .story-idle-content p {
-          font-size: 12px;
-          color: #80868b;
-          font-style: italic;
-          margin: 0;
+          padding: 0px 4px;
+          min-height: 0px;
         }
         .story-active-content {
           display: flex;
           align-items: center;
-          gap: 12px;
-        }
-        .lottie-wrap {
-          width: 32px;
-          height: 32px;
-          flex-shrink: 0;
+          margin-top: 4px;
         }
         .typewriter-wrap {
-          font-family: 'JetBrains Mono', monospace;
+          font-family: Arial, sans-serif;
           font-size: 12px;
-          color: #1a73e8;
+          color: #5f6368;
+          font-style: italic;
           line-height: 1.4;
           font-weight: 500;
+          display: flex;
+          align-items: center;
+          gap: 8px;
         }
-        .cursor.blink { animation: blink 1s infinite; opacity: 1; }
-        .cursor.visible { opacity: 1; }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
-        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
       `}</style>
     </div>
   );

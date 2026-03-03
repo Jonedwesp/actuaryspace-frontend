@@ -2475,6 +2475,34 @@ export default function App() {
   const [newEventDraft, setNewEventDraft] = useState({ summary: "", date: "", startTime: "", endTime: "", guests: "", location: "", description: "" });
   const isGmailInitialLoad = useRef(true);
 
+  // 🟢 NEW: Click Handler for Native Split-Screen Workstation
+  const handleSplitScreen = (url) => {
+    const screenW = window.screen.availWidth;
+    const screenH = window.screen.availHeight;
+    const halfW = screenW / 2;
+
+    // 1. Resize and reposition the current React window to the left 50%
+    window.resizeTo(halfW, screenH);
+    window.moveTo(0, 0);
+
+    // 2. Toggle Live Call state for Google Meet links
+    if (url.includes("meet.google.com")) {
+      setIsLiveCallActive(true);
+    }
+
+    // 3. Open target URL in a new window perfectly positioned on the right 50%
+    const popup = window.open(
+      url,
+      "_blank",
+      `width=${halfW},height=${screenH},left=${halfW},top=0,resizable=yes,scrollbars=yes`
+    );
+
+    // 4. Handle Popup Blockers
+    if (!popup || popup.closed || typeof popup.closed === "undefined") {
+      alert("Workstation Error: Pop-ups are blocked. Please enable them in your browser settings to allow the side-by-side view.");
+    }
+  };
+
   // 🕒 SESSION START: Marks the exact millisecond the user opened the workspace
   const sessionStartTime = useRef(new Date());
 
@@ -3150,36 +3178,38 @@ useEffect(() => {
       }
 
       if (chatData && chatData.ok && Array.isArray(chatData.notifications)) {
-        // 🔵 Step 1: Initialize counters for sidebar bubbles
         const newUnreadCounts = {};
         const chatNotifs = [];
         
-        // 🟢 GCHAT LOGIC FIX: Initialize sound memory if null
         const isFirstRun = seenGchatIdsRef.current === null;
         if (isFirstRun) {
           seenGchatIdsRef.current = new Set();
         }
+
+        // 🟢 PRE-EMPTIVE CLEAR: Assume all active spaces are read unless proven otherwise by the notification array
+        const spacesWithActivity = new Set(chatData.notifications.map(n => n.spaceId));
 
         chatData.notifications.forEach(n => {
           const sid = n.spaceId || n.space?.name;
           const ts = n.timestamp || n.createTime || new Date().toISOString();
           const msgId = n.id || n.name || `chat-${sid}-${ts}`;
 
-          // 🔵 Step 2: Accurate Unread Counter (Mirrors Google Chat)
           const lastReadTime = gchatSpaceTimes[sid] ? new Date(gchatSpaceTimes[sid]).getTime() : 0;
           const msgTime = new Date(ts).getTime();
-
           const isCurrentlyViewing = gchatSelectedSpaceRef.current?.id === sid;
-          
-          // 🛡️ INITIAL LOAD SHIELD: If this is the very first sync, memorize the counts 
-          // but don't show notifications. This prevents the "Blast" of 30 pings on login.
           const isFirstSync = isInitialGchatSyncRef.current;
 
           if (msgTime > lastReadTime && !isCurrentlyViewing) {
             newUnreadCounts[sid] = (newUnreadCounts[sid] || 0) + 1;
             
-            // Only add to the notification panel if it's NOT the first boot
             if (!isFirstSync) {
+              let senderLabel = n.title || "Colleague";
+              let cleanText = n.text || "";
+              if (senderLabel === "Someone" || senderLabel === "Colleague") {
+                const nameMatch = cleanText.match(/from ([A-Z][a-z]+)/);
+                if (nameMatch) senderLabel = nameMatch[1];
+              }
+
               chatNotifs.push({
                 ...n,
                 id: msgId,
@@ -3191,46 +3221,31 @@ useEffect(() => {
               });
             }
           }
-
-          // 🛡️ SOUND TRACKING: Add to sound memory so it doesn't ding twice
           seenGchatIdsRef.current.add(msgId);
-
-          // 🔵 Step 3: Resolve Name & Snippet for the UI Panel
-          let senderLabel = n.title || "Colleague";
-          let cleanText = n.text || "";
-          
-          if (senderLabel === "Someone" || senderLabel === "Colleague") {
-            const nameMatch = cleanText.match(/from ([A-Z][a-z]+)/);
-            if (nameMatch) senderLabel = nameMatch[1];
-          }
-
-          if (cleanText.startsWith("Someone:")) {
-            cleanText = cleanText.replace("Someone:", `${senderLabel}:`);
-          }
-
-          chatNotifs.push({
-            ...n,
-            id: msgId,
-            alt: "Google Chat",
-            icon: gchatIcon,
-            text: cleanText.length > 60 ? cleanText.substring(0, 57) + "..." : cleanText,
-            timestamp: ts,
-            spaceId: sid
-          });
         });
 
-        // 🔵 Step 4: Sync the calculated bubbles to the sidebar state
+        // 🔵 SYNC TO SIDEBAR: Force clear spaces that have no validated unread messages
         setUnreadGchatSpaces(prev => {
-          const next = { ...prev, ...newUnreadCounts };
+          const next = { ...prev };
+          
+          // 1. Update counts for spaces that HAVE new activity
+          Object.entries(newUnreadCounts).forEach(([sid, count]) => {
+            next[sid] = count;
+          });
+
+          // 2. 🛡️ THE SIYA GUARD: If a space currently has a bubble but the backend says 0 unread, kill the bubble
+          Object.keys(next).forEach(sid => {
+            if (!spacesWithActivity.has(sid)) {
+              delete next[sid];
+            }
+          });
+
           localStorage.setItem("GCHAT_UNREAD_SPACES", JSON.stringify(next));
           return next;
         });
         
         combined = [...combined, ...chatNotifs];
-        
-        if (isFirstRun) {
-          isInitialGchatSyncRef.current = false;
-        }
+        if (isFirstRun) isInitialGchatSyncRef.current = false;
       }
 
    // Update the notifications array
@@ -9080,8 +9095,8 @@ if (currentView.app === "gmail") {
       calendarGrid.push({ date: new Date(viewYear, viewMonth + 1, i), isCurrentMonth: false });
     }
 
-    return (
-      <div style={{ padding: "24px", background: "#fff", height: "100%", overflowY: "auto", display: "flex", flexDirection: "column", borderLeft: "1px solid #e6e6e6", borderRight: "1px solid #e6e6e6" }}>
+   return (
+      <div style={{ padding: "24px", background: "#fff", height: "100%", overflowY: "auto", display: "flex", flexDirection: "column" }}>
         
         {/* Header */}
         <div style={{ marginBottom: "24px", display: "flex", alignItems: "center" }}>
@@ -9455,17 +9470,25 @@ return (
   <PasswordGate>
     <div className="app">
       
-   {/* 🤖 AI IDENTITY STACK */}
-      <div className="brand-stack" style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
-        <div className="brand-rect" title="Agent Donna" style={{ height: '85px', overflow: 'hidden', borderRadius: '12px' }}>
+{/* 🤖 AI IDENTITY STACK (Increased height to 110px) */}
+      <div className="brand-stack" style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
+        <div className="brand-rect" title="Agent Donna" style={{ width: '100%', height: '90px', overflow: 'hidden', borderRadius: '12px' }}>
           <img src={agentDonnaPic} alt="Agent Donna" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
         </div>
 
-        {/* 🪄 NEW: Storyteller Mockup */}
-        <StorytellerMockup isLiveCallActive={isLiveCallActive} />
-
-        <div className="brand-rect" title="NotebookLM / Storyteller" style={{ height: '85px', overflow: 'hidden', borderRadius: '12px' }}>
+        {/* 🪄 NEW: Click the NotebookLM image to fake a live call for the demo! */}
+        <div 
+          className="brand-rect" 
+          title="NotebookLM / Storyteller" 
+          onClick={() => setIsLiveCallActive(!isLiveCallActive)} 
+          style={{ width: '100%', height: '90px', overflow: 'hidden', borderRadius: '12px', cursor: 'pointer' }}
+        >
           <img src={notebookLMPic} alt="NotebookLM" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+        </div>
+        
+        {/* Storyteller text renders BELOW the bottom picture */}
+        <div style={{ width: '100%', display: 'flex', justifyContent: 'flex-start', paddingLeft: '4px' }}>
+          <StorytellerMockup isLiveCallActive={isLiveCallActive} />
         </div>
       </div>
 
