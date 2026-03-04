@@ -11,16 +11,24 @@ export const handler = async function(event, context) {
     // 2. Parse the event data sent from your React app
     const data = JSON.parse(event.body);
 
-    // 3. EXCACT MATCH: Parse cookies for your specific auth token
+    // 3. MASTER KEY LOGIC: Prioritize the Netlify Environment Variable
+    // This ensures the backend always acts as Siya even if the browser has no cookies.
     const cookies = event.headers.cookie ? cookie.parse(event.headers.cookie) : {};
-    let refreshToken = cookies.AS_GCHAT_RT || process.env.AS_GCHAT_RT; 
+    let refreshToken = process.env.AS_GCHAT_RT || cookies.AS_GCHAT_RT; 
 
     if (!refreshToken) {
-      return { statusCode: 401, body: JSON.stringify({ ok: false, error: "Not authenticated. Missing AS_GCHAT_RT" }) };
+      return { statusCode: 401, body: JSON.stringify({ ok: false, error: "Identity not established. Please set AS_GCHAT_RT in Netlify." }) };
     }
 
-    try { refreshToken = decodeURIComponent(refreshToken); } catch (e) {}
-    refreshToken = decodeURIComponent(refreshToken);
+    // Double-decoding shield to handle varied browser encoding on the copy-paste.
+    try { 
+      refreshToken = decodeURIComponent(refreshToken); 
+      if (refreshToken.includes('%')) {
+        refreshToken = decodeURIComponent(refreshToken);
+      }
+    } catch (e) {
+      console.error("Token format error:", e);
+    }
 
     // 4. Setup the Google Auth Client
     const oauth2Client = new google.auth.OAuth2(
@@ -59,10 +67,17 @@ export const handler = async function(event, context) {
       resource: googleEvent,
     });
 
-    // 8. Send the real event (with the Meet link) back to the website
+  // 8. Send the real event (with the Meet link) back to the website
+    // 🛡️ AUTHUSER SHIELD: Forces the URL to open with Siya's session
+    const eventData = response.data;
+    if (eventData.hangoutLink) {
+      const separator = eventData.hangoutLink.includes('?') ? '&' : '?';
+      eventData.hangoutLink += `${separator}authuser=siyabonga@actuaryconsulting.co.za`;
+    }
+
     return {
       statusCode: 200,
-      body: JSON.stringify({ ok: true, event: response.data }),
+      body: JSON.stringify({ ok: true, event: eventData }),
     };
 
   } catch (error) {

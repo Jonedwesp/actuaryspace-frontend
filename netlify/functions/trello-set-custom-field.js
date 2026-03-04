@@ -31,10 +31,38 @@ export const handler = async (event) => {
         return { statusCode: 404, body: JSON.stringify({ ok: false, error: "Field not found" }) };
     }
 
-    // 4. 🚨 FORMAT AS TEXT: You specifically mentioned these are Text fields on Trello!
-    let payload = { value: "" }; // Default to clearing the field
-    if (valueText !== "" && valueText !== null) {
-         payload = { value: { text: String(valueText) } };
+    // 4. 🚨 FORMAT PAYLOAD DYNAMICALLY BASED ON FIELD TYPE
+    let payload = {};
+    const stringValue = valueText !== undefined && valueText !== null ? String(valueText) : "";
+
+    if (field.type === 'list') {
+        // Dropdown fields (Status, Priority, Active)
+        if (stringValue === "" || stringValue === "(None)") {
+            payload = { idValue: "" }; // Clear field
+        } else {
+            // Match the text to get the Trello Option ID
+            const option = field.options.find(opt => 
+                opt.value.text.toLowerCase().trim() === stringValue.toLowerCase().trim()
+            );
+            if (!option) {
+                return { statusCode: 400, body: JSON.stringify({ ok: false, error: `Option '${stringValue}' not found in field '${fieldName}'` }) };
+            }
+            payload = { idValue: option.id };
+        }
+    } else if (field.type === 'number') {
+        // Number fields
+        if (stringValue === "") {
+            payload = { value: "" };
+        } else {
+            payload = { value: { number: stringValue } };
+        }
+    } else {
+        // Standard Text fields (Timers)
+        if (stringValue === "") {
+            payload = { value: "" }; 
+        } else {
+            payload = { value: { text: stringValue } };
+        }
     }
 
     // 5. Send to Trello

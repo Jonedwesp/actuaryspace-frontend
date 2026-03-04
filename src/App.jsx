@@ -11,27 +11,58 @@ import BlueprintVideo from "./BlueprintVideo";
 
 // --- Performance Hook: Debounce ---
 function useDebounce(value, delay) {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-  useEffect(() => {
-    const handler = setTimeout(() => setDebouncedValue(value), delay);
-    return () => clearTimeout(handler);
-  }, [value, delay]);
-  return debouncedValue;
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debouncedValue;
 }
 
 // --- Smart Link Component for Workspace Apps ---
-const SmartLink = ({ url, label, setIsLiveCallActive, className, style, children }) => {
+const SmartLink = ({ url, label, setIsLiveCallActive, setSelectedEvent, className, style, children }) => {
   const [isHovered, setIsHovered] = useState(false);
 
-  const handleClick = (e) => {
-    e.stopPropagation(); // Prevents triggering parent onClick events
+ const handleClick = async (e) => {
+    e.stopPropagation();
+    
+    // 🚀 INTERCEPT MEET LINKS: Generate a host-owned meeting via the backend
     if (url?.includes('meet.google.com')) {
-      if (setIsLiveCallActive) setIsLiveCallActive(true);
-      window.dispatchEvent(new CustomEvent("googleMeetLaunched"));
+      e.preventDefault(); 
+
+      // Dismiss the calendar pop-up instantly
+      if (setSelectedEvent) setSelectedEvent(null);
+
+      try {
+        const res = await fetch("/.netlify/functions/calendar-create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ summary: `Meeting: ${label || children}` })
+        });
+        const json = await res.json();
+        
+        if (json.ok && json.event?.hangoutLink) {
+          if (setIsLiveCallActive) setIsLiveCallActive(true);
+          window.dispatchEvent(new CustomEvent("googleMeetLaunched"));
+          const separator = json.event.hangoutLink.includes('?') ? '&' : '?';
+          const authUrl = `${json.event.hangoutLink}${separator}authuser=siyabonga@actuaryconsulting.co.za`;
+          launchWorkstationWindow(authUrl);
+        } else {
+          if (setIsLiveCallActive) setIsLiveCallActive(true);
+          window.dispatchEvent(new CustomEvent("googleMeetLaunched"));
+          const separator = url.includes('?') ? '&' : '?';
+          const authUrl = `${url}${separator}authuser=siyabonga@actuaryconsulting.co.za`;
+          launchWorkstationWindow(authUrl);
+        }
+      } catch (err) {
+        if (setIsLiveCallActive) setIsLiveCallActive(true);
+        window.dispatchEvent(new CustomEvent("googleMeetLaunched"));
+        const separator = url.includes('?') ? '&' : '?';
+        const authUrl = `${url}${separator}authuser=siyabonga@actuaryconsulting.co.za`;
+        launchWorkstationWindow(authUrl);
+      }
     }
   };
-
-  // 👇 NEW: Check if this is a Google Doc, Sheet, or Meet URL
   const isWorkspaceLink = url?.includes('meet.google.com') || url?.includes('docs.google.com') || url?.includes('sheets.google.com');
 
   return (
@@ -52,7 +83,6 @@ const SmartLink = ({ url, label, setIsLiveCallActive, className, style, children
         {label || children}
       </a>
       
-      {/* 👇 FIXED: Perfect absolute positioning locked directly above the link */}
       {isHovered && isWorkspaceLink && (
         <div style={{
           position: "absolute",
@@ -73,7 +103,6 @@ const SmartLink = ({ url, label, setIsLiveCallActive, className, style, children
           fontFamily: "system-ui, -apple-system, sans-serif"
         }}>
           Right-click for more options...
-          {/* Tooltip Triangle */}
           <div style={{
             content: '""',
             position: "absolute",
@@ -2323,31 +2352,31 @@ function formatChatText(text, highlightQuery = "") {
     if (part === "\n") return <br key={i} />;
     
     // B. Handle URLs
-    if (part.match(/^https?:\/\//)) {
-      if (part.includes("docs.google.com") || part.includes("sheets.google.com") || part.includes("meet.google.com")) {
-        return (
-          <SmartLink
-            key={i}
-            url={part}
-            style={{ color: "#1a73e8", textDecoration: "underline", wordBreak: "break-all" }}
-          >
-            {part}
-          </SmartLink>
-        );
-      }
-      return (
-        <a
-          key={i}
-          href={part}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ color: "#1a73e8", textDecoration: "underline", wordBreak: "break-all" }}
-          onClick={e => e.stopPropagation()}
-        >
-          {part}
-        </a>
-      );
-    }
+    if (part.match(/^https?:\/\//)) {
+      if (part.includes("docs.google.com") || part.includes("sheets.google.com") || part.includes("meet.google.com")) {
+        return (
+          <SmartLink
+            key={i}
+            url={part}
+            style={{ color: "#1a73e8", textDecoration: "underline", wordBreak: "break-all" }}
+          >
+            {part}
+          </SmartLink>
+        );
+      }
+      return (
+        <a
+          key={i}
+          href={part}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: "#1a73e8", textDecoration: "underline", wordBreak: "break-all" }}
+          onClick={e => e.stopPropagation()}
+        >
+          {part}
+        </a>
+      );
+    }
     
     // C. Handle *Bold*
     if (part.startsWith("*") && part.endsWith("*") && part.length > 2) {
@@ -2546,6 +2575,205 @@ export const launchWorkstationWindow = (url) => {
 };
 
 /* ---------- app ---------- */
+// 🟢 NEW: Productivity Dashboard Component
+const ProductivityDashboard = React.memo(({ trelloBuckets }) => {
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [prodStats, setProdStats] = useState({ "Siya": 0, "Enock": 0, "Songeziwe": 0, "Bonisa": 0 });
+  const [isLoadingStats, setIsLoadingStats] = useState(true);
+
+  // Poll the backend for accurate movement durations every 30 seconds
+  useEffect(() => {
+    let isMounted = true;
+    const fetchStats = async () => {
+      try {
+        const res = await fetch("/.netlify/functions/trello-productivity");
+        const json = await res.json();
+        if (isMounted && json.ok) {
+          setProdStats(json.stats);
+        }
+      } catch (error) {
+        console.error("Failed to fetch productivity stats", error);
+      } finally {
+        if (isMounted) setIsLoadingStats(false);
+      }
+    };
+
+    fetchStats();
+    const interval = setInterval(fetchStats, 30000);
+    return () => { isMounted = false; clearInterval(interval); };
+  }, []);
+
+  const TARGET_USERS = ["Siya", "Enock", "Songeziwe", "Bonisa"];
+
+  // Helper to extract metrics for a specific user based on the rules
+  const getUserMetrics = (userName) => {
+    // Exact list matches
+    const userList = trelloBuckets.find(b => b.title.toLowerCase() === userName.toLowerCase()) || { cards: [] };
+    const reviewList = trelloBuckets.find(b => b.title === "Siya - Review") || { cards: [] };
+
+    let status = "🔴";
+    let currentTask = "None (Or Away)";
+
+    // 1. Live Status & Current Task
+    const workingCard = userList.cards.find(c => 
+      c.badges?.some(b => b.text === "Active: Working on it") || 
+      c.customFields?.Active === "Working on it"
+    );
+    
+    const pausedCard = userList.cards.find(c => 
+      c.badges?.some(b => b.text === "Status: Pause") || 
+      c.customFields?.Status === "Pause"
+    );
+
+    if (workingCard) {
+      status = "🟢";
+      currentTask = workingCard.title;
+    } else if (pausedCard) {
+      status = "🟡";
+      currentTask = `[Paused] ${pausedCard.title}`;
+    }
+
+    // 2. Daily Output (Count in Siya - Review List)
+    const reviewCount = reviewList.cards.filter(c => 
+      c.people?.some(p => String(p).toLowerCase().includes(userName.toLowerCase()))
+    ).length;
+
+    // 3. Time Logged Today (Real Data from the List Movement Backend)
+    const calculateTimeLogged = () => {
+      const totalMinutes = Math.floor(prodStats[userName] || 0);
+      if (totalMinutes === 0) return "0h 0m";
+
+      const hours = Math.floor(totalMinutes / 60);
+      const mins = totalMinutes % 60;
+      
+      return `${hours}h ${mins}m`;
+    };
+
+    return {
+      userName,
+      status,
+      currentTask,
+      timeLogged: isLoadingStats ? "Loading..." : calculateTimeLogged(),
+      reviewCount,
+      activeCards: userList.cards,
+      completedCards: reviewList.cards.filter(c => c.people?.some(p => String(p).toLowerCase().includes(userName.toLowerCase())))
+    };
+  };
+
+  if (selectedUser) {
+    const metrics = getUserMetrics(selectedUser);
+    const allUserCards = [...metrics.activeCards, ...metrics.completedCards];
+
+    return (
+      <div className="prod-dashboard">
+        <div className="prod-detail">
+          <button className="prod-back-btn" onClick={() => setSelectedUser(null)}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+            Back to Dashboard
+          </button>
+
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "24px" }}>
+            <h2 style={{ fontSize: "28px", margin: 0, color: "#1f1f1f" }}>
+              {metrics.status} {selectedUser}'s Workspace
+            </h2>
+            <div style={{ display: "flex", gap: "24px" }}>
+              <div className="prod-metric">
+                <span className="prod-metric-label">Output</span>
+                <span className="prod-metric-value highlight">{metrics.reviewCount} Cases</span>
+              </div>
+              <div className="prod-metric">
+                <span className="prod-metric-label">Logged</span>
+                <span className="prod-metric-value highlight">{metrics.timeLogged}</span>
+              </div>
+            </div>
+          </div>
+
+          <h3 style={{ fontSize: "16px", color: "#5f6368", borderBottom: "2px solid #f1f3f4", paddingBottom: "8px", margin: "0 0 16px 0" }}>
+            Card Activity
+          </h3>
+          
+          <div style={{ overflowY: "auto", flex: 1 }}>
+            <table className="prod-table">
+              <thead>
+                <tr>
+                  <th style={{ width: "50%" }}>Card Name</th>
+                  <th>Location</th>
+                  <th>Priority</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allUserCards.length === 0 ? (
+                  <tr>
+                    <td colSpan="4" style={{ textAlign: "center", color: "#5f6368", fontStyle: "italic", padding: "32px" }}>No active or reviewed cards found for {selectedUser}.</td>
+                  </tr>
+                ) : (
+                  allUserCards.map(c => (
+                    <tr key={c.id} style={{ cursor: "pointer" }} onClick={() => window.dispatchEvent(new CustomEvent("openTrelloCard", { detail: c }))}>
+                      <td style={{ fontWeight: 500 }}>{c.title}</td>
+                      <td>
+                        <span style={{ background: c.list === "Siya - Review" ? "#e6f4ea" : "#f1f3f4", color: c.list === "Siya - Review" ? "#137333" : "#3c4043", padding: "4px 8px", borderRadius: "4px", fontSize: "12px", fontWeight: 600 }}>
+                          {c.list}
+                        </span>
+                      </td>
+                      <td>{c.customFields?.Priority || "-"}</td>
+                      <td>{c.customFields?.Active || c.customFields?.Status || "-"}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="prod-dashboard">
+      <div style={{ textAlign: "center", marginBottom: "32px" }}>
+        <h1 style={{ fontSize: "28px", color: "#1f1f1f", margin: "0 0 8px 0" }}>Team Productivity</h1>
+        <p style={{ color: "#5f6368", margin: 0, fontSize: "15px" }}>Live metrics synced from active Trello board movements.</p>
+      </div>
+
+      <div className="prod-grid">
+        {TARGET_USERS.map(user => {
+          const m = getUserMetrics(user);
+          return (
+            <div key={user} className="prod-card" onClick={() => setSelectedUser(user)}>
+              <div className="prod-card-header">
+                <div className="prod-card-title">
+                  <span className="prod-status-dot">{m.status}</span>
+                  {user}
+                </div>
+                <div style={{ width: "40px", height: "40px", borderRadius: "50%", background: "#e8f0fe", color: "#1a73e8", display: "grid", placeItems: "center", fontWeight: "bold", fontSize: "16px" }}>
+                  {user.charAt(0)}
+                </div>
+              </div>
+              
+              <div className="prod-metric">
+                <span className="prod-metric-label">Current Task</span>
+                <span className="prod-metric-value">{m.currentTask}</span>
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: "8px", paddingTop: "16px", borderTop: "1px solid #f1f3f4" }}>
+                <div className="prod-metric">
+                  <span className="prod-metric-label">Time Logged Today</span>
+                  <span className="prod-metric-value highlight">{m.timeLogged}</span>
+                </div>
+                <div className="prod-metric" style={{ alignItems: "flex-end" }}>
+                  <span className="prod-metric-label">Sent to Review</span>
+                  <span className="prod-metric-value highlight">{m.reviewCount}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+});
+
 export default function App() {
   const [systemErrors, setSystemErrors] = useState({});
   const [showSystemPopup, setShowSystemPopup] = useState(false);
@@ -3324,178 +3552,188 @@ const combinedContacts = useMemo(() => {
 
 // 2. UPDATED EFFECT
 useEffect(() => {
-  async function syncAllNotifications() {
-    try {
-      clearSystemError("Notifications");
-      const [emailRes, chatRes] = await Promise.all([
-        fetch("/.netlify/functions/gmail-inbox?limit=25"),
-        fetch("/.netlify/functions/gchat-sync")
-      ]);
+  async function syncAllNotifications() {
+    try {
+      clearSystemError("Notifications");
+      const [emailRes, chatRes] = await Promise.all([
+        fetch("/.netlify/functions/gmail-inbox?limit=25"),
+        fetch("/.netlify/functions/gchat-sync")
+      ]);
 
-      const emailData = await emailRes.json();
-      const chatData = await chatRes.json();
+      const emailData = await emailRes.json();
+      const chatData = await chatRes.json();
 
-      let combined = [];
+      let combined = [];
 
-      if (emailData && emailData.ok && Array.isArray(emailData.emails)) {
-        const gmailNotifs = emailData.emails
-          .filter(email => email.isUnread) 
-  .map(email => {
-            const cleanFrom = email.from ? email.from.split("<")[0].replace(/"/g, '').trim() : "Someone";
-            return {
-              id: email.id,
-              alt: "Gmail",
-              icon: gmailIcon,
-              text: `${cleanFrom}: ${email.subject || "(No Subject)"}`,
-              timestamp: email.date || new Date().toISOString(),
-              gmailData: email
-            };
-          });
-        combined = [...combined, ...gmailNotifs];
-      }
+      if (emailData && emailData.ok && Array.isArray(emailData.emails)) {
+        // ⚡ LIVE INBOX INJECTION (GMAIL)
+        if (currentViewRef.current.app === "gmail" && activeFolderRef.current === "INBOX" && !activeSearchRef.current) {
+          setGmailEmails(prev => {
+            const existingIds = new Set(prev.map(e => e.id));
+            const newEmails = emailData.emails.filter(e => !existingIds.has(e.id));
+            if (newEmails.length === 0) return prev;
+            return [...newEmails, ...prev].sort((a,b) => new Date(b.date) - new Date(a.date));
+          });
+        }
 
-      if (chatData && chatData.ok && Array.isArray(chatData.notifications)) {
+        const gmailNotifs = emailData.emails
+          .filter(email => email.isUnread)
+          .map(email => {
+            const cleanFrom = email.from ? email.from.split("<")[0].replace(/"/g, '').trim() : "Someone";
+            return {
+              id: email.id,
+              alt: "Gmail",
+              icon: gmailIcon,
+              text: `${cleanFrom}: ${email.subject || "(No Subject)"}`,
+              timestamp: email.date || new Date().toISOString(),
+              gmailData: email
+            };
+          });
+        combined = [...combined, ...gmailNotifs];
+      }
+
+      if (chatData && chatData.ok) {
+        // ⚡ LIVE SIDEBAR INJECTION (GCHAT)
+        // If we are in GChat view, update the sidebar list to reflect new messages and order
+        if (currentViewRef.current.app === "gchat" && Array.isArray(chatData.spaces)) {
+          setGchatSpaces(prev => {
+            // Merge existing names with new ones to ensure labels don't flicker
+            const newSpaces = chatData.spaces.map(s => {
+              const sid = s.id || s.name;
+              const existing = prev.find(p => (p.id || p.name) === sid);
+              return existing ? { ...existing, ...s } : s;
+            });
+            // Re-sort by last active time to push newest chats to the top
+            return newSpaces.sort((a, b) => {
+              const timeA = new Date(a.lastActiveTime || a.createTime).getTime();
+              const timeB = new Date(b.lastActiveTime || b.createTime).getTime();
+              return timeB - timeA;
+            });
+          });
+        }
+
         const chatNotifs = [];
-        
         const isFirstRun = seenGchatIdsRef.current === null;
         if (isFirstRun) {
           seenGchatIdsRef.current = new Set();
-          console.log("🛡️ [GChat Sync] First run: Initializing memory shield.");
         }
 
-        chatData.notifications.forEach(n => {
-          const sid = n.spaceId;
-          const ts = n.timestamp;
-          const msgId = n.id || n.name;
-          // 🛡️ USE REF: Ensures we have the absolute current space ID
-          const isCurrentlyViewing = gchatSelectedSpaceRef.current?.id === sid || gchatSelectedSpaceRef.current?.name === sid;
-          
-          const hasBeenSeen = seenGchatIdsRef.current.has(msgId);
+        if (Array.isArray(chatData.notifications)) {
+          chatData.notifications.forEach(n => {
+            const sid = n.spaceId;
+            const ts = n.timestamp;
+            const msgId = n.id || n.name;
+            const isCurrentlyViewing = gchatSelectedSpaceRef.current?.id === sid || gchatSelectedSpaceRef.current?.name === sid;
+            const hasBeenSeen = seenGchatIdsRef.current.has(msgId);
 
-          if (!hasBeenSeen) {
-            // 1. Mark as seen globally for this session
-            seenGchatIdsRef.current.add(msgId);
+            if (!hasBeenSeen) {
+              seenGchatIdsRef.current.add(msgId);
 
-            if (!isCurrentlyViewing) {
-              // 2. 🔵 UPDATE SIDEBAR BUBBLE (Not viewing this chat)
-              setUnreadGchatSpaces(prev => {
-                const next = { ...prev, [sid]: ts };
-                localStorage.setItem("GCHAT_UNREAD_SPACES", JSON.stringify(next));
-                return next;
-              });
+              if (!isCurrentlyViewing) {
+                // Background Unread Count Handling
+                setUnreadGchatSpaces(prev => {
+                  const next = { ...prev, [sid]: ts };
+                  localStorage.setItem("GCHAT_UNREAD_SPACES", JSON.stringify(next));
+                  return next;
+                });
 
-              // 3. 🕒 UPDATE SIDEBAR TIME
-              setGchatSpaceTimes(prev => {
-                const next = { ...prev, [sid]: ts };
-                localStorage.setItem("GCHAT_SPACE_TIMES", JSON.stringify(next));
-                return next;
-              });
+                setGchatSpaceTimes(prev => {
+                  const next = { ...prev, [sid]: ts };
+                  localStorage.setItem("GCHAT_SPACE_TIMES", JSON.stringify(next));
+                  return next;
+                });
 
-              // 4. ADD TO PANEL
-              if (!dismissedNotifsRef.current.has(msgId)) {
-                const isAlreadyInUI = notifications.some(existing => existing.id === msgId);
-                if (!isAlreadyInUI) {
-                  const lastSenderId = n.sender?.name || "";
-                  const resolvedSender = GCHAT_ID_MAP[lastSenderId] || n.senderName || "Colleague";
-                  chatNotifs.push({
-                    ...n, id: msgId, alt: "Google Chat", icon: gchatIcon,
-                    text: `${resolvedSender}: ${n.text}`, timestamp: ts, spaceId: sid,
-                    isSilent: isFirstRun
-                  });
+                if (!dismissedNotifsRef.current.has(msgId)) {
+                  const isAlreadyInUI = notifications.some(existing => existing.id === msgId);
+                  if (!isAlreadyInUI) {
+                    const lastSenderId = n.sender?.name || "";
+                    const resolvedSender = GCHAT_ID_MAP[lastSenderId] || n.senderName || "Colleague";
+                    chatNotifs.push({
+                      ...n, id: msgId, alt: "Google Chat", icon: gchatIcon,
+                      text: `${resolvedSender}: ${n.text}`, timestamp: ts, spaceId: sid,
+                      isSilent: isFirstRun
+                    });
+                  }
                 }
-              }
-            } else {
-              // ⚡ THE LIVE BRIDGE: Siya IS looking at this chat.
-              // We inject the message and then trigger an immediate fetch for the full thread 
-              // to ensure metadata (reactions, attachments) are synced.
-              setGchatMessages(prev => {
-                const incomingMsg = {
-                  name: msgId,
-                  text: n.text,
-                  createTime: ts,
-                  sender: { name: n.sender?.name, displayName: n.senderName }
-                };
-                return dedupeMergeMessages(prev, [incomingMsg]);
-              });
+              } else {
+                // ⚡ LIVE THREAD INJECTION (ACTIVE CHAT)
+                setGchatMessages(prev => {
+                  if (prev.some(m => (m.name || m.id) === msgId)) return prev;
+                  const incomingMsg = {
+                    name: msgId,
+                    text: n.text,
+                    createTime: ts,
+                    sender: { name: n.sender?.name, displayName: n.senderName }
+                  };
+                  return [...prev, incomingMsg].sort((a, b) => new Date(a.createTime) - new Date(b.createTime));
+                });
 
-              // 🛡️ RE-SYNC PROTECTION: Update the local read time immediately 
-              // so the local poller doesn't think this message is "old news" and skip it.
-              setGchatSpaceTimes(prev => {
-                const next = { ...prev, [sid]: ts };
-                localStorage.setItem("GCHAT_SPACE_TIMES", JSON.stringify(next));
-                return next;
-              });
-              
-              // Clear unread bubble for the active chat
-              setUnreadGchatSpaces(prev => {
-                const next = { ...prev };
-                delete next[sid];
-                return next;
-              });
+                setGchatSpaceTimes(prev => {
+                  const next = { ...prev, [sid]: ts };
+                  localStorage.setItem("GCHAT_SPACE_TIMES", JSON.stringify(next));
+                  return next;
+                });
+                
+                setUnreadGchatSpaces(prev => {
+                  const next = { ...prev };
+                  delete next[sid];
+                  return next;
+                });
+              }
             }
-          }
-        });
+          });
+        }
 
         combined = [...combined, ...chatNotifs];
-        
-        if (isFirstRun) {
-          isInitialGchatSyncRef.current = false;
-          console.log("🛡️ [GChat Sync] Initial sync complete. Real-time alerts are now ACTIVE.");
-        }
+        if (isFirstRun) isInitialGchatSyncRef.current = false;
       }
 
-   // Update the notifications array
-      if (combined.length > 0) {
-        setNotifications(prev => {
-          const existingIds = new Set(prev.map(p => p.id));
-          const seenInBatch = new Set();
-          const newItems = combined.filter(item => {
-            if (existingIds.has(item.id) || dismissedNotifsRef.current.has(item.id) || seenInBatch.has(item.id)) return false;
-            seenInBatch.add(item.id);
-            return true;
-          });
-          
-          if (newItems.length > 0) {
-            // 🛡️ REFINED AUDIO SHIELD: Only play sound if the specific item is not marked as silent
-            const hasNewEmail = newItems.some(item => 
-              item.alt === "Gmail" && new Date(item.timestamp) > sessionStartTime.current
-            );
-            // Check the 'isSilent' flag we just created for Chat
-            const hasNewChatAction = newItems.some(item => 
-              item.alt === "Google Chat" && !item.isSilent
-            );
+      if (combined.length > 0) {
+        setNotifications(prev => {
+          const existingIds = new Set(prev.map(p => p.id));
+          const seenInBatch = new Set();
+          const newItems = combined.filter(item => {
+            if (existingIds.has(item.id) || dismissedNotifsRef.current.has(item.id) || seenInBatch.has(item.id)) return false;
+            seenInBatch.add(item.id);
+            return true;
+          });
+          
+          if (newItems.length > 0) {
+            const hasNewEmail = newItems.some(item => 
+              item.alt === "Gmail" && new Date(item.timestamp) > sessionStartTime.current
+            );
+            const hasNewChatAction = newItems.some(item => 
+              item.alt === "Google Chat" && !item.isSilent
+            );
 
-         if (!isMuted) {
-  if (hasNewEmail) {
-    new Audio(GMAIL_SOUND_DATA).play().catch(() => {});
-  } else if (hasNewChatAction) {
-    new Audio(GCHAT_SOUND_DATA).play().catch(() => {});
+            if (!isMuted) {
+              if (hasNewEmail) new Audio(GMAIL_SOUND_DATA).play().catch(() => {});
+              else if (hasNewChatAction) new Audio(GCHAT_SOUND_DATA).play().catch(() => {});
+            }
+          }
+
+          if (newItems.length === 0) return prev;
+
+          const mappedNew = newItems.map(item => ({
+            ...item,
+            time: formatNotificationDate(item.timestamp)
+          }));
+
+          const next = [...mappedNew, ...prev].sort((a, b) => {
+            return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+          });
+          
+          return next.slice(0, 100);
+        });
+      }
+
+    } catch (err) {
+      console.error("Sync error:", err);
+      reportSystemError("Notifications", err.message);
+    }
   }
-}
-          }
 
-          if (newItems.length === 0) return prev;
-
-          const mappedNew = newItems.map(item => ({
-            ...item,
-            time: formatNotificationDate(item.timestamp)
-          }));
-
-          const next = [...mappedNew, ...prev].sort((a, b) => {
-            return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
-          });
-          
-          return next.slice(0, 100);
-        });
-      }
-
-    } catch (err) {
-      console.error("Sync error:", err);
-      reportSystemError("Notifications", err.message);
-    }
-  }
-
-syncAllNotifications();
+  syncAllNotifications();
   const interval = setInterval(syncAllNotifications, 5000);
   return () => clearInterval(interval);
 }, [isMuted]);
@@ -5558,26 +5796,48 @@ if (currentView.app === "gchat") {
                     <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                   </svg>
                 </button>
-                <button
+              <button
                   title={`Call ${callName}`}
                   onClick={async () => {
-                    const meetUrl = 'https://meet.google.com/new';
-                    window.open(meetUrl, '_blank');
-                    
-                    // Automatically send the invitation to the chat so the other person receives it
+                    const now = new Date();
+                    const startTime = now.toISOString();
+                    const endTime = new Date(now.getTime() + 30 * 60 * 1000).toISOString();
+
                     try {
-                      await fetch("/.netlify/functions/gchat-send", {
+                      const res = await fetch("/.netlify/functions/calendar-create", {
                         method: "POST",
                         credentials: "include",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
-                          space: gchatSelectedSpace.id,
-                          text: `I'm starting a video call. Join here: ${meetUrl}`,
+                          summary: `Chat Call: ${callName}`,
+                          start: { dateTime: startTime },
+                          end: { dateTime: endTime }
                         }),
                       });
-                    } catch (err) {
-                      console.error("Failed to send meeting invite", err);
-                    }
+                     const json = await res.json();
+                      
+                      if (json.ok && json.event?.hangoutLink) {
+                        const meetUrl = json.event.hangoutLink;
+                        const separator = meetUrl.includes('?') ? '&' : '?';
+                        const authUrl = `${meetUrl}${separator}authuser=siyabonga@actuaryconsulting.co.za`;
+                        launchWorkstationWindow(authUrl);
+                        
+                        await fetch("/.netlify/functions/gchat-send", {
+                          method: "POST",
+                          credentials: "include",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            space: gchatSelectedSpace.id,
+                            text: `I'm starting a video call. Join here: ${meetUrl}`,
+                          }),
+                        });
+                      } else {
+                        throw new Error("Could not generate host link");
+                      }
+                    } catch (err) {
+                      console.error("Failed to start impersonated call", err);
+                      launchWorkstationWindow('https://meet.google.com/new?authuser=siyabonga@actuaryconsulting.co.za');
+                    }
                   }}
                   style={{
                     background: "#f1f3f4",
@@ -9640,6 +9900,11 @@ if (currentView.app === "gmail") {
     );
   }
 
+  // 🟢 NEW: PRODUCTIVITY DASHBOARD ROUTER
+  if (currentView.app === "productivity") {
+    return <ProductivityDashboard trelloBuckets={trelloBuckets} />;
+  }
+
   // 🟢 NEW: REVIEW & COMPARE WORKSTATION
   if (reviewingDoc && email) {
     // Attempt to find the specific PDF for this category based on filename, fallback to first attachment
@@ -10364,13 +10629,14 @@ return (
                         if (!meetUrl) return null;
                         return (
                           <SmartLink
-                            url={meetUrl}
-                            className="cal-meet-btn"
-                            style={{ border: "none", cursor: "pointer", display: "inline-block", textDecoration: "none" }}
-                            setIsLiveCallActive={setIsLiveCallActive}
-                          >
-                            Join with Google Meet
-                          </SmartLink>
+  url={meetUrl}
+  className="cal-meet-btn"
+  style={{ border: "none", cursor: "pointer", display: "inline-block", textDecoration: "none" }}
+  setIsLiveCallActive={setIsLiveCallActive}
+  setSelectedEvent={setSelectedEvent}
+>
+  Join with Google Meet
+</SmartLink>
                         );
                      })()}
                    </div>

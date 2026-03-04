@@ -2,12 +2,33 @@ import React, { useState, useEffect, useMemo } from 'react';
 import blueprint1 from './assets/blueprint-1.mp4';
 import blueprint2 from './assets/blueprint-2.mp4';
 import blueprint3 from './assets/blueprint-3.mp4';
+import blueprint4 from './assets/blueprint-4.mp4';
+import blueprint5 from './assets/blueprint-5.mp4';
+import blueprint6 from './assets/blueprint-6.mp4';
+import blueprint7 from './assets/blueprint-7.mp4';
+import blueprint8 from './assets/blueprint-8.mp4';
+import blueprint9 from './assets/blueprint-9.mp4';
+import blueprint10 from './assets/blueprint-10.mp4';
 
 const BlueprintVideo = ({ isPlaying }) => {
   const [videoIndex, setVideoIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
-  
-  const playlist = useMemo(() => [blueprint1, blueprint2, blueprint3], []);
+  const videoRef = React.useRef(null);
+
+  const playlist = useMemo(() => [blueprint1, blueprint2, blueprint3, blueprint4, blueprint5, blueprint6, blueprint7, blueprint8, blueprint9, blueprint10], []);
+
+  // Force the video to explicitly load and play whenever the index changes
+  useEffect(() => {
+    if (videoRef.current && isPlaying) {
+      videoRef.current.defaultMuted = true;
+      videoRef.current.muted = true;
+      videoRef.current.load();
+      const playPromise = videoRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(() => {});
+      }
+    }
+  }, [videoIndex, isPlaying]);
 
   // 🛡️ Fail-safe: clear video spinner if local proxy hangs the network events
   useEffect(() => {
@@ -19,10 +40,7 @@ const BlueprintVideo = ({ isPlaying }) => {
 
   const handleVideoEnd = () => {
     setIsLoading(true);
-    setVideoIndex((prev) => {
-      const next = Math.floor(Math.random() * playlist.length);
-      return playlist.length > 1 && next === prev ? (next + 1) % playlist.length : next;
-    });
+    setVideoIndex((prev) => (prev + 1) % playlist.length);
   };
 
   if (!isPlaying) return null;
@@ -35,22 +53,12 @@ const BlueprintVideo = ({ isPlaying }) => {
         </div>
       )}
       <video
-        key={playlist[videoIndex]}
+        ref={videoRef}
         src={playlist[videoIndex]}
         autoPlay
         muted
         playsInline
         preload="metadata"
-        ref={(el) => {
-          if (el) {
-            el.defaultMuted = true;
-            el.muted = true;
-            const playPromise = el.play();
-            if (playPromise !== undefined) {
-              playPromise.catch(() => {});
-            }
-          }
-        }}
         onLoadedData={() => setIsLoading(false)}
         onPlaying={() => setIsLoading(false)}
         onEnded={handleVideoEnd}
