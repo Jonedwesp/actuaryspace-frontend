@@ -19,44 +19,54 @@ export async function handler(event) {
 
     const notificationPromises = (spaceData.spaces || []).map(async (s) => {
       try {
-        const [memRes, msgRes] = await Promise.all([
-          fetchWithTimeout(`https://chat.googleapis.com/v1/${s.name}/members/me`, { headers: authHeaders }),
-          fetchWithTimeout(`https://chat.googleapis.com/v1/${s.name}/messages?pageSize=100`, { headers: authHeaders }),
+        // Fetch messages + read state in parallel; read state failure is non-fatal
+        const [msgSettled, rsSettled] = await Promise.allSettled([
+          fetchWithTimeout(
+            `https://chat.googleapis.com/v1/${s.name}/messages?pageSize=20&orderBy=createTime+desc`,
+            { headers: authHeaders }
+          ).then(r => r.json()),
+          fetchWithTimeout(
+            `https://chat.googleapis.com/v1/users/me/${s.name}/spaceReadState`,
+            { headers: authHeaders }
+          ).then(r => r.json()),
         ]);
-        const memData = await memRes.json();
-        const msgData = await msgRes.json();
+        if (msgSettled.status === "rejected") return [];
+        const msgData = msgSettled.value;
+        const rsData = rsSettled.status === "fulfilled" ? rsSettled.value : {};
         const messages = msgData.messages || [];
+        const lastReadTime = rsData.lastReadTime ? new Date(rsData.lastReadTime) : null;
 
         if (messages.length === 0) return [];
 
-        // 🛑 STRICT SIYA IDENTIFIER: Catches all variants of Siya's identity
+        // 🛑 STRICT SIYA IDENTIFIER
         const isSiya = (m) => {
           const sName = (m.sender?.displayName || "").toLowerCase();
           const sEmail = (m.sender?.email || "").toLowerCase();
-          const sId = m.sender?.name || ""; // e.g. "users/112417469383977278282"
-          
-          // Extracts the user ID from Siya's own membership name (e.g., spaces/X/members/Y -> Y)
-          const myIdFromServer = memData.name ? memData.name.split('/').pop() : "";
+          const sId = m.sender?.name || "";
 
-          return sEmail === "siya@actuaryspace.co.za" || 
+          return sEmail === "siya@actuaryspace.co.za" ||
                  sEmail === "siya@actuaryconsulting.co.za" ||
                  sEmail === "siyabonga@actuaryconsulting.co.za" ||
-                 sName.includes("siyabonga") || 
+                 sName.includes("siyabonga") ||
                  sName.includes("actuaryspace") ||
-                 sId === "users/112417469383977278282" ||
-                 (myIdFromServer && sId.includes(myIdFromServer));
+                 sId === "users/112417469383977278282";
         };
 
-        // 🚀 THE "API BLIND" FIX: 
-        // We send the 10 most recent messages that aren't from Siya.
-        // We let the frontend filter these against the "unreadGchatSpaces" state.
-        const recentMessages = messages.filter(m => !isSiya(m)).slice(0, 10);
+        // If spaceReadState failed, fall back to 2 days ago — never surface old messages
+        const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+        const effectiveCutoff = lastReadTime || twoDaysAgo;
+
+        const recentMessages = messages.filter(m => {
+          if (isSiya(m)) return false;
+          return new Date(m.createTime) > effectiveCutoff;
+        }).slice(0, 10);
 
         if (recentMessages.length === 0) return [];
 
         return recentMessages.map(msg => {
           const senderId = msg.sender?.name || "";
-          let senderName = msg.sender?.displayName || "Colleague";
+          // For bot DMs, sender.displayName is empty — fall back to the space's displayName (e.g. "Google Drive")
+          let senderName = msg.sender?.displayName || s.displayName || "Colleague";
           
           if (senderId === "users/112422887282158931745") senderName = "Repository";
 
@@ -64,12 +74,14 @@ export async function handler(event) {
           if (!snippet && msg.attachment?.length) snippet = "Sent an attachment";
 
           return {
-            id: msg.name, 
+            id: msg.name,
             spaceId: s.name,
             type: "chat",
-            title: s.type === "DIRECT_MESSAGE" ? senderName : (s.displayName || "Group Chat"),
+            spaceType: s.spaceType,
+            title: s.spaceType === "DIRECT_MESSAGE" ? senderName : (s.displayName || "Group Chat"),
             text: snippet,
             senderName: senderName,
+            sender: { name: senderId },
             timestamp: msg.createTime,
           };
         });

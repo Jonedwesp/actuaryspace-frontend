@@ -352,7 +352,7 @@ function formatNotificationDate(isoString) {
   });
 
   if (isToday) {
-    return `Today, ${timeStr}`;
+    return timeStr;
   } else if (isYesterday) {
     return `Yesterday, ${timeStr}`;
   } else {
@@ -3643,15 +3643,37 @@ useEffect(() => {
                   return next;
                 });
 
+                // ⚡ LIVE SIDEBAR RERANK: Move space with new message to top
+                setGchatSpaces(prev => {
+                  const idx = prev.findIndex(s => (s.id || s.name) === sid);
+                  if (idx < 0) return prev;
+                  const space = { ...prev[idx], lastActiveTime: ts };
+                  return [space, ...prev.filter((_, i) => i !== idx)];
+                });
+
                 if (!dismissedNotifsRef.current.has(msgId)) {
                   const isAlreadyInUI = notifications.some(existing => existing.id === msgId);
                   if (!isAlreadyInUI) {
                     const lastSenderId = n.sender?.name || "";
-                    const resolvedSender = GCHAT_ID_MAP[lastSenderId] || n.senderName || "Colleague";
+                    const spaceObj = gchatSpaces.find(sp => (sp.id || sp.name) === sid);
+                    const isDM = n.spaceType === "DIRECT_MESSAGE" || spaceObj?.type === "DIRECT_MESSAGE";
+                    let resolvedSender = GCHAT_ID_MAP[lastSenderId] || n.senderName || "Colleague";
+                    // For bot DMs (e.g. Google Drive), sender name is unknown — use space displayName
+                    if (isDM && resolvedSender === "Colleague" && spaceObj?.displayName) {
+                      resolvedSender = spaceObj.displayName;
+                    }
+                    const resolvedSpaceTitle = isDM
+                      ? null
+                      : (GCHAT_ID_MAP[sid] || spaceObj?.displayName || n.title || "Chat");
+                    const notifText = isDM
+                      ? (resolvedSender !== "Colleague" ? `${resolvedSender}: ${n.text}` : n.text)
+                      : (resolvedSpaceTitle !== "Colleague"
+                          ? `${resolvedSpaceTitle} - ${resolvedSender}: ${n.text}`
+                          : n.text);
                     chatNotifs.push({
                       ...n, id: msgId, alt: "Google Chat", icon: gchatIcon,
-                      text: `${resolvedSender}: ${n.text}`, timestamp: ts, spaceId: sid,
-                      isSilent: isFirstRun
+                      text: notifText, timestamp: ts, spaceId: sid,
+                      isSilent: isFirstRun,
                     });
                   }
                 }
@@ -3884,6 +3906,19 @@ useEffect(() => {
             setGchatSpaceTimes(newTimes);
             localStorage.setItem("GCHAT_DM_NAMES", JSON.stringify(newLearnedNames));
             localStorage.setItem("GCHAT_SPACE_TIMES", JSON.stringify(newTimes));
+          }
+
+          // Clear stale notifications for spaces that Google now considers read
+          const readSpaceIds = new Set(
+            loadedSpaces
+              .filter(s => s.serverLastReadTime && s.lastActiveTime &&
+                new Date(s.serverLastReadTime) >= new Date(s.lastActiveTime))
+              .map(s => s.id || s.name)
+          );
+          if (readSpaceIds.size > 0) {
+            setNotifications(prev => prev.filter(n =>
+              !(n.alt === "Google Chat" && readSpaceIds.has(n.spaceId))
+            ));
           }
 
           setGchatSpaces(loadedSpaces);
@@ -4645,6 +4680,26 @@ const onNotificationClick = async (n) => {
         const next = { ...prev };
         delete next[sid];
         return next;
+      });
+
+      // Tell Google's servers this space is now read
+      fetch("/.netlify/functions/gchat-mark-read", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ spaceId: sid })
+      }).catch(err => console.error("GChat mark-read failed", err));
+
+      // Dismiss all other notifications from the same space
+      setNotifications(prev => {
+        const toRemove = prev.filter(x => x.alt === "Google Chat" && (x.spaceId === sid));
+        toRemove.forEach(x => {
+          dismissedNotifsRef.current.add(x.id);
+        });
+        if (toRemove.length > 0) {
+          localStorage.setItem("DISMISSED_NOTIFS", JSON.stringify(Array.from(dismissedNotifsRef.current)));
+        }
+        return prev.filter(x => !(x.alt === "Google Chat" && x.spaceId === sid));
       });
 
       const targetSpace = gchatSpaces.find((s) => s.id === sid || s.name === sid);
@@ -5667,13 +5722,23 @@ if (currentView.app === "gchat") {
     setGchatSpaceTimes(prev => ({ ...prev, [spaceId]: nowIso }));
     localStorage.setItem("GCHAT_SPACE_TIMES", JSON.stringify({ ...gchatSpaceTimes, [spaceId]: nowIso }));
 
-    // 3. Backend Sync
-    fetch("/.netlify/functions/gmail-mark-read", {
+    // 3. Tell Google's servers this space is now read
+    fetch("/.netlify/functions/gchat-mark-read", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ spaceId })
-    }).catch(err => console.error("Sync failed", err));
+    }).catch(err => console.error("GChat mark-read failed", err));
+
+    // 4. Clear any notifications from this space in the left panel
+    setNotifications(prev => {
+      const toRemove = prev.filter(x => x.alt === "Google Chat" && x.spaceId === spaceId);
+      toRemove.forEach(x => { dismissedNotifsRef.current.add(x.id); });
+      if (toRemove.length > 0) {
+        localStorage.setItem("DISMISSED_NOTIFS", JSON.stringify(Array.from(dismissedNotifsRef.current)));
+      }
+      return prev.filter(x => !(x.alt === "Google Chat" && x.spaceId === spaceId));
+    });
   }}
                   onMouseEnter={e => !isActive && (e.currentTarget.style.background = "#e8eaed")}
                   onMouseLeave={e => !isActive && (e.currentTarget.style.background = "#f1f3f4")}
