@@ -61,7 +61,7 @@ return (
         </div>
       )}
 
-      <style jsx>{`
+      <style>{`
         .storyteller-container {
           padding: 0px 4px;
           min-height: 0px;

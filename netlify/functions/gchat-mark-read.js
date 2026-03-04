@@ -1,7 +1,7 @@
-const https = require('https');
-const { getAccessToken } = require('./_google-creds');
+import https from 'https';
+import { getAccessToken } from './_google-creds';
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event.httpMethod !== 'POST') return { statusCode: 405 };
 
   try {

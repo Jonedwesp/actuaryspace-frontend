@@ -1,4 +1,4 @@
-const https = require("https");
+import https from 'https';
 
 // Helper for Trello requests
 const trelloRequest = (url, method) => new Promise((resolve, reject) => {
@@ -11,7 +11,7 @@ const trelloRequest = (url, method) => new Promise((resolve, reject) => {
   req.end();
 });
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method Not Allowed" };
 
   const { cardId, labelName, shouldAdd } = JSON.parse(event.body || "{}");

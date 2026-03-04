@@ -1,5 +1,5 @@
 // netlify/functions/trello-checklists.js
-exports.handler = async (event) => {
+export const handler = async (event) => {
     const key = process.env.TRELLO_API_KEY || process.env.TRELLO_KEY;
     const token = process.env.TRELLO_TOKEN;
     const method = event.httpMethod;

@@ -1,5 +1,5 @@
 // netlify/functions/trello-set-description.js
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return resp(405, { ok: false, error: "Method not allowed" });
   }

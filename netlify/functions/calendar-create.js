@@ -1,7 +1,7 @@
-const { google } = require('googleapis');
-const cookie = require('cookie');
+import { google } from 'googleapis';
+import cookie from 'cookie';
 
-exports.handler = async function(event, context) {
+export const handler = async function(event, context) {
   // 1. Only allow POST requests
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };

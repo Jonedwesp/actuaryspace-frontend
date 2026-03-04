@@ -1,4 +1,4 @@
-const admin = require("firebase-admin");
+import admin from 'firebase-admin';
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -12,7 +12,7 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   const messageId = event.queryStringParameters.messageId;
   if (!messageId) return { statusCode: 400, body: JSON.stringify({ ok: false }) };
 

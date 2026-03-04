@@ -1,3 +1,4 @@
+// hello from Claude! 🤖
 // src/App.jsx
 // --- Top of App.jsx ---
 
@@ -348,50 +349,44 @@ function msgKey(m) {
 }
 
 function dedupeMergeMessages(prev, incoming, isLatestFetch = false) {
-  const mergedMap = new Map();
+  const mergedMap = new Map();
 
-  // 1. Keep previous messages
-  for (const m of (prev || [])) {
-    const k = msgKey(m);
-    if (k) mergedMap.set(k, m);
-  }
+  // 1. Load previous messages into map
+  (prev || []).forEach(m => {
+    const k = msgKey(m);
+    if (k) mergedMap.set(k, m);
+  });
 
-  // 2. Add / Update with incoming messages (Fixes EDITS from other users)
-  for (const m of (incoming || [])) {
-    const msg = normalizeGChatMessage(m);
-    const k = msgKey(msg);
-    if (k) {
-      const existing = mergedMap.get(k);
-      if (existing && existing.isDeletedLocally) {
-        // Keep local tombstone
-      } else {
-        mergedMap.set(k, msg);
-      }
-    }
-  }
+  // 2. Overwrite with incoming (Newer data wins)
+  (incoming || []).forEach(m => {
+    const msg = normalizeGChatMessage(m);
+    const k = msgKey(msg);
+    if (k) {
+      const existing = mergedMap.get(k);
+      // Preserve local tombstones or local edits
+      if (existing && (existing.isDeletedLocally || existing.isEditedLocally)) {
+        mergedMap.set(k, { ...msg, ...existing });
+      } else {
+        mergedMap.set(k, msg);
+      }
+    }
+  });
 
-  // 3. Remove remote deletions (Fixes DELETIONS from other users)
-  if (isLatestFetch && incoming && incoming.length > 0) {
-    const oldestIncomingTs = Math.min(...incoming.map(m => getMsgTs(m)));
-    const incomingKeys = new Set(incoming.map(m => msgKey(m)));
+  // 3. Sync deletions if this is a fresh polling fetch
+  if (isLatestFetch && incoming?.length > 0) {
+    const incomingKeys = new Set(incoming.map(m => msgKey(m)));
+    const oldestIncomingTs = Math.min(...incoming.map(m => getMsgTs(m)));
 
-    for (const m of (prev || [])) {
-      const k = msgKey(m);
-      if (!k) continue;
+    mergedMap.forEach((m, k) => {
+      if (getMsgTs(m) >= oldestIncomingTs && !incomingKeys.has(k)) {
+        if (!m.isDeletedLocally && m.text !== "Message deleted by its author") {
+          mergedMap.delete(k);
+        }
+      }
+    });
+  }
 
-      // Only check messages within the fetched time window
-      if (getMsgTs(m) >= oldestIncomingTs) {
-        if (!incomingKeys.has(k) && !m.isDeletedLocally && m.text !== "Message deleted by its author") {
-          mergedMap.delete(k);
-        }
-      }
-    }
-  }
-
-  const merged = Array.from(mergedMap.values());
-  // This puts the largest (newest) timestamp at the top
-  merged.sort((a, b) => getMsgTs(a) - getMsgTs(b));
-  return merged;
+  return Array.from(mergedMap.values()).sort((a, b) => getMsgTs(a) - getMsgTs(b));
 }
 
 /* ----- Trello date helpers ----- */
@@ -1877,15 +1872,12 @@ const RightPanel = React.memo(function RightPanel({ filteredGchatSpaces, gchatLo
         // Only update if data changed (Simple check)
         setTrelloBuckets(prev => {
             if (JSON.stringify(prev) === JSON.stringify(mapped)) return prev;
-            
-            // Broadcast the fresh data to the main App for the Middle Pane to use!
-            window.dispatchEvent(new CustomEvent("trelloPolled", { detail: mapped }));
-            
-            // 👇 CACHE SAVE: Memorize the latest lists for the next time you open the app
-            localStorage.setItem("TRELLO_CACHE", JSON.stringify(mapped));
-            
             return mapped;
         });
+
+        // Broadcast + cache OUTSIDE the setter (React 19 disallows side-effects inside setters)
+        window.dispatchEvent(new CustomEvent("trelloPolled", { detail: mapped }));
+        localStorage.setItem("TRELLO_CACHE", JSON.stringify(mapped));
 
       } catch (err) {
         console.error("Trello Poll Error:", err);
@@ -2516,6 +2508,16 @@ export default function App() {
 const [isLiveCallActive, setIsLiveCallActive] = useState(false);
   const [isDonnaActive, setIsDonnaActive] = useState(false);
   const [isDonnaLoading, setIsDonnaLoading] = useState(false);
+  const [isBlueprintActive, setIsBlueprintActive] = useState(false);
+
+  // 🛡️ Fail-safe: clear video spinner if local proxy hangs the network events
+  useEffect(() => {
+    if (isDonnaLoading) {
+      const t = setTimeout(() => setIsDonnaLoading(false), 1500);
+      return () => clearTimeout(t);
+    }
+  }, [isDonnaLoading]);
+
   const [systemStatus, setSystemStatus] = useState("good"); // Mockup state: "good" or "bad"
   const [currentView, setCurrentView] = useState({ app: "none", contact: null });
   const [isGchatSoundEnabled, setIsGchatSoundEnabled] = useState(false);
@@ -3367,7 +3369,12 @@ useEffect(() => {
       if (combined.length > 0) {
         setNotifications(prev => {
           const existingIds = new Set(prev.map(p => p.id));
-          const newItems = combined.filter(item => !existingIds.has(item.id) && !dismissedNotifsRef.current.has(item.id));
+          const seenInBatch = new Set();
+          const newItems = combined.filter(item => {
+            if (existingIds.has(item.id) || dismissedNotifsRef.current.has(item.id) || seenInBatch.has(item.id)) return false;
+            seenInBatch.add(item.id);
+            return true;
+          });
           
           if (newItems.length > 0) {
             // 🛡️ REFINED AUDIO SHIELD: Only play sound if the specific item is not marked as silent
@@ -9668,46 +9675,30 @@ return (
           style={{ width: '100%', height: '120px', overflow: 'hidden', borderRadius: '12px', cursor: 'pointer', background: '#f1f3f4', position: 'relative' }}
         >
           {isDonnaActive ? (
-            <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-              {isDonnaLoading && (
-                <div className="spinner-overlay" style={{ backgroundColor: 'rgba(0, 0, 0, 0.15)', zIndex: 10 }}>
-                  <div className="loading-spinner"></div>
-                </div>
-              )}
-            <video 
-                key="agent-donna-video"
-                autoPlay 
-                muted 
-                loop 
-                playsInline 
-                ref={(el) => {
-                  if (el) {
-                    el.defaultMuted = true;
-                    el.muted = true;
-                    el.play().catch(err => console.log("Donna video play failed:", err));
-                  }
-                }}
-                onCanPlayThrough={() => setIsDonnaLoading(false)}
-                onPlaying={() => setIsDonnaLoading(false)}
-                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} 
-              >
-                <source src={agentDonnaVideo} type="video/mp4" />
-            </video>
-            </div>
+            <video
+              src={agentDonnaVideo}
+              autoPlay
+              muted
+              loop
+              playsInline
+              onError={(e) => console.error('[Donna Video Error] code:', e.target.error?.code, e.target.error?.message)}
+              onLoadedData={() => console.log('[Donna Video] loaded OK')}
+              style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            />
           ) : (
-            <img src={agentDonnaPic} alt="Agent Donna" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', position: 'absolute', top: 0, left: 0 }} />
+            <img src={agentDonnaPic} alt="Agent Donna" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
           )}
         </div>
 
         <div 
           className="brand-rect" 
           title="NotebookLM / Storyteller" 
-          onClick={() => setIsLiveCallActive(!isLiveCallActive)} 
+          onClick={() => setIsBlueprintActive(!isBlueprintActive)} 
           style={{ width: '100%', height: '120px', overflow: 'hidden', borderRadius: '12px', cursor: 'pointer', background: '#f1f3f4', position: 'relative' }}
         >
-          {isLiveCallActive ? (
-            <div style={{ width: '100%', height: '100%' }}>
-              <BlueprintVideo isPlaying={isLiveCallActive} />
+          {isBlueprintActive ? (
+            <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}>
+              <BlueprintVideo isPlaying={isBlueprintActive} />
             </div>
           ) : (
             <img src={notebookLMPic} alt="NotebookLM" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', position: 'absolute', top: 0, left: 0 }} />
@@ -9814,18 +9805,6 @@ return (
    {/* RIGHT SIDE: Productivity -> Status -> Reconnect -> Close */}
           <div style={{ display: "flex", alignItems: "center", gap: "8px", zIndex: 2 }}>
             
-            <button
-              className="connect-google-btn"
-              onClick={() => {
-                setInputValue("");
-                setCurrentView({ app: "productivity", contact: null }); 
-              }}
-              type="button"
-            >
-              <span style={{ fontSize: '16px' }}>📊</span>
-              Productivity
-            </button>
-
             <button
               className="connect-google-btn"
               onClick={() => {

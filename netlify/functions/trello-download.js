@@ -1,5 +1,5 @@
 // netlify/functions/trello-download.js
-exports.handler = async (event) => {
+export const handler = async (event) => {
     const { url, mimeType } = event.queryStringParameters;
     if (!url) return { statusCode: 400, body: "Missing URL" };
 

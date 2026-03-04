@@ -1,7 +1,7 @@
 // netlify/functions/trello-edit-comment.js
-const https = require('https');
+import https from 'https';
 
-exports.handler = async function(event, context) {
+export const handler = async function(event, context) {
   if (event.httpMethod !== 'PUT') return { statusCode: 405, body: 'Method Not Allowed' };
 
   try {

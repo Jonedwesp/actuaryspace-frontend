@@ -1,4 +1,4 @@
-const https = require("https");
+import https from 'https';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -32,7 +32,7 @@ function request(urlStr, options = {}) {
   });
 }
 
-exports.handler = async function (event, context) {
+export const handler = async function (event, context) {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: "Method Not Allowed" };
   }

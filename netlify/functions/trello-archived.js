@@ -1,6 +1,6 @@
-const https = require("https");
+import https from 'https';
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   const key = process.env.TRELLO_KEY || process.env.TRELLO_API_KEY;
   const token = process.env.TRELLO_TOKEN || process.env.TRELLO_API_TOKEN;
 

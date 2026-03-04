@@ -1,4 +1,4 @@
-const https = require("https");
+import https from 'https';
 
 const trelloRequest = (url) => new Promise((resolve, reject) => {
   https.get(url, (res) => {
@@ -19,7 +19,7 @@ const trelloRequest = (url) => new Promise((resolve, reject) => {
   }).on("error", reject);
 });
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   // 🛡️ PREVENT CRASH IF QUERY PARAMS ARE MISSING
   const { cardId } = event.queryStringParameters || {};
   if (!cardId) return { statusCode: 400, body: JSON.stringify({ error: "Missing cardId" }) };

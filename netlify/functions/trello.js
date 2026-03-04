@@ -1,12 +1,12 @@
 // netlify/functions/trello.js
-const https = require("https");
+import https from 'https';
 
 console.log("[TRELLO FUNC VERSION] 2026-02-07 vHTTPS-NATIVE ✅");
 
 // --- 1. Helper: Native HTTPS Request (Replaces fetch) ---
-function nativeFetch(url) {
+function nativeFetch(url, timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
-    https.get(url, (res) => {
+    const req = https.get(url, (res) => {
       let data = "";
       res.on("data", (chunk) => (data += chunk));
       res.on("end", () => {
@@ -22,6 +22,13 @@ function nativeFetch(url) {
         });
       });
     }).on("error", (e) => reject(e));
+
+    const timer = setTimeout(() => {
+      req.destroy();
+      reject(new Error(`Trello API timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    req.on("close", () => clearTimeout(timer));
   });
 }
 
@@ -39,7 +46,7 @@ function resp(statusCode, body) {
 }
 
 // --- 3. Main Handler (Your Original Logic) ---
-exports.handler = async (event) => {
+export const handler = async (event) => {
   const VERSION = "2026-02-07 vHTTPS-NATIVE";
   console.log("[TRELLO FUNC VERSION]", VERSION);
 
@@ -58,45 +65,29 @@ exports.handler = async (event) => {
   const auth = `key=${encodeURIComponent(TRELLO_KEY)}&token=${encodeURIComponent(TRELLO_TOKEN)}`;
 
   try {
-    // --- 4. Parallel Fetch (Using Native Helper) ---
-    const [listsRes, cardsRes, membersRes, cfRes] = await Promise.all([
+    // --- 4a. Fetch lists, members, customFields in parallel first ---
+    const [listsRes, membersRes, cfRes] = await Promise.all([
       nativeFetch(`${base}/boards/${TRELLO_BOARD_ID}/lists?cards=none&filter=open&${auth}`),
-      nativeFetch(`${base}/boards/${TRELLO_BOARD_ID}/cards?filter=open&fields=name,idList,due,idMembers,labels,shortLink,desc,pos&customFieldItems=true&${auth}`),
       nativeFetch(`${base}/boards/${TRELLO_BOARD_ID}/members?${auth}`),
       nativeFetch(`${base}/boards/${TRELLO_BOARD_ID}/customFields?${auth}`),
     ]);
 
-    // --- 5. Diagnostics (Your Original Logic) ---
-    if (!listsRes.ok || !cardsRes.ok || !membersRes.ok || !cfRes.ok) {
-      const [listsTxt, cardsTxt, membersTxt, cfTxt] = await Promise.all([
+    if (!listsRes.ok || !membersRes.ok || !cfRes.ok) {
+      const [listsTxt, membersTxt, cfTxt] = await Promise.all([
         listsRes.text().catch(() => ""),
-        cardsRes.text().catch(() => ""),
         membersRes.text().catch(() => ""),
         cfRes.text().catch(() => ""),
       ]);
-
       console.error("[TRELLO] Upstream HTTP failure", {
         lists: { status: listsRes.status, body: listsTxt.slice(0, 400) },
-        cards: { status: cardsRes.status, body: cardsTxt.slice(0, 400) },
         members: { status: membersRes.status, body: membersTxt.slice(0, 400) },
         customFields: { status: cfRes.status, body: cfTxt.slice(0, 400) },
       });
-
-      return resp(502, {
-        version: VERSION,
-        error: "Upstream Trello HTTP error",
-        upstream: {
-          lists: listsRes.status,
-          cards: cardsRes.status,
-          members: membersRes.status,
-          customFields: cfRes.status,
-        },
-      });
+      return resp(502, { version: VERSION, error: "Upstream Trello HTTP error" });
     }
 
-    const [lists, cards, members] = await Promise.all([
+    const [lists, members] = await Promise.all([
       listsRes.json().catch(() => []),
-      cardsRes.json().catch(() => []),
       membersRes.json().catch(() => []),
     ]);
 
@@ -148,6 +139,18 @@ exports.handler = async (event) => {
          return (idxA === -1 ? 999 : idxA) - (idxB === -1 ? 999 : idxB);
       });
     }
+
+    // --- 4b. Fetch cards ONLY for the selected lists (much faster than whole board) ---
+    const cardFields = "name,idList,due,idMembers,labels,shortLink,desc,pos";
+    const cardResponses = await Promise.all(
+      selected.map((list) =>
+        nativeFetch(`${base}/lists/${list.id}/cards?fields=${cardFields}&customFieldItems=true&${auth}`)
+      )
+    );
+    const cardArrays = await Promise.all(
+      cardResponses.map((r) => (r.ok ? r.json().catch(() => []) : Promise.resolve([])))
+    );
+    const cards = cardArrays.flat();
 
     // --- 8. Build Buckets (Your Original Logic) ---
     const safeCards = Array.isArray(cards) ? cards : [];

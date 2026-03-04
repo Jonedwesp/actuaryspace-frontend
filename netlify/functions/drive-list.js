@@ -1,8 +1,8 @@
 // netlify/functions/drive-list.js
-const { JWT } = require("google-auth-library");
-const { loadServiceAccount } = require("./_google-creds.cjs");
+import { JWT } from 'google-auth-library';
+import { loadServiceAccount } from './_google-creds.cjs';
 
-exports.handler = async function () {
+export const handler = async function () {
   try {
     const creds = loadServiceAccount();
 

@@ -1,5 +1,5 @@
 // netlify/functions/trello-members.js
-exports.handler = async (event, context) => {
+export const handler = async (event, context) => {
   const TRELLO_KEY = process.env.TRELLO_API_KEY || process.env.TRELLO_KEY;
   const TRELLO_TOKEN = process.env.TRELLO_TOKEN;
   const BOARD_ID = process.env.TRELLO_BOARD_ID;

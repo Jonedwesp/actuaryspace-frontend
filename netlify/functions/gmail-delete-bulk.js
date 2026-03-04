@@ -1,4 +1,4 @@
-const https = require("https");
+import https from 'https';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -42,7 +42,7 @@ function request(urlStr, options = {}) {
   });
 }
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   try {
     // Single declaration including the new restore flag
     const { messageIds, permanent, restore } = JSON.parse(event.body);

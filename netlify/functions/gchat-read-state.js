@@ -1,7 +1,7 @@
-const { google } = require('googleapis');
-const { getAccessToken } = require('./_google-creds');
+import { google } from 'googleapis';
+import { getAccessToken } from './_google-creds';
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   try {
     const spaceId = event.queryStringParameters.spaceId;
     if (!spaceId) return { statusCode: 400, body: JSON.stringify({ error: "Missing spaceId" }) };

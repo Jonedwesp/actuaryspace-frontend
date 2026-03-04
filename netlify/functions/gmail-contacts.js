@@ -1,7 +1,6 @@
-// netlify/functions/gmail-contacts.js
-import { getAccessToken } from "./_sa-token.js";
+import { getAccessToken } from './_sa-token.js';
 
-export async function handler(event, context) {
+export const handler = async function(event, context) {
   try {
     // Replace with the exact email you are impersonating in your other endpoints
     const userToImpersonate = "siyabonga@actuaryconsulting.co.za"; 
@@ -54,4 +53,4 @@ export async function handler(event, context) {
       body: JSON.stringify({ ok: false, error: error.message }),
     };
   }
-}
+};

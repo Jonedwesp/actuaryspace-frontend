@@ -1,8 +1,8 @@
 // netlify/functions/calendar-events.js
-const { google } = require('googleapis');
-const cookie = require('cookie');
+import { google } from 'googleapis';
+import cookie from 'cookie';
 
-exports.handler = async function(event, context) {
+export const handler = async function(event, context) {
   try {
     // 1. Parse cookies from the browser request
     const cookies = event.headers.cookie ? cookie.parse(event.headers.cookie) : {};

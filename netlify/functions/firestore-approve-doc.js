@@ -1,4 +1,4 @@
-const admin = require("firebase-admin");
+import admin from 'firebase-admin';
 
 // 🟢 Initialize Firebase Admin
 if (!admin.apps.length) {
@@ -13,7 +13,7 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   // 🛡️ Only allow POST requests
   if (event.httpMethod !== "POST") {
     return { 

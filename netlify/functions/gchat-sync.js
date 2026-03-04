@@ -1,24 +1,29 @@
 import { getAccessToken } from "./_google-creds.js";
 
+function fetchWithTimeout(url, options, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal })
+    .finally(() => clearTimeout(timer));
+}
+
 export async function handler(event) {
   try {
     const accessToken = await getAccessToken(event);
+    const authHeaders = { Authorization: `Bearer ${accessToken}` };
 
-    const spaceRes = await fetch("https://chat.googleapis.com/v1/spaces?pageSize=40", {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    });
+    const spaceRes = await fetchWithTimeout("https://chat.googleapis.com/v1/spaces?pageSize=40", {
+      headers: authHeaders
+    }, 20000);
     const spaceData = await spaceRes.json();
 
     const notificationPromises = (spaceData.spaces || []).map(async (s) => {
       try {
-        const memRes = await fetch(`https://chat.googleapis.com/v1/${s.name}/members/me`, {
-          headers: { Authorization: `Bearer ${accessToken}` }
-        });
+        const [memRes, msgRes] = await Promise.all([
+          fetchWithTimeout(`https://chat.googleapis.com/v1/${s.name}/members/me`, { headers: authHeaders }),
+          fetchWithTimeout(`https://chat.googleapis.com/v1/${s.name}/messages?pageSize=100`, { headers: authHeaders }),
+        ]);
         const memData = await memRes.json();
-        
-        const msgRes = await fetch(`https://chat.googleapis.com/v1/${s.name}/messages?pageSize=100`, {
-          headers: { Authorization: `Bearer ${accessToken}` }
-        });
         const msgData = await msgRes.json();
         const messages = msgData.messages || [];
 
