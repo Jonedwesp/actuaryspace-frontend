@@ -3367,49 +3367,71 @@ useEffect(() => {
           const sid = n.spaceId;
           const ts = n.timestamp;
           const msgId = n.id || n.name;
-          const isCurrentlyViewing = gchatSelectedSpaceRef.current?.id === sid;
+          // 🛡️ USE REF: Ensures we have the absolute current space ID
+          const isCurrentlyViewing = gchatSelectedSpaceRef.current?.id === sid || gchatSelectedSpaceRef.current?.name === sid;
           
-          // 🕵️ LIVE SIDEBAR SYNC:
-          // Check if we already processed this message in the current session
           const hasBeenSeen = seenGchatIdsRef.current.has(msgId);
 
-          if (!isCurrentlyViewing && !hasBeenSeen) {
-            // 1. Mark as seen so we don't duplicate the logic
+          if (!hasBeenSeen) {
+            // 1. Mark as seen globally for this session
             seenGchatIdsRef.current.add(msgId);
 
-            // 2. 🔵 PUSH LIVE TO SIDEBAR: Force the blue bubble to appear
-            setUnreadGchatSpaces(prev => {
-              const next = { ...prev, [sid]: ts };
-              localStorage.setItem("GCHAT_UNREAD_SPACES", JSON.stringify(next));
-              return next;
-            });
+            if (!isCurrentlyViewing) {
+              // 2. 🔵 UPDATE SIDEBAR BUBBLE (Not viewing this chat)
+              setUnreadGchatSpaces(prev => {
+                const next = { ...prev, [sid]: ts };
+                localStorage.setItem("GCHAT_UNREAD_SPACES", JSON.stringify(next));
+                return next;
+              });
 
-            // 3. 🕒 UPDATE SIDEBAR TIME: Ensure the sidebar sorting/time stays current
-            setGchatSpaceTimes(prev => {
-              const next = { ...prev, [sid]: ts };
-              localStorage.setItem("GCHAT_SPACE_TIMES", JSON.stringify(next));
-              return next;
-            });
+              // 3. 🕒 UPDATE SIDEBAR TIME
+              setGchatSpaceTimes(prev => {
+                const next = { ...prev, [sid]: ts };
+                localStorage.setItem("GCHAT_SPACE_TIMES", JSON.stringify(next));
+                return next;
+              });
 
-            // 4. Send to Notification Panel if not dismissed
-            if (!dismissedNotifsRef.current.has(msgId)) {
-              const isAlreadyInUI = notifications.some(existing => existing.id === msgId);
-              
-              if (!isAlreadyInUI) {
-                const lastSenderId = n.sender?.name || "";
-                const resolvedSender = GCHAT_ID_MAP[lastSenderId] || n.senderName || "Colleague";
-
-                chatNotifs.push({
-                  ...n,
-                  id: msgId,
-                  alt: "Google Chat",
-                  icon: gchatIcon,
-                  text: `${resolvedSender}: ${n.text}`,
-                  timestamp: ts,
-                  spaceId: sid,
-                  isSilent: isFirstRun
-                });
+              // 4. ADD TO PANEL
+              if (!dismissedNotifsRef.current.has(msgId)) {
+                const isAlreadyInUI = notifications.some(existing => existing.id === msgId);
+                if (!isAlreadyInUI) {
+                  const lastSenderId = n.sender?.name || "";
+                  const resolvedSender = GCHAT_ID_MAP[lastSenderId] || n.senderName || "Colleague";
+                  chatNotifs.push({
+                    ...n, id: msgId, alt: "Google Chat", icon: gchatIcon,
+                    text: `${resolvedSender}: ${n.text}`, timestamp: ts, spaceId: sid,
+                    isSilent: isFirstRun
+                  });
+                }
               }
+            } else {
+              // ⚡ THE LIVE BRIDGE: Siya IS looking at this chat.
+              // We inject the message and then trigger an immediate fetch for the full thread 
+              // to ensure metadata (reactions, attachments) are synced.
+              setGchatMessages(prev => {
+                const incomingMsg = {
+                  name: msgId,
+                  text: n.text,
+                  createTime: ts,
+                  sender: { name: n.sender?.name, displayName: n.senderName }
+                };
+                return dedupeMergeMessages(prev, [incomingMsg]);
+              });
+
+              // 🛡️ RE-SYNC PROTECTION: Update the local read time immediately 
+              // so the local poller doesn't think this message is "old news" and skip it.
+              setGchatSpaceTimes(prev => {
+                const next = { ...prev, [sid]: ts };
+                localStorage.setItem("GCHAT_SPACE_TIMES", JSON.stringify(next));
+                return next;
+              });
+              
+              // Clear unread bubble for the active chat
+              setUnreadGchatSpaces(prev => {
+                const next = { ...prev };
+                delete next[sid];
+                return next;
+              });
             }
           }
         });
@@ -3804,8 +3826,16 @@ useEffect(() => {
         }
 
      setGchatMessages((prev) => {
+            // 🛡️ NO-REVERSION GUARD: If we already have more messages in 'prev' 
+            // than the server just sent us in 'incoming', we don't overwrite.
+            if (prev.length > incoming.length && incoming.length > 0) {
+              const lastPrev = prev[prev.length - 1];
+              const lastIn = incoming[incoming.length - 1];
+              if (new Date(lastPrev.createTime) > new Date(lastIn.createTime)) {
+                return prev; 
+              }
+            }
             const merged = dedupeMergeMessages(prev, incoming, true);
-            // 🧠 SYNC TIME: Ensure the sidebar perfectly matches the very last message in the chat
             if (merged.length > 0) {
                 const latestMsg = merged[merged.length - 1];
                 if (latestMsg?.createTime) {
