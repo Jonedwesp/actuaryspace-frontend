@@ -1,4 +1,5 @@
-import https from 'https';
+import https from "https";
+import { Buffer } from "buffer";
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -38,10 +39,7 @@ export const handler = async function (event) {
   }
 
   try {
-    const { messageId } = JSON.parse(event.body || "{}");
-    if (!messageId) {
-      return { statusCode: 400, body: JSON.stringify({ ok: false, error: "Missing messageId" }) };
-    }
+    const { messageId, spaceId } = JSON.parse(event.body || "{}");
 
     // 1. Get Access Token
     const bodyStr = new URLSearchParams({
@@ -64,25 +62,56 @@ export const handler = async function (event) {
     if (!tokenRes.ok) throw new Error("Auth failed");
     const token = tokenData.access_token;
 
-    // 2. Mark as Read (Remove UNREAD label)
-    const modifyBody = JSON.stringify({ removeLabelIds: ["UNREAD"] });
-    const modifyRes = await request(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/modify`, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${token}`,
-        "Content-Type": "application/json",
-        "Content-Length": Buffer.byteLength(modifyBody),
-      },
-      body: modifyBody
-    });
+    // 2. Handle Google Chat (Space) Read State
+    if (spaceId) {
+      const now = new Date().toISOString();
+      const chatReadBody = JSON.stringify({ lastReadTime: now });
 
-    const modifyData = await modifyRes.json();
-    if (!modifyRes.ok) throw new Error(`Modify failed: ${JSON.stringify(modifyData)}`);
+      // Hits the memberships/me endpoint to sync the "Read" timestamp with Google's servers
+      const chatRes = await request(`https://chat.googleapis.com/v1/${spaceId}/members/me`, {
+        method: "PATCH",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(chatReadBody),
+        },
+        body: chatReadBody
+      });
 
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ ok: true, messageId }),
-    };
+      if (!chatRes.ok) {
+        const errorData = await chatRes.json();
+        throw new Error(`Chat sync failed: ${JSON.stringify(errorData)}`);
+      }
+
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ ok: true, spaceId, syncedAt: now }),
+      };
+    }
+
+    // 3. Handle Gmail Mark as Read
+    if (messageId) {
+      const modifyBody = JSON.stringify({ removeLabelIds: ["UNREAD"] });
+      const modifyRes = await request(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/modify`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(modifyBody),
+        },
+        body: modifyBody
+      });
+
+      if (!modifyRes.ok) throw new Error("Gmail modify failed");
+
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ ok: true, messageId }),
+      };
+    }
+
+    return { statusCode: 400, body: JSON.stringify({ ok: false, error: "Missing ID" }) };
+
   } catch (err) {
     console.error("Mark Read Error:", err);
     return {

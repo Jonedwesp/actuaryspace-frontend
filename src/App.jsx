@@ -1,10 +1,8 @@
-// hello from Claude! 🤖
 // src/App.jsx
 // --- Top of App.jsx ---
 
 import agentDonnaPic from "./assets/Agent Donna.png";
 import agentDonnaVideo from "./assets/Agent Donna.mp4";
-import notebookLMPic from "./assets/NotebookLM.png";
 import logo from "./assets/Actuary Consulting.png";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
@@ -23,31 +21,73 @@ function useDebounce(value, delay) {
 
 // --- Smart Link Component for Workspace Apps ---
 const SmartLink = ({ url, label, setIsLiveCallActive, className, style, children }) => {
-  const handleClick = (e) => {
-    e.stopPropagation(); // Prevents triggering parent onClick events
-    if (url?.includes('meet.google.com')) {
-      if (setIsLiveCallActive) setIsLiveCallActive(true);
-      window.dispatchEvent(new CustomEvent("googleMeetLaunched"));
-    }
-  };
+  const [isHovered, setIsHovered] = useState(false);
 
-  return (
-    <div className="smart-link-wrapper" style={{ display: "inline-block" }}>
-      <a
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        onClick={handleClick}
-        className={className}
-        style={style}
-      >
-        {label || children}
-      </a>
-      <div className="smart-link-tooltip">
-        💡 Pro Tip: Right-click the new tab and select "Add tab to new split view"
-      </div>
-    </div>
-  );
+  const handleClick = (e) => {
+    e.stopPropagation(); // Prevents triggering parent onClick events
+    if (url?.includes('meet.google.com')) {
+      if (setIsLiveCallActive) setIsLiveCallActive(true);
+      window.dispatchEvent(new CustomEvent("googleMeetLaunched"));
+    }
+  };
+
+  // 👇 NEW: Check if this is a Google Doc, Sheet, or Meet URL
+  const isWorkspaceLink = url?.includes('meet.google.com') || url?.includes('docs.google.com') || url?.includes('sheets.google.com');
+
+  return (
+    <div 
+      className="smart-link-wrapper" 
+      style={{ display: "inline-flex", position: "relative", alignItems: "center", maxWidth: "100%" }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={handleClick}
+        className={className}
+        style={{ ...style, textDecoration: isHovered ? "underline" : "none", overflow: "hidden", textOverflow: "ellipsis" }}
+      >
+        {label || children}
+      </a>
+      
+      {/* 👇 FIXED: Perfect absolute positioning locked directly above the link */}
+      {isHovered && isWorkspaceLink && (
+        <div style={{
+          position: "absolute",
+          bottom: "100%",
+          left: "50%",
+          transform: "translateX(-50%)",
+          marginBottom: "8px",
+          backgroundColor: "#f1f3f4",
+          color: "#202124",
+          padding: "10px 14px",
+          borderRadius: "8px",
+          fontSize: "13px",
+          fontWeight: "600",
+          whiteSpace: "nowrap",
+          zIndex: 999999,
+          boxShadow: "0 6px 16px rgba(0,0,0,0.15)",
+          pointerEvents: "none",
+          fontFamily: "system-ui, -apple-system, sans-serif"
+        }}>
+          Right-click for more options...
+          {/* Tooltip Triangle */}
+          <div style={{
+            content: '""',
+            position: "absolute",
+            top: "100%",
+            left: "50%",
+            marginLeft: "-6px",
+            borderWidth: "6px",
+            borderStyle: "solid",
+            borderColor: "#f1f3f4 transparent transparent transparent"
+          }} />
+        </div>
+      )}
+    </div>
+  );
 };
 
 // Central Identity Map for all AC contacts to ensure accur
@@ -1682,11 +1722,12 @@ const RightPanel = React.memo(function RightPanel({ filteredGchatSpaces, gchatLo
       const myGen = fetchGenRef.current;
 
       try {
+        window.dispatchEvent(new CustomEvent("systemClearError", { detail: "Trello" }));
         const res = await fetch(`/.netlify/functions/trello?t=${now}`);
         
         // Handle 429 specifically
         if (!res.ok) {
-           if (res.status === 429) console.warn("Trello Rate Limit Hit - Cooling down...");
+           if (res.status === 429) { window.dispatchEvent(new CustomEvent("systemReportError", { detail: { source: "Trello", message: "Rate limit hit" } })); console.warn("Trello Rate Limit Hit - Cooling down..."); } else { window.dispatchEvent(new CustomEvent("systemReportError", { detail: { source: "Trello", message: `API error ${res.status}` } })); }
            return;
         }
 
@@ -1881,6 +1922,7 @@ const RightPanel = React.memo(function RightPanel({ filteredGchatSpaces, gchatLo
 
       } catch (err) {
         console.error("Trello Poll Error:", err);
+        window.dispatchEvent(new CustomEvent("systemReportError", { detail: { source: "Trello", message: err.message } }));
       }
     }
 
@@ -2505,6 +2547,17 @@ export const launchWorkstationWindow = (url) => {
 
 /* ---------- app ---------- */
 export default function App() {
+  const [systemErrors, setSystemErrors] = useState({});
+  const [showSystemPopup, setShowSystemPopup] = useState(false);
+  const reportSystemError = (source, message) => setSystemErrors(prev => ({ ...prev, [source]: message }));
+  const clearSystemError = (source) => setSystemErrors(prev => { const next = { ...prev }; delete next[source]; return next; });
+  useEffect(() => {
+    const onReport = (e) => setSystemErrors(prev => ({ ...prev, [e.detail.source]: e.detail.message }));
+    const onClear = (e) => setSystemErrors(prev => { const next = { ...prev }; delete next[e.detail]; return next; });
+    window.addEventListener("systemReportError", onReport);
+    window.addEventListener("systemClearError", onClear);
+    return () => { window.removeEventListener("systemReportError", onReport); window.removeEventListener("systemClearError", onClear); };
+  }, []);
 const [isLiveCallActive, setIsLiveCallActive] = useState(false);
   const [isDonnaActive, setIsDonnaActive] = useState(false);
   const [isDonnaLoading, setIsDonnaLoading] = useState(false);
@@ -2518,7 +2571,6 @@ const [isLiveCallActive, setIsLiveCallActive] = useState(false);
     }
   }, [isDonnaLoading]);
 
-  const [systemStatus, setSystemStatus] = useState("good"); // Mockup state: "good" or "bad"
   const [currentView, setCurrentView] = useState({ app: "none", contact: null });
   const [isGchatSoundEnabled, setIsGchatSoundEnabled] = useState(false);
   const [statusText, setStatusText] = useState("");
@@ -2528,8 +2580,32 @@ const [isLiveCallActive, setIsLiveCallActive] = useState(false);
   const isInitialGmailSyncRef = useRef(true);
   const isInitialGchatSyncRef = useRef(true);
   // 👇 NEW: State to manage the currently selected event for the details modal
-  const [selectedEvent, setSelectedEvent] = useState(null);
-  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [eventToDelete, setEventToDelete] = useState(null);
+
+  const confirmDeleteEvent = async () => {
+    if (!eventToDelete) return;
+    const eventId = eventToDelete.id;
+    
+    // 1. Instantly remove it from the screen
+    setCalendarEvents(prev => prev.filter(ev => ev.id !== eventId));
+    setSelectedEvent(null);
+    setEventToDelete(null);
+    triggerSnackbar("Event deleted");
+    
+    // 2. Tell the server to delete it
+    try {
+      await fetch("/.netlify/functions/calendar-delete", {
+        method: "POST",
+        credentials: "include", 
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId })
+      });
+    } catch (err) {
+      console.error("Failed to delete event", err);
+    }
+  };
   const [newEventDraft, setNewEventDraft] = useState({ summary: "", date: "", startTime: "", endTime: "", guests: "", location: "", description: "" });
   const isGmailInitialLoad = useRef(true);
 
@@ -3001,6 +3077,7 @@ useEffect(() => {
   const [emailIdx, setEmailIdx] = useState(0);
   const [email, setEmail] = useState(EMAIL_THREADS[0]);
   const [emailPreview, setEmailPreview] = useState(null);
+  const htmlTooltipRef = useRef(null); // 👈 ADD THIS LINE
   const [showEmailDetails, setShowEmailDetails] = useState(false);
   const [reviewingDoc, setReviewingDoc] = useState(null);
 
@@ -3095,6 +3172,11 @@ useEffect(() => {
  const [gmailEmails, setGmailEmails] = useState([]);
  const [gmailLoading, setGmailLoading] = useState(false);
  const [gmailError, setGmailError] = useState("");
+  useEffect(() => { gmailError ? reportSystemError("Gmail", gmailError) : clearSystemError("Gmail"); }, [gmailError]);
+  useEffect(() => { gchatError ? reportSystemError("Google Chat", gchatError) : clearSystemError("Google Chat"); }, [gchatError]);
+  useEffect(() => { gchatMsgError ? reportSystemError("Chat Messages", gchatMsgError) : clearSystemError("Chat Messages"); }, [gchatMsgError]);
+  useEffect(() => { calendarError ? reportSystemError("Calendar", calendarError) : clearSystemError("Calendar"); }, [calendarError]);
+  useEffect(() => { if (Object.keys(systemErrors).length === 0) setShowSystemPopup(false); }, [systemErrors]);
 const [selectedEmailIds, setSelectedEmailIds] = useState(new Set());
 const [gmailFolder, setGmailFolder] = useState("INBOX"); // Tracks current folder
 const [gmailRefreshTrigger, setGmailRefreshTrigger] = useState(0); // 👈 NEW: Hard refresh trigger
@@ -3244,6 +3326,7 @@ const combinedContacts = useMemo(() => {
 useEffect(() => {
   async function syncAllNotifications() {
     try {
+      clearSystemError("Notifications");
       const [emailRes, chatRes] = await Promise.all([
         fetch("/.netlify/functions/gmail-inbox?limit=25"),
         fetch("/.netlify/functions/gchat-sync")
@@ -3272,96 +3355,70 @@ useEffect(() => {
       }
 
       if (chatData && chatData.ok && Array.isArray(chatData.notifications)) {
-        const newUnreadCounts = {};
         const chatNotifs = [];
         
         const isFirstRun = seenGchatIdsRef.current === null;
         if (isFirstRun) {
           seenGchatIdsRef.current = new Set();
+          console.log("🛡️ [GChat Sync] First run: Initializing memory shield.");
         }
-
-        const spacesWithActivity = new Set();
 
         chatData.notifications.forEach(n => {
           const sid = n.spaceId;
           const ts = n.timestamp;
-          // 🛡️ DEDUPLICATION GUARD: Ensure we use the official Google name as the unique ID
-          const msgId = n.id || n.name || `gchat-${sid}-${ts}`;
-          
-          if (sid) spacesWithActivity.add(sid);
-
+          const msgId = n.id || n.name;
           const isCurrentlyViewing = gchatSelectedSpaceRef.current?.id === sid;
           
-          const sId = n.sender?.name || "";
-          const lastSenderIsSiya = sId === "users/112417469383977278282" || 
-                                   sId === "users/115863503558522206541" || 
-                                   n.senderName?.toLowerCase().includes("siya");
+          // 🕵️ LIVE SIDEBAR SYNC:
+          // Check if we already processed this message in the current session
+          const hasBeenSeen = seenGchatIdsRef.current.has(msgId);
 
-          if (sid && !lastSenderIsSiya && !isCurrentlyViewing) {
-            newUnreadCounts[sid] = (newUnreadCounts[sid] || 0) + 1;
+          if (!isCurrentlyViewing && !hasBeenSeen) {
+            // 1. Mark as seen so we don't duplicate the logic
+            seenGchatIdsRef.current.add(msgId);
 
-            // 🛡️ DOUBLE-LOCK: Only proceed if NOT in SeenRef AND NOT in DismissedRef
-            if (!seenGchatIdsRef.current.has(msgId) && !dismissedNotifsRef.current.has(msgId)) {
-              
-              // 🛡️ Check if the message is already in the visible notification state to prevent flickers
+            // 2. 🔵 PUSH LIVE TO SIDEBAR: Force the blue bubble to appear
+            setUnreadGchatSpaces(prev => {
+              const next = { ...prev, [sid]: ts };
+              localStorage.setItem("GCHAT_UNREAD_SPACES", JSON.stringify(next));
+              return next;
+            });
+
+            // 3. 🕒 UPDATE SIDEBAR TIME: Ensure the sidebar sorting/time stays current
+            setGchatSpaceTimes(prev => {
+              const next = { ...prev, [sid]: ts };
+              localStorage.setItem("GCHAT_SPACE_TIMES", JSON.stringify(next));
+              return next;
+            });
+
+            // 4. Send to Notification Panel if not dismissed
+            if (!dismissedNotifsRef.current.has(msgId)) {
               const isAlreadyInUI = notifications.some(existing => existing.id === msgId);
               
               if (!isAlreadyInUI) {
-                seenGchatIdsRef.current.add(msgId);
-
-                const msgTime = new Date(ts).getTime();
-                const isNewSinceLogin = msgTime > sessionStartTime.current.getTime();
+                const lastSenderId = n.sender?.name || "";
+                const resolvedSender = GCHAT_ID_MAP[lastSenderId] || n.senderName || "Colleague";
 
                 chatNotifs.push({
                   ...n,
                   id: msgId,
                   alt: "Google Chat",
                   icon: gchatIcon,
-                  text: `${n.senderName || "Colleague"}: ${n.text}`,
+                  text: `${resolvedSender}: ${n.text}`,
                   timestamp: ts,
                   spaceId: sid,
-                  isSilent: !isNewSinceLogin || isFirstRun 
+                  isSilent: isFirstRun
                 });
               }
             }
           }
         });
 
-        // 🔗 BRIDGE TO PANEL: Push the Chat notifications into the combined list
-        combined = [...combined, ...chatNotifs];
-
-        // 🔵 Step 4: Sync sidebar state
-        setUnreadGchatSpaces(prev => {
-          const next = { ...prev };
-          spacesWithActivity.forEach(sid => {
-            const count = newUnreadCounts[sid] || 0;
-            if (count > 0) next[sid] = count;
-            else delete next[sid];
-          });
-          localStorage.setItem("GCHAT_UNREAD_SPACES", JSON.stringify(next));
-          return next;
-        });
-        
-        if (isFirstRun) {
-          isInitialGchatSyncRef.current = false;
-        }
-
-        // 🔵 Step 4: Sync the calculated bubbles to the sidebar state
-        setUnreadGchatSpaces(prev => {
-          const next = { ...prev };
-          spacesWithActivity.forEach(sid => {
-            const count = newUnreadCounts[sid] || 0;
-            if (count > 0) next[sid] = count;
-            else delete next[sid];
-          });
-          localStorage.setItem("GCHAT_UNREAD_SPACES", JSON.stringify(next));
-          return next;
-        });
-        
         combined = [...combined, ...chatNotifs];
         
         if (isFirstRun) {
           isInitialGchatSyncRef.current = false;
+          console.log("🛡️ [GChat Sync] Initial sync complete. Real-time alerts are now ACTIVE.");
         }
       }
 
@@ -3412,31 +3469,43 @@ useEffect(() => {
 
     } catch (err) {
       console.error("Sync error:", err);
+      reportSystemError("Notifications", err.message);
     }
   }
 
-  syncAllNotifications();
-  const interval = setInterval(syncAllNotifications, 5000);
-  return () => clearInterval(interval);
-}, []);
+syncAllNotifications();
+  const interval = setInterval(syncAllNotifications, 5000);
+  return () => clearInterval(interval);
+}, [isMuted]);
 // 🟢 GLOBAL NOTIFICATION LISTENER (Fixes Calendar, Trash, and Trello Notifications)
 useEffect(() => {
-  const handleNotify = (e) => {
+ const handleNotify = (e) => {
     const n = e.detail;
     if (!n) return;
     
     setNotifications(prev => {
       const id = n.id || `notif-${Date.now()}-${Math.random()}`;
+      
+      // If we already have this ID in our list, ignore the duplicate
       if (prev.some(p => p.id === id)) return prev;
 
-      // 👇 NEW: Ignore if permanently dismissed
+      // If it's a Chat notification, also mark it in the seenGchatIdsRef
+      if (n.alt === "Google Chat" && seenGchatIdsRef.current) {
+        seenGchatIdsRef.current.add(id);
+      }
+
       if (dismissedNotifsRef.current.has(id)) return prev;
 
-      // Ensure appropriate sound fires only when NOT muted
       if (!isMuted) {
-        if (n.alt === "Gmail") new Audio(GMAIL_SOUND_DATA).play().catch(() => {});
-        else if (n.alt === "Google Chat") new Audio(GCHAT_SOUND_DATA).play().catch(() => {});
-        else if (n.alt === "Trello" || n.alt === "Calendar") new Audio(TRELLO_SOUND_DATA).play().catch(() => {});
+        if (n.alt === "Gmail") {
+          new Audio(GMAIL_SOUND_DATA).play().catch(() => {});
+        } else if (n.alt === "Google Chat") {
+          new Audio(GCHAT_SOUND_DATA).play().catch(() => {});
+        } else if (n.alt === "Trello") {
+          new Audio(TRELLO_SOUND_DATA).play().catch(() => {});
+        } else if (n.alt === "Calendar") {
+          new Audio(TRELLO_SOUND_DATA).play().catch(() => {});
+        }
       }
 
       const mapped = {
@@ -3454,7 +3523,7 @@ useEffect(() => {
 
   window.addEventListener("notify", handleNotify);
   return () => window.removeEventListener("notify", handleNotify);
-}, [isMuted]); // Added isMuted to dependency array to ensure the listener has the current state
+}, [isMuted, notifications]); // Added notifications to dependency for accurate duplication check
 
   // 1. GLOBAL IDENTITY LOADER (Runs once on mount, regardless of view)
 useEffect(() => {
@@ -3530,12 +3599,24 @@ useEffect(() => {
               }
             }
 
-            // 2. Sync Times (Ensures "Today" times show immediately)
-            const ts = s.lastActiveTime || s.createTime;
-            if (ts && (!newTimes[sid] || new Date(ts) > new Date(newTimes[sid]))) {
-              newTimes[sid] = ts;
-              hasNewData = true;
-            }
+            // 🛡️ THE POLLER SHIELD:
+          // 1. Get the latest activity from the API
+          const apiActiveTime = s.lastActiveTime || s.createTime;
+          const apiTs = apiActiveTime ? new Date(apiActiveTime).getTime() : 0;
+          
+          // 2. Get your local "Click Memory" (the time you last viewed it on the site)
+          const localReadTimeStr = gchatSpaceTimes[sid] || localStorage.getItem(`READ_TIME_${sid}`);
+          const localTs = localReadTimeStr ? new Date(localReadTimeStr).getTime() : 0;
+
+          // 3. ONLY update the sidebar time and blue bubble if the API has a TRULY NEW message
+          // (at least 2 seconds newer than your last click to account for server drift)
+          if (apiTs > (localTs + 2000)) {
+            newTimes[sid] = apiActiveTime;
+            hasNewData = true;
+          } else {
+            // Otherwise, keep your local "Read" timestamp as the truth
+            newTimes[sid] = localReadTimeStr;
+          }
           });
 
           if (hasNewData) {
@@ -3841,6 +3922,7 @@ const triggerGChatNotification = (msg, targetSpaceId) => {
 useEffect(() => {
   const pollGmailBackground = async () => {
     try {
+      clearSystemError("Gmail Sync");
       const res = await fetch("/.netlify/functions/gmail-inbox?limit=50");
       const json = await res.json().catch(() => ({}));
       
@@ -3852,27 +3934,37 @@ useEffect(() => {
         seenGmailIdsRef.current = new Set();
       }
 
-      // 2. PROCESS EMAILS
+      // 📧 GMAIL BACKGROUND POLLER UPDATED
       [...json.emails].reverse().forEach(email => {
+        // 🚀 WHATSAPP LOAD LOGIC: 
+        // We only skip if Siya manually dismissed it OR it's already in the UI.
+        const isDismissed = dismissedNotifsRef.current.has(email.id);
+        
+        if (email.isUnread && !isDismissed) {
+          setNotifications(prev => {
+            if (prev.find(p => p.id === email.id)) return prev;
+            
+            const mapped = {
+              id: email.id,
+              alt: "Gmail",
+              icon: gmailIcon,
+              text: `${email.from.split("<")[0].replace(/"/g, '').trim()}: ${email.subject}`,
+              timestamp: email.date,
+              gmailData: email,
+              time: formatNotificationDate(email.date),
+              isSilent: isFirstRun || seenGmailIdsRef.current.has(email.id) // No sound for pre-existing or seen items
+            };
+            
+            return [mapped, ...prev].sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
+          });
+        }
+        
+        // Audio/Memory housekeeping
         if (!seenGmailIdsRef.current.has(email.id)) {
-          
-          // 🔊 SOUND LOGIC: Suppress sound on the very first batch
-          if (!isFirstRun && !isInitialGmailSyncRef.current && email.isUnread) {
-            const audio = new Audio(GMAIL_SOUND_DATA);
-            audio.play().catch(e => console.warn("Audio blocked", e));
+          if (!isFirstRun && !isInitialGmailSyncRef.current && email.isUnread && !isMuted) {
+             new Audio(GMAIL_SOUND_DATA).play().catch(() => {});
           }
-
-          // Add to memory
           seenGmailIdsRef.current.add(email.id);
-
-          // Inject into main Inbox list if not searching
-          if (!activeSearchRef.current && activeFolderRef.current === "INBOX") {
-            setGmailEmails(prev => {
-              const exists = prev.find(p => p.id === email.id);
-              if (exists) return prev;
-              return [email, ...prev];
-            });
-          }
         }
       });
 
@@ -3883,13 +3975,13 @@ useEffect(() => {
       
     } catch (err) {
       console.error("Background Gmail poll failed", err);
+      reportSystemError("Gmail Sync", err.message);
     }
   };
-
-  pollGmailBackground();
-  const id = setInterval(pollGmailBackground, 15000); 
-  return () => clearInterval(id);
-}, []);
+pollGmailBackground();
+      const id = setInterval(pollGmailBackground, 15000); 
+      return () => clearInterval(id);
+    }, [isMuted]);
 
 
 
@@ -3905,6 +3997,7 @@ useEffect(() => {
         const timeMin = now.toISOString();
         const timeMax = new Date(now.getTime() + 60 * 60 * 1000).toISOString();
 
+        clearSystemError("Calendar Sync");
         const res = await fetch(`/.netlify/functions/calendar-events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`, { credentials: "include" });
         const json = await res.json();
         if (!json.ok || !json.events) return;
@@ -3940,6 +4033,7 @@ useEffect(() => {
         });
       } catch (err) {
         console.error("Calendar reminder poll failed", err);
+        reportSystemError("Calendar Sync", err.message);
       }
     };
 
@@ -5135,49 +5229,6 @@ if (currentView.app === "gchat") {
           </>
         )}
 
-        {/* 🔴 NEW: Custom Delete Confirmation Modal */}
-        {msgToDelete && (
-          <>
-            <div 
-              style={{ position: "fixed", top:0, left:0, width:"100vw", height:"100vh", zIndex: 9998, background: "rgba(0,0,0,0.5)" }}
-              onMouseDown={(e) => { e.stopPropagation(); setMsgToDelete(null); }}
-            />
-            <div 
-              style={{
-                position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: "400px",
-                background: "white", padding: "24px", borderRadius: "12px",
-                boxShadow: "0 12px 40px rgba(0,0,0,0.3)", zIndex: 9999, border: "1px solid #dadce0"
-              }}
-              onClick={(e) => e.stopPropagation()} 
-            >
-              <div style={{fontWeight:500, marginBottom:12, fontSize:"1.2rem", color:"#202124"}}>
-                Delete message?
-              </div>
-              <div style={{fontSize:"0.9rem", color:"#5f6368", marginBottom:"24px", lineHeight: "1.5"}}>
-                This will permanently delete the message for everyone in this chat. This action cannot be undone.
-              </div>
-              
-             <div style={{display:"flex", justifyContent:"flex-end", gap:10}}>
-                 <button 
-                  style={{ borderRadius:4, padding: "8px 16px", color: "#5f6368", fontWeight: 500, cursor: "pointer", border: "1px solid #dadce0", background: "transparent", transition: "background 0.2s" }} 
-                  onMouseEnter={(e) => e.currentTarget.style.background = "#f1f3f4"}
-                  onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setMsgToDelete(null); }}
-                >
-                  Cancel
-                </button>
-                <button 
-                  style={{ borderRadius:4, padding: "8px 16px", background: "#d93025", color: "#fff", fontWeight: 500, cursor: "pointer", border: "none", transition: "background 0.2s" }} 
-                  onMouseEnter={(e) => e.currentTarget.style.background = "#c5221f"}
-                  onMouseLeave={(e) => e.currentTarget.style.background = "#d93025"}
-                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); confirmDeleteGChatMessage(); }}
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-          </>
-        )}
 
       {/* LEFT 1/4 — spaces + DMs */}
      {/* LEFT SIDEBAR — widened to 32% */}
@@ -5273,24 +5324,36 @@ if (currentView.app === "gchat") {
               const isActive = gchatSelectedSpace?.id === s.id;
               
               // 🛡️ AUTHENTIC SERVER SYNC LOGIC:
-              // 1. Get the latest activity timestamp from the Google Space object
+              const sid = s.id || s.name;
               const apiActive = s.lastActiveTime ? new Date(s.lastActiveTime).getTime() : 0;
               
-              // 2. Fetch the Read State directly from the new backend property
-              // Fallback to our local state ref if the specific poll hasn't updated yet
-              const serverLastRead = s.serverLastReadTime || gchatSpaceTimes[s.id];
-              const serverReadTime = serverLastRead ? new Date(serverLastRead).getTime() : 0;
+              // 🧠 THE SHIELD FIX: Priority goes to our local "Click Memory"
+              // We check the gchatSpaceTimes state which was updated in the onClick handler.
+              const localReadTimeStr = gchatSpaceTimes[sid];
+              const localReadTime = localReadTimeStr ? new Date(localReadTimeStr).getTime() : 0;
               
-              // 3. Identify the last sender.
-              // Check if the last message came from Siya
+              // Fallback to the server lastReadTime ONLY if our local memory is older
+              const serverReadTime = s.serverLastReadTime ? new Date(s.serverLastReadTime).getTime() : 0;
+              
+              // 🛡️ Use the highest (newest) timestamp to prevent bubbles from reappearing
+              // Added a slight offset to localReadTime to handle millisecond drift
+              const effectiveReadTime = Math.max(localReadTime > 0 ? localReadTime - 1000 : 0, serverReadTime);
+              
+              // Identify the last sender
               const lastSenderId = s.lastMessage?.sender?.name || "";
-              const lastSenderIsMe = lastSenderId === gchatMe || lastSenderId === gchatMeRef.current;
+              const SIYA_ID = "users/112417469383977278282";
               
-              // 4. THE AUTHENTIC UNREAD TRIGGER:
-              // A chat is "Unread" ONLY if:
-              // A) The last person to speak was NOT Siya.
-              // B) The last active time of the space is newer than the last time the server says Siya read it.
-              const isUnread = !lastSenderIsMe && apiActive > serverReadTime;
+              // Enhanced check to ensure we aren't marking other people's messages as "Me"
+              const lastSenderIsMe = lastSenderId === SIYA_ID || 
+                                     (gchatMe && lastSenderId === gchatMe) || 
+                                     (gchatMeRef.current && lastSenderId === gchatMeRef.current);
+              
+              // 🏁 THE FINAL TRIGGER:
+              // A chat is unread ONLY if:
+              // 1. Someone else sent the last message.
+              // 2. The activity is newer than our local Click Memory.
+              // 3. We aren't currently viewing the chat.
+              const isUnread = !lastSenderIsMe && apiActive > effectiveReadTime && gchatSelectedSpace?.id !== sid;
 
               // For visual sorting and display
               let spaceTime = s.lastActiveTime || s.createTime;
@@ -5321,46 +5384,28 @@ if (currentView.app === "gchat") {
   }}
   onClick={async () => {
     const spaceId = s.id || s.name;
-    
-    // 1. Set the selected space
     setGchatSelectedSpace(s);
 
-    // 2. Clear local counts immediately
+    // 1. Clear unread markers immediately in state and local storage
     setUnreadGchatSpaces(prev => {
       const next = { ...prev };
       delete next[spaceId];
-      delete next[s.id];
-      delete next[s.name];
+      localStorage.setItem("GCHAT_UNREAD_SPACES", JSON.stringify(next));
       return next;
     });
 
-    // 3. Update the Time Memory so the Poller ignores messages prior to this click
+    // 2. Set read time to exactly NOW
     const nowIso = new Date().toISOString();
-    setGchatSpaceTimes(prev => {
-      const next = { ...prev, [spaceId]: nowIso };
-      localStorage.setItem("GCHAT_SPACE_TIMES", JSON.stringify(next));
-      return next;
-    });
+    setGchatSpaceTimes(prev => ({ ...prev, [spaceId]: nowIso }));
+    localStorage.setItem("GCHAT_SPACE_TIMES", JSON.stringify({ ...gchatSpaceTimes, [spaceId]: nowIso }));
 
-    // 4. Remove notifications from the feed
-    setNotifications(prev => prev.filter(n => n.spaceId !== spaceId));
-
-    // 5. Update the "Seen IDs" to include all messages currently in view
-    if (seenGchatIdsRef.current) {
-      gchatMessages.forEach(m => seenGchatIdsRef.current.add(m.name || m.id));
-    }
-
-    // 6. Final Sync to Google Server
-    try {
-      await fetch("/.netlify/functions/gchat-mark-read", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ spaceId })
-      });
-    } catch (err) {
-      console.error("Mark read sync failed:", err);
-    }
+    // 3. Backend Sync
+    fetch("/.netlify/functions/gmail-mark-read", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ spaceId })
+    }).catch(err => console.error("Sync failed", err));
   }}
                   onMouseEnter={e => !isActive && (e.currentTarget.style.background = "#e8eaed")}
                   onMouseLeave={e => !isActive && (e.currentTarget.style.background = "#f1f3f4")}
@@ -5389,24 +5434,30 @@ if (currentView.app === "gchat") {
           </div>
         )}
       </div>
-
-      {/* RIGHT 3/4 — message thread */}
+{/* RIGHT 3/4 — message thread */}
       <div
         className="gchat-thread"
         style={{
           width: "70%",
           display: "flex",
           flexDirection: "column",
+          overflow: "hidden", /* 👈 THE FIX: Removed the duplicate outer scrollbar */
+          position: "relative",
+          background: "#fff"
         }}
       >
         <div
           className="gchat-topbar"
           style={{
             borderBottom: "1px solid #ddd",
-            padding: "8px",
+            padding: "8px 24px 8px 12px",
             display: "flex",
             justifyContent: "space-between",
-            alignItems: "center"
+            alignItems: "center",
+            position: "sticky",
+            top: 0,
+            zIndex: 10,
+            background: "#fff"
           }}
         >
           <div className="gchat-top-title">
@@ -5522,7 +5573,7 @@ if (currentView.app === "gchat") {
           })()}
         </div>
 
-        <div
+ <div
           className="gchat-thread-body"
           ref={gchatBodyRef}
           onScroll={() => {
@@ -5537,7 +5588,7 @@ if (currentView.app === "gchat") {
           style={{
             flex: 1,
             overflowY: "auto",
-            padding: "12px"
+            padding: "12px 24px 12px 12px"
           }}
         >
           {/* 👇 UPDATED: Text removed */}
@@ -5549,7 +5600,7 @@ if (currentView.app === "gchat") {
               {gchatMsgError && <div className="gchat-error">{gchatMsgError}</div>}
 
               {!gchatMsgLoading && !gchatMsgError && (
-               <div className="gchat-msg-list">
+               <div className="gchat-msg-list">
                   {/* 🟢 PAGINATION BUTTON: Appears only if older messages exist */}
                   {gchatNextPageToken && (
                     <div style={{ textAlign: 'center', padding: '10px 0' }}>
@@ -5771,6 +5822,7 @@ if (KNOWN_USERS[senderId]) {
                             alignItems: isMine ? "flex-end" : "flex-start", 
                             position: "relative", 
                             maxWidth: "70%",
+                            width: "fit-content", // 👈 SHIELD: Prevents empty space from acting as a hover zone
                             marginLeft: isMine ? "auto" : "0", // 🧲 Magnetic pull to right
                             marginRight: isMine ? "0" : "auto"
                           }}
@@ -5805,7 +5857,7 @@ if (KNOWN_USERS[senderId]) {
                             </span>
                           </div>
 
-                        {editingMsgId === msgId ? (
+                  {editingMsgId === msgId ? (
                             <GChatEditBox 
                               initialText={msg?.text || msg?.formattedText || ""}
                               onSave={(newText) => handleUpdateGChatMessage(msgId, newText)}
@@ -5813,19 +5865,25 @@ if (KNOWN_USERS[senderId]) {
                             />
                           ) : (
                             <div 
-                              className="gchat-bubble" 
-                              onMouseEnter={() => setHoveredMsgId(msgId)}
-                              onMouseLeave={() => setHoveredMsgId(null)}
+                              className="gchat-pill-strict" 
+                              onMouseEnter={(e) => { e.stopPropagation(); setHoveredMsgId(msgId); }}
+                              onMouseLeave={(e) => { e.stopPropagation(); setHoveredMsgId(null); }}
                               style={{ 
-                                position: "relative", textAlign: 'left',
+                                position: "relative", textAlign: 'left', 
+                                width: 'fit-content', display: 'inline-block', alignSelf: isMine ? 'flex-end' : 'flex-start',
                                 fontStyle: (msg.isDeletedLocally || msg.text === "Message deleted by its author") ? 'italic' : 'normal',
-                                color: (msg.isDeletedLocally || msg.text === "Message deleted by its author") ? '#5f6368' : undefined,
-                                background: (msg.isDeletedLocally || msg.text === "Message deleted by its author") 
+                                color: (msg.isDeletedLocally || msg.text === "Message deleted by its author") ? '#5f6368' : '#202124',
+                                backgroundColor: (msg.isDeletedLocally || msg.text === "Message deleted by its author") 
                                   ? '#f1f3f4' 
-                                  : (hoveredMsgId === msgId ? (isMine ? "#cbdcf8" : "#e8eaed") : undefined),
-                                border: (msg.isDeletedLocally || msg.text === "Message deleted by its author") ? '1px solid #dadce0' : undefined,
-                                filter: (hoveredMsgId === msgId && isMine) ? "brightness(0.95)" : "none",
-                                transition: "background-color 0.1s ease"
+                                  : (hoveredMsgId === msgId ? (isMine ? "#cbdcf8" : "#e8eaed") : (isMine ? "#c2e7ff" : "#f1f3f4")),
+                                border: (msg.isDeletedLocally || msg.text === "Message deleted by its author") ? '1px solid #dadce0' : '1px solid transparent',
+                                transition: "background-color 0.15s ease",
+                                padding: "8px 16px",
+                                borderRadius: "18px",
+                                margin: 0,
+                                fontSize: "14px",
+                                lineHeight: "1.5",
+                                wordBreak: "break-word"
                               }}
                             >
                              {hasAttachment && !msg.isDeletedLocally && msg.text !== "Message deleted by its author" && (
@@ -6970,18 +7028,71 @@ if (currentView.app === "gmail") {
           </div>
 
           {/* Email Body */}
-          <div 
-            className="email-body" 
-            style={{ marginLeft: "56px", marginTop: "24px", paddingRight: "48px", paddingBottom: "60px" }}
-            onClick={(e) => {
-              // Allows native right-clicks but catches Meet URLs for the AI Video!
-              const anchor = e.target.closest("a");
-              if (anchor && anchor.href && anchor.href.includes("meet.google.com")) {
-                setIsLiveCallActive(true);
-                window.dispatchEvent(new CustomEvent("googleMeetLaunched"));
-              }
-            }}
-          >
+          <div 
+            className="email-body" 
+            style={{ marginLeft: "56px", marginTop: "24px", paddingRight: "48px", paddingBottom: "60px", position: "relative" }}
+            onClick={(e) => {
+              const anchor = e.target.closest("a");
+              if (anchor && anchor.href && anchor.href.includes("meet.google.com")) {
+                setIsLiveCallActive(true);
+                window.dispatchEvent(new CustomEvent("googleMeetLaunched"));
+              }
+            }}
+            // ⚡ 0ms LATENCY: Direct DOM manipulation via Ref
+            onMouseOver={(e) => {
+              const anchor = e.target.closest("a");
+              if (anchor && anchor.href && /docs\.google\.com|sheets\.google\.com|meet\.google\.com/.test(anchor.href)) {
+                const containerRect = e.currentTarget.getBoundingClientRect();
+                const linkRect = anchor.getBoundingClientRect();
+                
+                if (htmlTooltipRef.current) {
+                  htmlTooltipRef.current.style.top = `${linkRect.top - containerRect.top - 8}px`;
+                  htmlTooltipRef.current.style.left = `${linkRect.left - containerRect.left + (linkRect.width / 2)}px`;
+                  htmlTooltipRef.current.style.opacity = "1";
+                }
+              }
+            }}
+            onMouseOut={(e) => {
+              if (e.target.closest("a") && htmlTooltipRef.current) {
+                htmlTooltipRef.current.style.opacity = "0";
+              }
+            }}
+          >
+            {/* ⚡ THE TOOLTIP: Always rendered, but hidden by default via opacity: 0 */}
+            <div 
+              ref={htmlTooltipRef}
+              style={{
+                position: "absolute",
+                opacity: 0, // <--- Hidden by default
+                transform: "translate(-50%, -100%)",
+                backgroundColor: "#f1f3f4",
+                color: "#202124",
+                padding: "10px 14px",
+                borderRadius: "8px",
+                fontSize: "13px",
+                fontWeight: "600",
+                whiteSpace: "nowrap",
+                zIndex: 999999,
+                boxShadow: "0 6px 16px rgba(0,0,0,0.15)",
+                pointerEvents: "none",
+                fontFamily: "system-ui, -apple-system, sans-serif",
+                transition: "opacity 0.1s ease-out" // Smooth, instant fade
+              }}
+            >
+              Right-click for more options...
+              {/* Tooltip Triangle */}
+              <div style={{
+                content: '""',
+                position: "absolute",
+                top: "100%",
+                left: "50%",
+                marginLeft: "-6px",
+                borderWidth: "6px",
+                borderStyle: "solid",
+                borderColor: "#f1f3f4 transparent transparent transparent"
+              }} />
+            </div>
+
             {email.bodyHtml ? (
               <div
                 className="email-body-html"
@@ -6993,6 +7104,24 @@ if (currentView.app === "gmail") {
                 {(() => {
                   const body = email.body || "";
                   
+                  const renderTextWithLinks = (textStr) => {
+                    return textStr.split(/(https?:\/\/[^\s]+)/g).map((part, i) => {
+                      if (part.match(/^https?:\/\//)) {
+                        return (
+                          <SmartLink
+                            key={i}
+                            url={part}
+                            setIsLiveCallActive={setIsLiveCallActive}
+                            style={{ color: "#1a73e8", textDecoration: "underline", wordBreak: "break-all" }}
+                          >
+                            {part}
+                          </SmartLink>
+                        );
+                      }
+                      return <React.Fragment key={i}>{part}</React.Fragment>;
+                    });
+                  };
+
                   const renderFormattedBody = (text, depth = 0) => {
                     const forwardRegex = /[-]{3,}\s*Forwarded message\s*[-]{3,}/i;
                     const replyRegex = /(^On\s.+\sat\s.+\s.+\swrote:)/im;
@@ -7004,7 +7133,7 @@ if (currentView.app === "gmail") {
                           {parts[0] && (
                             <div className="gmail-paragraph-wrapper">
                               {parts[0].trim().split('\n').map((line, i) => (
-                                <div key={i} style={{ marginBottom: line.trim() ? "14px" : "8px", minHeight: line.trim() ? "auto" : "12px" }}>{line}</div>
+                                <div key={i} style={{ marginBottom: line.trim() ? "14px" : "8px", minHeight: line.trim() ? "auto" : "12px" }}>{renderTextWithLinks(line)}</div>
                               ))}
                             </div>
                           )}
@@ -7024,11 +7153,11 @@ if (currentView.app === "gmail") {
                       const parts = text.split(replyRegex);
                       return (
                         <>
-                          {parts[0] && <div>{parts[0].trim()}</div>}
+                          {parts[0] && <div>{renderTextWithLinks(parts[0].trim())}</div>}
                           <div className="gmail-reply-quote" style={{ borderLeft: "2px solid #72a8ff", paddingLeft: "16px", color: "#505050", marginTop: "16px" }}>
                             <div style={{ fontWeight: "500", marginBottom: "12px", color: "#5f6368" }}>{parts[1]}</div>
                             {parts.slice(2).join("").split('\n').map((line, i) => (
-                              <div key={i} style={{ marginBottom: "12px" }}>{line}</div>
+                              <div key={i} style={{ marginBottom: "12px" }}>{renderTextWithLinks(line)}</div>
                             ))}
                           </div>
                         </>
@@ -7038,7 +7167,7 @@ if (currentView.app === "gmail") {
                     // Fallback for standard text: Use pre-wrap to respect original formatting
                   return (
                     <div style={{ whiteSpace: "pre-wrap", lineHeight: "1.6", fontFamily: "system-ui, -apple-system, sans-serif" }}>
-                      {text}
+                      {renderTextWithLinks(text)}
                     </div>
                   );
                   };
@@ -7049,7 +7178,7 @@ if (currentView.app === "gmail") {
             )}
           </div>
 
-         {/* Attachments Section */}
+         {/* Attachments Section */}
           {att.length > 0 && (
             <div style={{ marginLeft: "56px", marginTop: "24px" }}>
               <div style={{ borderTop: "1px solid #f1f3f4", margin: "16px 0", width: "100%" }}></div>
@@ -8934,20 +9063,20 @@ if (currentView.app === "gmail") {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                    
                    {/* 🔗 1. LINKS SECTION */}
-                   {cardAttachments.filter(a => a.isUpload === false).length > 0 && (
-                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                       <div style={{ fontSize: '14px', fontWeight: 600, color: '#5e6c84', marginBottom: '4px' }}>Links</div>
-                       {cardAttachments.filter(a => a.isUpload === false).map(att => (
-                         <div key={att.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', background: '#fafbfc', border: '1px solid #dfe1e6', borderRadius: '4px' }}>
-                           {/* Sleek Blue Link Icon */}
-                           <div style={{ color: '#0052cc', display: 'grid', placeItems: 'center', flexShrink: 0, width: '24px', height: '24px', background: '#e6fcff', borderRadius: '4px' }}>
-                              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/></svg>
-                           </div>
-                           <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                               <a href={att.url} target="_blank" rel="noopener noreferrer" style={{ color: '#0052cc', fontWeight: 500, fontSize: '14px', textDecoration: 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }} onMouseEnter={e => e.currentTarget.style.textDecoration = 'underline'} onMouseLeave={e => e.currentTarget.style.textDecoration = 'none'}>
-                                 {att.name || att.url}
-                               </a>
-                               <button onClick={async (e) => {
+                   {cardAttachments.filter(a => a.isUpload === false).length > 0 && (
+                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                       <div style={{ fontSize: '14px', fontWeight: 600, color: '#5e6c84', marginBottom: '4px' }}>Links</div>
+                       {cardAttachments.filter(a => a.isUpload === false).map(att => (
+                         <div key={att.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', background: '#fafbfc', border: '1px solid #dfe1e6', borderRadius: '4px' }}>
+                           {/* Sleek Blue Link Icon */}
+                           <div style={{ color: '#0052cc', display: 'grid', placeItems: 'center', flexShrink: 0, width: '24px', height: '24px', background: '#e6fcff', borderRadius: '4px' }}>
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/></svg>
+                           </div>
+                           <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                               <SmartLink url={att.url} style={{ color: '#0052cc', fontWeight: 500, fontSize: '14px', whiteSpace: 'nowrap', display: 'block' }}>
+                                 {att.name || att.url}
+                               </SmartLink>
+                               <button onClick={async (e) => {
                                   e.stopPropagation();
                                   if(!window.confirm("Delete link?")) return;
                                   setCardAttachments(prev => prev.filter(a => a.id !== att.id));
@@ -9461,18 +9590,14 @@ if (currentView.app === "gmail") {
                       )}
                       
                      {ev.hangoutLink && (
-                        <button 
-                          onClick={(e) => {
-                            e.preventDefault();
-                            launchWorkstationWindow(ev.hangoutLink);
-                          }}
+                        <SmartLink 
+                          url={ev.hangoutLink}
+                          setIsLiveCallActive={setIsLiveCallActive}
                           style={{ display: "inline-flex", alignItems: "center", gap: "6px", marginTop: "4px", padding: "6px 16px", background: "#1a73e8", color: "#fff", border: "none", borderRadius: "100px", fontSize: "13px", fontWeight: 500, transition: "background 0.2s", cursor: "pointer" }} 
-                          onMouseEnter={e => e.currentTarget.style.background = "#1557b0"} 
-                          onMouseLeave={e => e.currentTarget.style.background = "#1a73e8"}
                         >
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4zM14 13h-3v3H9v-3H6v-2h3V8h2v3h3v2z"/></svg>
                           Join Meet
-                        </button>
+                        </SmartLink>
                       )}
                     </div>
                   </div>
@@ -9654,7 +9779,8 @@ if (currentView.app === "gmail") {
         isRecording,
         inputValue,
         showPlusMenu,
-        systemStatus,
+        systemErrors,
+        showSystemPopup,
         batchStatus,
         reviewingDoc,
        ]);
@@ -9665,7 +9791,8 @@ return (
       
 {/* 🤖 AI IDENTITY STACK (Increased height to 110px) */}
 <div className="brand-stack" style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
-        <div 
+       
+       <div 
           className="brand-rect" 
           title="Agent Donna" 
           onClick={() => {
@@ -9681,6 +9808,16 @@ return (
               muted
               loop
               playsInline
+              ref={(el) => {
+                if (el) {
+                  el.defaultMuted = true;
+                  el.muted = true;
+                  const playPromise = el.play();
+                  if (playPromise !== undefined) {
+                    playPromise.catch(() => {});
+                  }
+                }
+              }}
               onError={(e) => console.error('[Donna Video Error] code:', e.target.error?.code, e.target.error?.message)}
               onLoadedData={() => console.log('[Donna Video] loaded OK')}
               style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
@@ -9690,23 +9827,30 @@ return (
           )}
         </div>
 
-        <div 
+   <div 
           className="brand-rect" 
           title="NotebookLM / Storyteller" 
-          onClick={() => setIsBlueprintActive(!isBlueprintActive)} 
-          style={{ width: '100%', height: '120px', overflow: 'hidden', borderRadius: '12px', cursor: 'pointer', background: '#f1f3f4', position: 'relative' }}
+          style={{ width: '100%', height: '120px', overflow: 'hidden', borderRadius: '12px', background: '#f1f3f4', position: 'relative' }}
         >
-          {isBlueprintActive ? (
+          {isLiveCallActive ? (
             <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}>
-              <BlueprintVideo isPlaying={isBlueprintActive} />
+              <BlueprintVideo isPlaying={isLiveCallActive} />
             </div>
           ) : (
-            <img src={notebookLMPic} alt="NotebookLM" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', position: 'absolute', top: 0, left: 0 }} />
+            <div style={{ position: 'absolute', bottom: '12px', right: '14px', display: 'flex', alignItems: 'center', gap: '6px', color: '#5f6368' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 4C7.58 4 4 7.58 4 12v8h4v-8c0-2.21 1.79-4 4-4s4 1.79 4 4v8h4v-8c0-4.42-3.58-8-8-8z"/>
+                <path d="M12 10c-1.1 0-2 .9-2 2v8h4v-8c0-1.1-.9-2-2-2z"/>
+              </svg>
+              <span style={{ fontSize: '15px', fontWeight: '600', fontFamily: "'Google Sans', Roboto, sans-serif", letterSpacing: '-0.3px' }}>
+                NotebookLM
+              </span>
+            </div>
           )}
         </div>
         
         <div style={{ width: '100%', display: 'flex', justifyContent: 'flex-start', paddingLeft: '4px' }}>
-          <StorytellerMockup isLiveCallActive={isLiveCallActive} statusText={statusText} />
+          <StorytellerMockup isLiveCallActive={isLiveCallActive} />
         </div>
       </div>
       
@@ -9715,7 +9859,11 @@ return (
 <div className="panel-title" style={{ marginBottom: "4px", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
   <span>Notifications</span>
   <button 
-    onClick={() => setIsMuted(!isMuted)}
+    onClick={() => {
+      const nextMuted = !isMuted;
+      setIsMuted(nextMuted);
+      localStorage.setItem("NOTIF_MUTED", nextMuted);
+    }}
     style={{ 
       background: "none", 
       border: "none", 
@@ -9764,17 +9912,18 @@ return (
         </div> 
       </div>
 
-     {/* MIDDLE */}
+   {/* MIDDLE */}
       <div
         className={`middle-panel ${
           currentView.app === "email" && emailPreview ? "has-email-preview" : ""
         }`}
+        style={{ paddingRight: currentView.app === "gchat" ? "0" : undefined }}
       >
         <div className="panel-title" style={{ 
           display: "flex", 
           alignItems: "center", 
           justifyContent: "space-between", 
-          paddingRight: "24px", 
+          paddingRight: currentView.app === "gchat" ? "40px" : "24px", 
           paddingLeft: "12px",
           position: "relative" 
         }}>
@@ -9817,22 +9966,48 @@ return (
               Productivity
             </button>
 
-            <button
-              className="connect-google-btn"
-              onClick={() => setSystemStatus(prev => prev === "good" ? "bad" : "good")}
-              style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}
-              title={systemStatus === "good" ? "All systems operational" : "Connection issue detected"}
-            >
-              <div style={{
-                width: "10px", height: "10px", borderRadius: "50%",
-                backgroundColor: systemStatus === "good" ? "#34A853" : "#EA4335",
-                boxShadow: systemStatus === "good" ? "0 0 6px #34A853" : "0 0 8px #EA4335",
-                transition: "all 0.3s ease"
-              }}></div>
-              <span style={{ fontSize: "12px", fontWeight: 500 }}>
-                {systemStatus === "good" ? "System: Good" : "System: Alert"}
-              </span>
-            </button>
+            <div style={{ position: "relative" }}>
+              {(() => {
+                const systemOk = Object.keys(systemErrors).length === 0;
+                return (
+                  <>
+                    <button
+                      className="connect-google-btn"
+                      onClick={() => { if (!systemOk) setShowSystemPopup(p => !p); }}
+                      style={{ display: "flex", alignItems: "center", gap: "8px", cursor: systemOk ? "default" : "pointer" }}
+                      title={systemOk ? "All systems operational" : "Click to see alerts"}
+                    >
+                      <div style={{
+                        width: "10px", height: "10px", borderRadius: "50%",
+                        backgroundColor: systemOk ? "#34A853" : "#EA4335",
+                        boxShadow: systemOk ? "0 0 6px #34A853" : "0 0 8px #EA4335",
+                        transition: "all 0.3s ease"
+                      }} />
+                      <span style={{ fontSize: "12px", fontWeight: 500 }}>
+                        {systemOk ? "System: Good" : "System: Alert"}
+                      </span>
+                    </button>
+                    {!systemOk && showSystemPopup && (
+                      <div style={{
+                        position: "absolute", top: "calc(100% + 8px)", right: 0,
+                        background: "#1e1e1e", border: "1px solid #EA4335",
+                        borderRadius: "8px", padding: "12px 16px", minWidth: "260px",
+                        zIndex: 9999, boxShadow: "0 4px 20px rgba(0,0,0,0.5)"
+                      }}>
+                        <div style={{ fontWeight: 600, color: "#EA4335", marginBottom: "8px", fontSize: "13px" }}>
+                          System Alerts
+                        </div>
+                        {Object.entries(systemErrors).map(([source, msg]) => (
+                          <div key={source} style={{ marginBottom: "6px", fontSize: "12px", color: "#ccc" }}>
+                            <span style={{ color: "#fff", fontWeight: 500 }}>{source}:</span> {msg}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
 
             <a href="/.netlify/functions/google-auth-start" className="connect-google-btn">
               Reconnect
@@ -9855,13 +10030,17 @@ return (
           </div>
         </div>
 
-        {/* 👇 Removes the left gap specifically when GChat is open */}
-        <div style={{ display: "flex", flex: 1, overflow: "hidden", width: "100%" }}>
-          <div className="middle-content" style={{ flex: 1, paddingLeft: currentView.app === "gchat" ? "0" : undefined }}>
-            {middleContent}
-          </div>
-          
-          {workstationUrl && (
+    {/* 👇 Removes the left/right gaps specifically when GChat is open to flush the scrollbar right */}
+        <div style={{ display: "flex", flex: 1, overflow: "hidden", width: "100%" }}>
+          <div className="middle-content" style={{ 
+            flex: 1, 
+            paddingLeft: currentView.app === "gchat" ? "0" : undefined,
+            paddingRight: currentView.app === "gchat" ? "0" : undefined 
+          }}>
+            {middleContent}
+          </div>
+          
+          {workstationUrl && (
             <div className="workstation-pane" style={{ flex: 1, borderLeft: "1px solid #dadce0", display: "flex", flexDirection: "column", background: "#fff", zIndex: 10 }}>
               <div style={{ padding: "8px 16px", background: "#f8f9fa", borderBottom: "1px solid #dadce0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontSize: "14px", fontWeight: 600, color: "#3c4043" }}>Workspace</span>
@@ -9897,177 +10076,182 @@ return (
           }}
         />
 
-        {/* 👇 CONDITIONALLY RENDER AND ALIGN CHAT BAR */}
+   {/* 👇 CONDITIONALLY RENDER AND ALIGN CHAT BAR */}
         {((currentView.app === "gchat" && gchatSelectedSpace) || (currentView.app === "whatsapp" && currentView.contact)) && (
           <div style={{ display: "flex", width: "100%", background: "#fff", flexShrink: 0, borderTop: "1px solid #ddd" }}>
             
             {currentView.app === "gchat" && (
-              <div style={{ width: "25%", borderRight: "1px solid #ddd", flexShrink: 0 }}></div>
+              <div style={{ width: "30%", borderRight: "1px solid #ddd", flexShrink: 0 }}></div>
             )}
 
             <div 
               className={`chat-bar ${pendingUpload ? "has-file" : ""}`}
-              style={{ flex: 1, width: currentView.app === "gchat" ? "70%" : "100%", borderTop: "none" }}
+              style={{ 
+                flex: 1, 
+                width: currentView.app === "gchat" ? "70%" : "100%", 
+                borderTop: "none",
+                paddingRight: currentView.app === "gchat" ? "24px" : undefined 
+              }}
             >
-              {pendingUpload && (
-                <div className="chat-upload-preview">
-                  <div className="chat-upload-card" title={pendingUpload.file.name}>
-                    <div className="chat-upload-icon">PDF</div>
-                    <div className="chat-upload-meta">
-                      <div className="chat-upload-name">{pendingUpload.file.name}</div>
-                      <div className="chat-upload-size">
-                        {(pendingUpload.file.size / 1024 / 1024).toFixed(2)} MB
-                      </div>
-                    </div>
-                    <button
-                      className="chat-upload-remove"
-                      type="button"
-                      onClick={() => setPendingUpload(null)}
-                      aria-label="Remove upload"
-                    >
-                      ×
-                    </button>
-                  </div>
-                </div>
-              )}
+              {pendingUpload && (
+                <div className="chat-upload-preview">
+                  <div className="chat-upload-card" title={pendingUpload.file.name}>
+                    <div className="chat-upload-icon">PDF</div>
+                    <div className="chat-upload-meta">
+                      <div className="chat-upload-name">{pendingUpload.file.name}</div>
+                      <div className="chat-upload-size">
+                        {(pendingUpload.file.size / 1024 / 1024).toFixed(2)} MB
+                      </div>
+                    </div>
+                    <button
+                      className="chat-upload-remove"
+                      type="button"
+                      onClick={() => setPendingUpload(null)}
+                      aria-label="Remove upload"
+                    >
+                      ×
+                    </button>
+                  </div>
+                </div>
+              )}
 
-              <div className="chat-input-row" style={{ alignItems: "flex-end" }}>
-              
-                {/* 1. TEXT AREA */}
-                <textarea
-                  ref={chatTextareaRef}
-                  className="chat-textarea"
-                  placeholder={
-                    isRecording
-                      ? "Recording audio..."
-                      : currentView.app === "whatsapp" && currentView.contact
-                      ? `Message ${currentView.contact}`
-                      : "Message..."
-                  }
-                  rows={1}
-                  value={inputValue}
-                  disabled={isRecording}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  onInput={(e) => handleAutoGrow(e.currentTarget)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSend();
-                    }
-                  }}
-                  style={{
-                    flex: 1,
-                    minHeight: "40px",
-                    paddingTop: "10px",
-                    marginBottom: "2px"
-                  }}
-                />
+              <div className="chat-input-row" style={{ alignItems: "flex-end" }}>
+              
+                {/* 1. TEXT AREA */}
+                <textarea
+                  ref={chatTextareaRef}
+                  className="chat-textarea"
+                  placeholder={
+                    isRecording
+                      ? "Recording audio..."
+                      : currentView.app === "whatsapp" && currentView.contact
+                      ? `Message ${currentView.contact}`
+                      : "Message..."
+                  }
+                  rows={1}
+                  value={inputValue}
+                  disabled={isRecording}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  onInput={(e) => handleAutoGrow(e.currentTarget)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  style={{
+                    flex: 1,
+                    minHeight: "40px",
+                    paddingTop: "10px",
+                    marginBottom: "2px"
+                  }}
+                />
 
-                {/* 2. RIGHT ACTIONS CONTAINER */}
-                <div style={{ display: "flex", gap: "8px", marginBottom: "4px", paddingLeft: "4px" }}>
-                
-                  {/* A) MIC or SEND BUTTON */}
-                  {inputValue.trim() || pendingUpload ? (
-                    <button 
-                      className="send-btn" 
-                      onClick={handleSend} 
-                      aria-label="Send"
-                      style={{ 
-                        width:"28px", height:"28px", borderRadius:"50%", 
-                        display:"grid", placeItems:"center", 
-                        border:"none", background:"#000", 
-                        cursor:"pointer", color: "white" 
-                      }} 
-                    >
-                      <svg 
-                        xmlns="http://www.w3.org/2000/svg" 
-                        viewBox="0 0 24 24" 
-                        width="14" height="14" 
-                        fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
-                      >
-                        <line x1="12" y1="19" x2="12" y2="5" />
-                        <polyline points="5 12 12 5 19 12" />
-                      </svg>
-                    </button>
-                  ) : (
-                    ((currentView.app === "gchat" && gchatSelectedSpace) || (currentView.app === "whatsapp" && currentView.contact)) && (
-                      <button
-                        className={`mic-btn ${isRecording ? "recording" : ""}`}
-                        onClick={isRecording ? stopRecording : startRecording}
-                        title={isRecording ? "Stop Recording" : "Record Voice Note"}
-                        style={{
-                          border: "none",
-                          background: isRecording ? "#fce8e6" : "transparent",
-                          color: isRecording ? "#ea4335" : "#5f6368",
-                          borderRadius: "50%",
-                          width: "34px",
-                          height: "34px",
-                          cursor: "pointer",
-                          display: "grid",
-                          placeItems: "center",
-                          transition: "all 0.2s ease"
-                        }}
-                    >
-                       {isRecording ? (
-                         <div style={{width:"12px", height:"12px", background:"#ea4335", borderRadius:"2px"}} />
-                       ) : (
-                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                           <path d="M12 6a2 2 0 0 0-2 2v5a2 2 0 0 0 4 0V8a2 2 0 0 0-2-2Z" />
-                           <path d="M18 13v-2a6 6 0 0 1-12 0v2" strokeOpacity="0.8" />
-                           <line x1="12" y1="19" x2="12" y2="21" />
-                           <circle cx="12" cy="12" r="9" strokeOpacity="0.3" />
-                         </svg>
-                       )}
-                    </button>
-                  )
-                )}
+                {/* 2. RIGHT ACTIONS CONTAINER */}
+                <div style={{ display: "flex", gap: "8px", marginBottom: "4px", paddingLeft: "4px" }}>
+                
+                  {/* A) MIC or SEND BUTTON */}
+                  {inputValue.trim() || pendingUpload ? (
+                    <button 
+                      className="send-btn" 
+                      onClick={handleSend} 
+                      aria-label="Send"
+                      style={{ 
+                        width:"28px", height:"28px", borderRadius:"50%", 
+                        display:"grid", placeItems:"center", 
+                        border:"none", background:"#000", 
+                        cursor:"pointer", color: "white" 
+                      }} 
+                    >
+                      <svg 
+                        xmlns="http://www.w3.org/2000/svg" 
+                        viewBox="0 0 24 24" 
+                        width="14" height="14" 
+                        fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
+                      >
+                        <line x1="12" y1="19" x2="12" y2="5" />
+                        <polyline points="5 12 12 5 19 12" />
+                      </svg>
+                    </button>
+                  ) : (
+                    ((currentView.app === "gchat" && gchatSelectedSpace) || (currentView.app === "whatsapp" && currentView.contact)) && (
+                      <button
+                        className={`mic-btn ${isRecording ? "recording" : ""}`}
+                        onClick={isRecording ? stopRecording : startRecording}
+                        title={isRecording ? "Stop Recording" : "Record Voice Note"}
+                        style={{
+                          border: "none",
+                          background: isRecording ? "#fce8e6" : "transparent",
+                          color: isRecording ? "#ea4335" : "#5f6368",
+                          borderRadius: "50%",
+                          width: "34px",
+                          height: "34px",
+                          cursor: "pointer",
+                          display: "grid",
+                          placeItems: "center",
+                          transition: "all 0.2s ease"
+                        }}
+                    >
+                       {isRecording ? (
+                         <div style={{width:"12px", height:"12px", background:"#ea4335", borderRadius:"2px"}} />
+                       ) : (
+                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                           <path d="M12 6a2 2 0 0 0-2 2v5a2 2 0 0 0 4 0V8a2 2 0 0 0-2-2Z" />
+                           <path d="M18 13v-2a6 6 0 0 1-12 0v2" strokeOpacity="0.8" />
+                           <line x1="12" y1="19" x2="12" y2="21" />
+                           <circle cx="12" cy="12" r="9" strokeOpacity="0.3" />
+                         </svg>
+                       )}
+                    </button>
+                  )
+                )}
 
-                {/* B) PLUS BUTTON */}
-                {currentView.app === "gchat" && gchatSelectedSpace && (
-                  <div className="chat-plus-wrap" style={{ position: "relative" }}>
-                    <button
-                      type="button"
-                      className="chat-plus-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShowPlusMenu((v) => !v);
-                      }}
-                      aria-label="More"
-                      style={{ 
-                        width:"34px", height:"34px", borderRadius:"50%", 
-                        border:"1px solid #ddd", background:"transparent", 
-                        fontSize:"22px", color:"#5f6368", fontWeight: "300",
-                        display:"grid", placeItems:"center", cursor:"pointer" 
-                      }}
-                    >
-                      +
-                    </button>
+                {/* B) PLUS BUTTON */}
+                {currentView.app === "gchat" && gchatSelectedSpace && (
+                  <div className="chat-plus-wrap" style={{ position: "relative" }}>
+                    <button
+                      type="button"
+                      className="chat-plus-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowPlusMenu((v) => !v);
+                      }}
+                      aria-label="More"
+                      style={{ 
+                        width:"34px", height:"34px", borderRadius:"50%", 
+                        border:"1px solid #ddd", background:"transparent", 
+                        fontSize:"22px", color:"#5f6368", fontWeight: "300",
+                        display:"grid", placeItems:"center", cursor:"pointer" 
+                      }}
+                    >
+                      +
+                    </button>
 
-                    {showPlusMenu && (
-                      <div className="chat-plus-menu" style={{ right: 0, left: "auto", bottom: "45px" }}>
-                        <button
-                          type="button"
-                          className="chat-plus-item"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setShowPlusMenu(false);
-                            fileInputRef.current?.click();
-                          }}
-                        >
-                          Upload file
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+                    {showPlusMenu && (
+                      <div className="chat-plus-menu" style={{ right: 0, left: "auto", bottom: "45px" }}>
+                        <button
+                          type="button"
+                          className="chat-plus-item"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowPlusMenu(false);
+                            fileInputRef.current?.click();
+                          }}
+                        >
+                          Upload file
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
-      </div>
-      {/* RIGHT */}
-  <RightPanel />
+      </div>
+      {/* RIGHT */}
+  <RightPanel />
 
       {/* 👇 NEW: Google Calendar Style Event Details Modal */}
       {selectedEvent && (
@@ -10080,7 +10264,40 @@ return (
               {/* 👇 NEW: Colored square moved to the title row to match Google Calendar */}
               <div style={{ width: '16px', height: '16px', borderRadius: '4px', marginTop: '6px', marginRight: '12px', flexShrink: 0, background: selectedEvent.colorId ? undefined : '#039be5' }}></div>
               <h2 className="cal-modal-title">{selectedEvent.summary || '(No title)'}</h2>
-              <div className="cal-modal-actions">
+              <div className="cal-modal-actions" style={{ display: "flex", gap: "4px" }}>
+                
+                {/* 👇 NEW: Delete Button Logic */}
+                {(() => {
+                  // Determine who is currently logged in
+                  const activePersona = (import.meta.env.VITE_PERSONA || "SIYA").toUpperCase();
+                  const myEmail = activePersona === "YOLANDIE" ? "yolandie@actuaryspace.co.za" : "siya@actuaryspace.co.za";
+                  
+                  // Check if the current user is the creator or organizer
+                  const isCreator = 
+                    selectedEvent.creator?.self || 
+                    selectedEvent.creator?.email === myEmail || 
+                    selectedEvent.organizer?.self || 
+                    selectedEvent.organizer?.email === myEmail;
+                  
+                  // If they didn't create it, hide the delete button
+                  if (!isCreator) return null;
+                  
+                  return (
+                    <button 
+                      className="cal-modal-close-btn" 
+                      title="Delete event"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEventToDelete(selectedEvent);
+                      }}
+                    >
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                      </svg>
+                    </button> 
+                  );
+                })()}
+
                 <button className="cal-modal-close-btn" onClick={() => setSelectedEvent(null)}>✕</button>
               </div>
             </div>
@@ -10112,16 +10329,20 @@ return (
                      </svg>
                    </div>
                    <div>
-                     <button 
-                       className="cal-meet-btn"
-                       style={{ border: "none", cursor: "pointer" }}
-                       onClick={() => {
-                         const url = selectedEvent.hangoutLink || (Array.isArray(selectedEvent.conferenceData?.entryPoints) ? selectedEvent.conferenceData.entryPoints.find(ep => ep.entryPointType === 'video')?.uri : null);
-                         if (url) launchWorkstationWindow(url);
-                       }}
-                     >
-                       Join with Google Meet
-                     </button>
+                     {(() => {
+                        const meetUrl = selectedEvent.hangoutLink || (Array.isArray(selectedEvent.conferenceData?.entryPoints) ? selectedEvent.conferenceData.entryPoints.find(ep => ep.entryPointType === 'video')?.uri : null);
+                        if (!meetUrl) return null;
+                        return (
+                          <SmartLink
+                            url={meetUrl}
+                            className="cal-meet-btn"
+                            style={{ border: "none", cursor: "pointer", display: "inline-block", textDecoration: "none" }}
+                            setIsLiveCallActive={setIsLiveCallActive}
+                          >
+                            Join with Google Meet
+                          </SmartLink>
+                        );
+                     })()}
                    </div>
                  </div>
               )}
@@ -10196,6 +10417,51 @@ return (
           </div>
         </div>
       )}
+
+    {/* 🔴 Custom Calendar Delete Confirmation Modal */}
+      {eventToDelete && (
+        <>
+          <div 
+            style={{ position: "fixed", top:0, left:0, width:"100vw", height:"100vh", zIndex: 10001, background: "rgba(0,0,0,0.5)" }}
+            onMouseDown={(e) => { e.stopPropagation(); setEventToDelete(null); }}
+          />
+          <div 
+            style={{
+              position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: "400px",
+              background: "white", padding: "24px", borderRadius: "12px",
+              boxShadow: "0 12px 40px rgba(0,0,0,0.3)", zIndex: 10002, border: "1px solid #dadce0"
+            }}
+            onClick={(e) => e.stopPropagation()} 
+          >
+            <div style={{fontWeight:500, marginBottom:12, fontSize:"1.2rem", color:"#202124"}}>
+              Delete event?
+            </div>
+            <div style={{fontSize:"0.9rem", color:"#5f6368", marginBottom:"24px", lineHeight: "1.5"}}>
+              Are you sure you want to delete <strong>{eventToDelete.summary || "this event"}</strong>? This action cannot be undone.
+            </div>
+            
+           <div style={{display:"flex", justifyContent:"flex-end", gap:10}}>
+               <button 
+                style={{ borderRadius:4, padding: "8px 16px", color: "#5f6368", fontWeight: 500, cursor: "pointer", border: "1px solid #dadce0", background: "transparent", transition: "background 0.2s" }} 
+                onMouseEnter={(e) => e.currentTarget.style.background = "#f1f3f4"}
+                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setEventToDelete(null); }}
+              >
+                Cancel
+              </button>
+              <button 
+                style={{ borderRadius:4, padding: "8px 16px", background: "#d93025", color: "#fff", fontWeight: 500, cursor: "pointer", border: "none", transition: "background 0.2s" }} 
+                onMouseEnter={(e) => e.currentTarget.style.background = "#c5221f"}
+                onMouseLeave={(e) => e.currentTarget.style.background = "#d93025"}
+                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); confirmDeleteEvent(); }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
       {/* 🟢 NEW: Google Calendar In-House Create Modal */}
       {showCreateModal && (
         <div className="cal-modal-overlay" onClick={() => setShowCreateModal(false)}>

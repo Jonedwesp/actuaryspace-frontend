@@ -10,23 +10,23 @@
 .smart-link-tooltip {
   visibility: hidden;
   width: 260px;
-  background-color: #202124;
-  color: #fff;
+  background-color: #f1f3f4;
+  color: #202124;
   text-align: center;
   border-radius: 8px;
   padding: 10px 12px;
   position: absolute;
-  z-index: 2000;
+  z-index: 99999 !important; /* 👈 THE FIX: Forces tooltip above modals */
   bottom: 125%;
   left: 50%;
   transform: translateX(-50%);
   opacity: 0;
   transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 600;
   line-height: 1.4;
   pointer-events: none;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
 }
 
 .smart-link-tooltip::after {
@@ -37,7 +37,7 @@
   margin-left: -6px;
   border-width: 6px;
   border-style: solid;
-  border-color: #202124 transparent transparent transparent;
+  border-color: #f1f3f4 transparent transparent transparent;
 }
 
 .smart-link-wrapper:hover .smart-link-tooltip {
@@ -1832,7 +1832,7 @@ html, body {
 }
 
 /* ⚡ INSTANT DARKEN: Applies brightness filter immediately when hovering over sent messages */
-.gchat-msg.mine:hover .gchat-bubble {
+.gchat-msg.mine .gchat-bubble:hover {
   filter: brightness(0.82) !important;
 }
 

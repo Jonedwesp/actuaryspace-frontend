@@ -47,34 +47,30 @@ export async function handler(event) {
                  (myIdFromServer && sId.includes(myIdFromServer));
         };
 
-        // Find Siya's absolute most recent message to act as a local "read receipt"
-        const myLastMessage = messages.find(m => isSiya(m));
-        const myLastMsgTime = myLastMessage ? new Date(myLastMessage.createTime).getTime() : 0;
-        const serverLastRead = new Date(memData.lastReadTime || 0).getTime();
+        // 🚀 THE "API BLIND" FIX: 
+        // We send the 10 most recent messages that aren't from Siya.
+        // We let the frontend filter these against the "unreadGchatSpaces" state.
+        const recentMessages = messages.filter(m => !isSiya(m)).slice(0, 10);
 
-        // Truth: The thread is only unread if messages exist AFTER both Siya's read receipt AND his last sent message
-        const effectiveReadTime = Math.max(serverLastRead, myLastMsgTime);
+        if (recentMessages.length === 0) return [];
 
-        return messages.filter(m => {
-          // 🛑 TOTAL BLOCK: If Siya is the sender, this message is NEVER unread
-          if (isSiya(m)) return false;
+        return recentMessages.map(msg => {
+          const senderId = msg.sender?.name || "";
+          let senderName = msg.sender?.displayName || "Colleague";
+          
+          if (senderId === "users/112422887282158931745") senderName = "Repository";
 
-          const createTime = new Date(m.createTime).getTime();
-          // Only messages from OTHERS that appeared after Siya's last interaction are unread
-          return createTime > effectiveReadTime;
-        }).map(m => {
-          const senderName = m.sender?.displayName || "Colleague";
-          let snippet = m.text || "";
-          if (!snippet && m.attachment?.length) snippet = "Sent an attachment";
+          let snippet = msg.text || "";
+          if (!snippet && msg.attachment?.length) snippet = "Sent an attachment";
 
           return {
-            id: m.name, 
+            id: msg.name, 
             spaceId: s.name,
             type: "chat",
             title: s.type === "DIRECT_MESSAGE" ? senderName : (s.displayName || "Group Chat"),
             text: snippet,
             senderName: senderName,
-            timestamp: m.createTime,
+            timestamp: msg.createTime,
           };
         });
       } catch (e) {

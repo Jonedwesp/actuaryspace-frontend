@@ -91,28 +91,27 @@ return (
           animation: dash 1.5s ease-in-out infinite, colorShift 4s infinite;
         }
 
-        @keyframes colorShift {
-          0%, 100% { stroke: #5f6368; }
-          50% { stroke: #1a73e8; }
-        }
         .typewriter-wrap {
           font-family: Arial, sans-serif;
-          font-size: 12px;
-          color: #5f6368;
+          font-size: 13px;
+          color: #000000;
           font-style: italic;
           line-height: 1.4;
           font-weight: 500;
           display: flex;
           align-items: center;
         }
+        
         @keyframes rotate {
           100% { transform: rotate(360deg); }
         }
+        
         @keyframes dash {
           0% { stroke-dasharray: 1, 150; stroke-dashoffset: 0; }
           50% { stroke-dasharray: 90, 150; stroke-dashoffset: -35; }
           100% { stroke-dasharray: 90, 150; stroke-dashoffset: -124; }
         }
+
         @keyframes colorShift {
           0%, 100% { stroke: #5f6368; }
           50% { stroke: #1a73e8; }
