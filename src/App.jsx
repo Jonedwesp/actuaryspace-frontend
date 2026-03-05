@@ -1327,6 +1327,7 @@ const RightPanel = React.memo(function RightPanel({ filteredGchatSpaces, gchatLo
   const [archivedCards, setArchivedCards] = useState([]);
   const [archivedLoading, setArchivedLoading] = useState(false);
   const [archiveSearch, setArchiveSearch] = useState(""); // 👈 NEW: Archive Search
+  const [cardToDelete, setCardToDelete] = useState(null); // 🚀 NEW: State for custom delete modal
 
 // 👇 NEW: Inline Card Creation State
   const [addingToList, setAddingToList] = useState(null);
@@ -1427,45 +1428,46 @@ const RightPanel = React.memo(function RightPanel({ filteredGchatSpaces, gchatLo
   };
 
   const openArchiveBin = async () => {
-    setShowArchiveModal(true);
-    setArchivedLoading(true);
-    try {
-      // 🔗 SYNCED: This specifically matches your filename "trello-archived"
-      const res = await fetch("/.netlify/functions/trello-archived");
-      const json = await res.json();
-      if (json.cards) {
-        // 🛠️ DATA MAPPER: Formats raw Trello data to match your UI perfectly
-        const mapped = json.cards.map(c => {
-           const labelNames = (c.labels || []).map(l => l.name).filter(Boolean);
-           
-           // Extract the translated custom fields from the new backend
-           let badgeArr = labelNames.map(l => ({ text: l, isBottom: false }));
-           if (c.parsedCustomFields) {
-               if (c.parsedCustomFields.Priority) badgeArr.push({ text: `Priority: ${c.parsedCustomFields.Priority}`, isBottom: true });
-               if (c.parsedCustomFields.Status) badgeArr.push({ text: `Status: ${c.parsedCustomFields.Status}`, isBottom: true });
-               if (c.parsedCustomFields.Active) badgeArr.push({ text: `Active: ${c.parsedCustomFields.Active}`, isBottom: true });
-           }
+    setShowArchiveModal(true);
+    setArchivedLoading(true);
+    try {
+      // 🔗 SYNCED: This specifically matches your filename "trello-archived"
+      const res = await fetch("/.netlify/functions/trello-archived");
+      const json = await res.json();
+      if (json.cards) {
+        // 🛠️ DATA MAPPER: Formats raw Trello data to match your UI perfectly
+        const mapped = json.cards.map(c => {
+           const labelNames = (c.labels || []).map(l => l.name).filter(Boolean);
+           
+           // Extract the translated custom fields from the new backend
+           let badgeArr = labelNames.map(l => ({ text: l, isBottom: false }));
+           if (c.parsedCustomFields) {
+               if (c.parsedCustomFields.Priority) badgeArr.push({ text: `Priority: ${c.parsedCustomFields.Priority}`, isBottom: true });
+               if (c.parsedCustomFields.Status) badgeArr.push({ text: `Status: ${c.parsedCustomFields.Status}`, isBottom: true });
+               if (c.parsedCustomFields.Active) badgeArr.push({ text: `Active: ${c.parsedCustomFields.Active}`, isBottom: true });
+           }
 
-           return {
-              id: c.id,
-              title: c.name,
-              due: c.due || "",
-              labels: labelNames,
-              badges: ensureBadgeTypes(badgeArr),
-              people: c.idMembers || [],
-              listId: c.idList,
-              list: "Archived",
-              customFields: c.parsedCustomFields || {},
-              description: c.desc || "",
-              cover: c.cover || null,
-              isArchived: true
-           };
-        });
-        setArchivedCards(mapped);
-      }
-    } catch(err) { console.error("Failed to load archive", err); }
-    setArchivedLoading(false);
-  };
+           return {
+              id: c.id,
+              title: c.name,
+              due: c.due || "",
+              labels: labelNames,
+              badges: ensureBadgeTypes(badgeArr),
+              people: c.idMembers || [],
+              listId: c.idList,
+              list: "Archived",
+              customFields: c.parsedCustomFields || {},
+              description: c.desc || "",
+              cover: c.cover || null,
+              isArchived: true
+           };
+        });
+        setArchivedCards(mapped);
+      }
+    } catch(err) { console.error("Failed to load archive", err); }
+    setArchivedLoading(false);
+  };
+
 
 
   // 👇 SWR CACHE: Load instantly from memory so the screen is never empty
@@ -2115,20 +2117,69 @@ const RightPanel = React.memo(function RightPanel({ filteredGchatSpaces, gchatLo
                           </div>
                        </div>
 
-                       <button
-                         title="Recover"
-                         onClick={async (e) => {
-                            e.stopPropagation();
-                            window.dispatchEvent(new Event("pauseTrelloPolling"));
-                            setArchivedCards(prev => prev.filter(x => x.id !== c.id));
-                            fetch("/.netlify/functions/trello-restore", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cardId: c.id }) });
-                         }}
-                         style={{ position: 'absolute', top: '12px', right: '12px', background: 'transparent', border: 'none', color: '#6b778c', cursor: 'pointer', padding: '4px', display: 'grid', placeItems: 'center', transition: 'color 0.2s' }}
-                         onMouseEnter={e => e.currentTarget.style.color = '#172b4d'}
-                         onMouseLeave={e => e.currentTarget.style.color = '#6b778c'}
-                       >
-                          <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>
-                       </button>
+                       <div style={{ position: 'absolute', top: '12px', right: '8px', display: 'flex', gap: '4px' }}>
+  {/* RECOVER BUTTON */}
+  <button
+    title="Recover"
+    onClick={async (e) => {
+      e.stopPropagation();
+      window.dispatchEvent(new Event("pauseTrelloPolling"));
+      setArchivedCards(prev => prev.filter(x => x.id !== c.id));
+      fetch("/.netlify/functions/trello-restore", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cardId: c.id }) });
+      triggerSnackbar("Card restored to board");
+    }}
+    style={{ background: 'transparent', border: 'none', color: '#6b778c', cursor: 'pointer', padding: '4px', display: 'grid', placeItems: 'center', transition: 'color 0.2s' }}
+    onMouseEnter={e => e.currentTarget.style.color = '#0052cc'}
+    onMouseLeave={e => e.currentTarget.style.color = '#6b778c'}
+  >
+    <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>
+  </button>
+
+  {/* 🗑️ DELETE PERMANENTLY BUTTON */}
+  <button
+    title="Delete permanently"
+    onClick={async (e) => {
+      e.stopPropagation();
+      if (!window.confirm(`Permanently delete "${c.title}"? This cannot be undone.`)) return;
+      
+      const cid = c.id;
+
+      // 🚀 NEW: Pause background polling to give Trello time to process the deletion
+      window.dispatchEvent(new Event("pauseTrelloPolling"));
+      
+      // Optimistic UI update: remove from the modal view immediately
+      setArchivedCards(prev => prev.filter(x => x.id !== cid));
+      
+      // 🚀 NEW: Ensure the ID is removed from the global card memory so it doesn't "ghost" back
+      if (knownTrelloCardsRef.current) {
+        knownTrelloCardsRef.current.delete(cid);
+      }
+
+      triggerSnackbar("Card deleted permanently");
+
+      try {
+        const res = await fetch("/.netlify/functions/trello-delete-card", { 
+          method: "POST", 
+          headers: { "Content-Type": "application/json" }, 
+          body: JSON.stringify({ cardId: cid }) 
+        });
+
+        if (!res.ok) throw new Error("Delete failed on server");
+
+      } catch (err) {
+        console.error("Permanent delete failed:", err);
+        alert("Failed to delete card on Trello. It may reappear.");
+        // Optional: Re-fetch the archive to show the card again if deletion failed
+        openArchiveBin();
+      }
+    }}
+    style={{ background: 'transparent', border: 'none', color: '#6b778c', cursor: 'pointer', padding: '4px', display: 'grid', placeItems: 'center', transition: 'color 0.2s' }}
+    onMouseEnter={e => e.currentTarget.style.color = '#d93025'}
+    onMouseLeave={e => e.currentTarget.style.color = '#6b778c'}
+  >
+    <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+  </button>
+</div>
                     </div>
                   ))
                 }
@@ -2727,6 +2778,13 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
       !c.title.toLowerCase().includes("away from cases")
     );
 
+    // 🟢 NEW: Find ALL cards across the entire board where this user is assigned
+    const allAssignedCards = trelloBuckets.flatMap(b => b.cards).filter(c => 
+      c.people?.some(p => String(p).toLowerCase().includes(userName.toLowerCase())) &&
+      !c.title.toLowerCase().includes("out of office") && 
+      !c.title.toLowerCase().includes("away from cases")
+    );
+
     let status = "🟢";
     let currentTask = "None";
 
@@ -2745,7 +2803,6 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
     }
 
     // 2. Daily Output (Count in Siya - Review List, excluding OOO)
-    // If the card itself is "Siya - Review", we don't calculate completed cards to avoid doubling.
     let completedCards = [];
     if (userName !== "Siya - Review") {
       completedCards = reviewList.cards.filter(c => 
@@ -2767,31 +2824,31 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
       return `${hours}h ${mins}m`;
     };
 
-    // 4. NEW: Active Active Time (Pulled from Christoph Kettelhoit's Power-Up)
-    const calculateActiveActiveTime = () => {
-      let totalTime = 0;
+    // 4. 🟢 Active Timer Workaround (Sums 'Duration' and 'TimerStart' across all assigned cards)
+    const calculateActiveTimer = () => {
+      let totalMinutes = 0;
+      const now = Date.now();
       
-      // Look through every card sitting in their bucket
-      userList.cards.forEach(c => {
-        if (c.powerUpData) {
-          // Smart Prober: Looks for the most common keys used by Trello Time Trackers
-          const p = c.powerUpData;
-          const foundVal = p.spent || p.timeSpent || p.duration || p.time || p.totalTime || p.tracked || 0;
-          
-          // Ensure it's a valid number
-          if (typeof foundVal === "number" && !isNaN(foundVal)) {
-            totalTime += foundVal;
-          }
+      // Loop through ALL cards across the board where this person is assigned
+      allAssignedCards.forEach(c => {
+        // Add manually saved duration
+        const savedDur = parseFloat(c.customFields?.Duration || "0");
+        if (!isNaN(savedDur)) {
+          totalMinutes += savedDur;
+        }
+
+        // Add currently ticking time if the timer is running right now
+        const startTs = parseFloat(c.customFields?.TimerStart);
+        if (startTs > 1000000000000) {
+          const tickingMins = Math.max(0, now - startTs) / 1000 / 60;
+          totalMinutes += tickingMins;
         }
       });
 
-      if (totalTime === 0) return "0h 0m";
+      if (totalMinutes === 0) return "0h 0m";
 
-      // Note: If the plugin tracks in SECONDS instead of MINUTES, change this to: totalTime / 60
-      // If it tracks in MILLISECONDS, change it to: totalTime / 60000
-      const safeMinutes = Math.floor(totalTime); 
-      const hours = Math.floor(safeMinutes / 60);
-      const mins = safeMinutes % 60;
+      const hours = Math.floor(totalMinutes / 60);
+      const mins = Math.floor(totalMinutes % 60);
       
       return `${hours}h ${mins}m`;
     };
@@ -2802,7 +2859,7 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
       currentTask,
       cardCount: activeCards.length,
       timeLogged: isLoadingStats ? "Loading..." : calculateTimeLogged(),
-      activeActiveTime: calculateActiveActiveTime(), // 🟢 Pass it to the UI
+      activeTimer: calculateActiveTimer(), // Passed back to UI
       reviewCount,
       activeCards: activeCards,
       completedCards: completedCards
@@ -2933,7 +2990,7 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
                   <span className="prod-metric-value highlight">{m.timeLogged}</span>
                 </div>
                 <div className="prod-metric" style={{ alignItems: "flex-start" }}>
-                  <span className="prod-metric-label">Active Active</span>
+                  <span className="prod-metric-label">Active Timer</span>
                   <span className="prod-metric-value highlight" style={{ color: "#0b57d0" }}>{m.activeActiveTime}</span>
                 </div>
                 <div className="prod-metric" style={{ alignItems: "flex-end" }}>
@@ -3234,9 +3291,12 @@ const chatTextareaRef = useRef(null);
   // 👇 NEW: Track last active space for background polling
   const lastActiveSpaceRef = useRef(null);
 
-const [gchatSpaces, setGchatSpaces] = useState([]);
+const [gchatSpaces, setGchatSpaces] = useState(() => {
+  try { return JSON.parse(localStorage.getItem("GCHAT_SPACES_CACHE") || "[]"); }
+  catch { return []; }
+});
 const [gchatLoading, setGchatLoading] = useState(false);
-  const [gchatError, setGchatError] = useState("");
+  const [gchatError, setGchatError] = useState("");
 const [gchatSelectedSpace, setGchatSelectedSpace] = useState(null);
   const [archivedGchatSpaces, setArchivedGchatSpaces] = useState(() => {
     try { return JSON.parse(localStorage.getItem("GCHAT_ARCHIVED") || "[]"); }
@@ -3291,10 +3351,11 @@ const [gchatDmNames, setGchatDmNames] = useState(() => {
   const [gchatAutoScroll, setGchatAutoScroll] = useState(true);
   const [gchatSearchQuery, setGchatSearchQuery] = useState("");
   const [isChatSearchOpen, setIsChatSearchOpen] = useState(false);
-  const [chatSearchText, setChatSearchText] = useState("");
-  
-  // ⚡ DEBOUNCE STATE: Holds the delayed value to prevent lag
-  const debouncedChatSearchText = useDebounce(chatSearchText, 300);
+const [chatSearchText, setChatSearchText] = useState("");
+const [showJumpToBottom, setShowJumpToBottom] = useState(false);
+  
+// ⚡ DEBOUNCE STATE: Holds the delayed value to prevent lag
+const debouncedChatSearchText = useDebounce(chatSearchText, 300);
 
   const [pendingUpload, setPendingUpload] = useState(null); // { file: File, kind: "pdf" }
 
@@ -3830,7 +3891,10 @@ const combinedContacts = useMemo(() => {
 
 // 2. UPDATED EFFECT
 useEffect(() => {
+  let isFetching = false;
   async function syncAllNotifications() {
+    if (isFetching) return;
+    isFetching = true;
     try {
       clearSystemError("Notifications");
       const [emailRes, chatRes] = await Promise.all([
@@ -3925,18 +3989,10 @@ useEffect(() => {
                   return next;
                 });
 
-                setGchatSpaceTimes(prev => {
+          setGchatSpaceTimes(prev => {
                   const next = { ...prev, [sid]: ts };
                   localStorage.setItem("GCHAT_SPACE_TIMES", JSON.stringify(next));
                   return next;
-                });
-
-                // ⚡ LIVE SIDEBAR RERANK: Move space with new message to top
-                setGchatSpaces(prev => {
-                  const idx = prev.findIndex(s => (s.id || s.name) === sid);
-                  if (idx < 0) return prev;
-                  const space = { ...prev[idx], lastActiveTime: ts };
-                  return [space, ...prev.filter((_, i) => i !== idx)];
                 });
 
                 if (!dismissedNotifsRef.current.has(msgId)) {
@@ -4040,6 +4096,8 @@ useEffect(() => {
     } catch (err) {
       console.error("Sync error:", err);
       reportSystemError("Notifications", err.message);
+    } finally {
+      isFetching = false;
     }
   }
 
@@ -4200,21 +4258,22 @@ useEffect(() => {
 
           // Clear stale notifications for spaces that Google now considers read
           const readSpaceIds = new Set(
-            loadedSpaces
-              .filter(s => s.serverLastReadTime && s.lastActiveTime &&
-                new Date(s.serverLastReadTime) >= new Date(s.lastActiveTime))
-              .map(s => s.id || s.name)
-          );
-          if (readSpaceIds.size > 0) {
-            setNotifications(prev => prev.filter(n =>
-              !(n.alt === "Google Chat" && readSpaceIds.has(n.spaceId))
-            ));
-          }
+            loadedSpaces
+              .filter(s => s.serverLastReadTime && s.lastActiveTime &&
+                new Date(s.serverLastReadTime) >= new Date(s.lastActiveTime))
+              .map(s => s.id || s.name)
+          );
+          if (readSpaceIds.size > 0) {
+            setNotifications(prev => prev.filter(n =>
+              !(n.alt === "Google Chat" && readSpaceIds.has(n.spaceId))
+            ));
+          }
 
-    setGchatSpaces(loadedSpaces);
-          
-          // 🛡️ SYNC CLEANUP: If a space is gone from Google, wipe its local metadata
-          const activeIds = new Set(loadedSpaces.map(s => s.id || s.name));
+          setGchatSpaces(loadedSpaces);
+          localStorage.setItem("GCHAT_SPACES_CACHE", JSON.stringify(loadedSpaces));
+          
+          // 🛡️ SYNC CLEANUP: If a space is gone from Google, wipe its local metadata
+          const activeIds = new Set(loadedSpaces.map(s => s.id || s.name));
           setUnreadGchatSpaces(prev => {
             const next = { ...prev };
             Object.keys(next).forEach(id => { if (!activeIds.has(id)) delete next[id]; });
@@ -4352,19 +4411,35 @@ useEffect(() => {
 
   // Google Chat: load + poll messages when a space is selected
 useEffect(() => {
-  if (currentView.app !== "gchat") return;
-  if (!gchatSelectedSpace?.id) return;
+  if (currentView.app !== "gchat") return;
+  if (!gchatSelectedSpace?.id) return;
 
-  let cancelled = false;
+  let cancelled = false;
 
-  // 🛡️ HARD RESET: Clear messages and the internal ref immediately on space switch
-  // This ensures the Name Learner sees an EMPTY array until the correct messages arrive.
-  setGchatMessages([]);
-  setGchatNextPageToken(null);
-  setGchatMsgError("");
-  setGchatMsgLoading(true);
+  // ⚡ ZERO-LATENCY CACHE: Pull from memory instantly to eliminate perceived loading time
+  const cachedMsgsStr = localStorage.getItem(`GCHAT_MSGS_${gchatSelectedSpace.id}`);
+  let hasCached = false;
+  if (cachedMsgsStr) {
+    try {
+      const parsed = JSON.parse(cachedMsgsStr);
+      if (parsed && parsed.length > 0) {
+        setGchatMessages(parsed);
+        hasCached = true;
+      } else {
+        setGchatMessages([]);
+      }
+    } catch (e) {
+      setGchatMessages([]);
+    }
+  } else {
+    setGchatMessages([]);
+  }
 
-  async function fetchLatestAndMerge() {
+  setGchatNextPageToken(null);
+  setGchatMsgError("");
+  setGchatMsgLoading(!hasCached); // Only show spinner if we have no memory of this chat
+
+  async function fetchLatestAndMerge() {
     try {
       const res = await fetch(
         `/.netlify/functions/gchat-messages?space=${encodeURIComponent(
@@ -4538,7 +4613,10 @@ const triggerGChatNotification = (msg, targetSpaceId) => {
   // 🔔 Poll Data Centre (Google Drive) for new instruction emails
 // 📧 GMAIL BACKGROUND POLLER (Handles Sound + Inbox List Injection)
 useEffect(() => {
+  let isGmailFetching = false;
   const pollGmailBackground = async () => {
+    if (isGmailFetching) return;
+    isGmailFetching = true;
     try {
       clearSystemError("Gmail Sync");
       const res = await fetch("/.netlify/functions/gmail-inbox?limit=50");
@@ -4591,6 +4669,8 @@ useEffect(() => {
     } catch (err) {
       console.error("Background Gmail poll failed", err);
       reportSystemError("Gmail Sync", err.message);
+    } finally {
+      isGmailFetching = false;
     }
   };
 pollGmailBackground();
@@ -4618,33 +4698,38 @@ pollGmailBackground();
         if (!json.ok || !json.events) return;
 
         json.events.forEach(ev => {
-          // Skip if we already warned them about this specific event
-          if (notifiedEventsRef.current.has(ev.id)) return;
-
           const startStr = ev.start?.dateTime;
-          if (!startStr) return; // Ignore all-day events
+          if (!startStr) return; 
 
           const startTime = new Date(startStr).getTime();
           const timeDiffMins = (startTime - Date.now()) / (1000 * 60);
+
+          // 🚀 NEW: Auto-clear notification if the event has started
+          if (timeDiffMins <= 0) {
+            setNotifications(prev => prev.filter(n => n.id !== `cal-${ev.id}`));
+            return; // Skip notification creation if it's already started
+          }
+
+          // Skip if we already warned them about this specific event
+          if (notifiedEventsRef.current.has(ev.id)) return;
 
           // Does it have a Google Meet link attached?
           const hasMeet = ev.hangoutLink || (ev.conferenceData && ev.conferenceData.entryPoints?.some(ep => ep.entryPointType === 'video'));
 
           if (hasMeet && timeDiffMins > 0 && timeDiffMins <= 30) {
-            notifiedEventsRef.current.add(ev.id);
+            notifiedEventsRef.current.add(ev.id);
 
-            window.dispatchEvent(new CustomEvent("notify", {
-              detail: {
-                id: `cal-${ev.id}`,
-                text: `Meeting in ${Math.round(timeDiffMins)} mins: ${ev.summary || "Event"}`,
-                alt: "Calendar",
-                // Inline Calendar SVG icon with an exclamation mark
-                icon: "data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='100' height='100' fill='%23ffffff'/%3E%3Crect width='26' height='100' fill='%234285F4'/%3E%3Crect width='100' height='26' fill='%234285F4'/%3E%3Crect x='74' width='26' height='74' fill='%23FBBC05'/%3E%3Crect y='74' width='74' height='26' fill='%2334A853'/%3E%3Cpolygon points='74,100 100,74 100,100' fill='%23EA4335'/%3E%3Crect x='26' y='26' width='48' height='48' fill='%23ffffff'/%3E%3Ctext x='50' y='66' font-size='44' font-weight='bold' font-family='sans-serif' fill='%234285F4' text-anchor='middle'%3E!%3C/text%3E%3C/svg%3E",
-                calendarEventData: ev, // Package the event data to send to the modal
-                timestamp: new Date().toISOString()
-              }
-            }));
-          }
+            window.dispatchEvent(new CustomEvent("notify", {
+              detail: {
+                id: `cal-${ev.id}`,
+                text: `Meeting in ${Math.round(timeDiffMins)} mins: ${ev.summary || "Event"}`,
+                alt: "Calendar",
+                icon: `data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='100' height='100' fill='%23ffffff'/%3E%3Crect width='26' height='100' fill='%234285F4'/%3E%3Crect width='100' height='26' fill='%234285F4'/%3E%3Crect x='74' width='26' height='74' fill='%23FBBC05'/%3E%3Crect y='74' width='74' height='26' fill='%2334A853'/%3E%3Cpolygon points='74,100 100,74 100,100' fill='%23EA4335'/%3E%3Crect x='26' y='26' width='48' height='48' fill='%23ffffff'/%3E%3Ctext x='50' y='66' font-size='44' font-weight='bold' font-family='sans-serif' fill='%234285F4' text-anchor='middle'%3E${new Date().getDate()}%3C/text%3E%3C/svg%3E`,
+                calendarEventData: ev,
+                timestamp: new Date().toISOString()
+              }
+            }));
+          }
         });
       } catch (err) {
         console.error("Calendar reminder poll failed", err);
@@ -5709,7 +5794,7 @@ const handleUpdateGChatMessage = async (messageId, newText) => {
     }
 
 if (currentView.app === "gchat") {
-  // 🛡️ IMPROVED NAME SNIFFER: Explicitly filters out resource IDs and the ACTIVE persona
+  // 🛡️ FIXED NAME SNIFFER: Uses correct scope variables to prevent blank screen crash
   const otherPersonName = gchatMessages.find((m) => {
     const sName = m.sender?.displayName || "";
     const sEmail = m.sender?.email || "";
@@ -5720,12 +5805,36 @@ if (currentView.app === "gchat") {
     const isMe = 
       (!!gchatMe && sId === gchatMe) || 
       (activePersona === "SIYA" && (sEmail.includes('siya@') || sName.toLowerCase().includes('siya') || sName.toLowerCase().includes('actuaryspace'))) ||
-      (activePersona === "YOLANDIE" && (sEmail.includes('yolandie@') || sName.toLowerCase().includes('yolandie')));
+      (activePersona === "YOLANDIE" && (sName.toLowerCase().includes("yolandie") || sEmail.includes("yolandie@")));
 
-    // Return the first sender that is NOT the active user and has a HUMAN name (no users/ prefix)
     return !isMe && sName && !sName.includes("users/");
   })?.sender?.displayName;
-    // 👇 NEW: PREVIEW INTERCEPTOR
+
+  if (gchatFilePreview) {
+    const isImg = ["img", "png", "jpg", "jpeg", "gif", "webp"].includes(gchatFilePreview.type);
+    const src = gchatFilePreview.url;
+
+    return (
+      <div className="gchat-preview-container">
+        <div className="gchat-preview-bar">
+          <div className="gchat-preview-title">{gchatFilePreview.name}</div>
+          <div className="gchat-preview-actions">
+            <a href={src} download={gchatFilePreview.name} className="gchat-preview-btn">Download</a>
+            <button className="gchat-preview-close" onClick={() => setGchatFilePreview(null)}>
+              ✕ Close
+            </button>
+          </div>
+        </div>
+        <div className="gchat-preview-body">
+          {isImg ? (
+            <img src={src} alt="Preview" className="gchat-preview-img" />
+          ) : (
+            <iframe src={src} title="Preview" className="gchat-preview-frame" />
+          )}
+        </div>
+      </div>
+    );
+  }
     // If a file is selected, return the Preview UI *instead* of the Chat UI
     if (gchatFilePreview) {
       const isImg = ["img", "png", "jpg", "jpeg", "gif", "webp"].includes(gchatFilePreview.type);
@@ -6016,37 +6125,32 @@ if (currentView.app === "gchat") {
 
               const isActive = gchatSelectedSpace?.id === s.id;
               
-              // 🛡️ AUTHENTIC SERVER SYNC LOGIC:
+// 🛡️ AUTHENTIC SERVER SYNC LOGIC:
               const sid = s.id || s.name;
               const apiActive = s.lastActiveTime ? new Date(s.lastActiveTime).getTime() : 0;
               
-              // 🧠 THE SHIELD FIX: Priority goes to our local "Click Memory"
-              // We check the gchatSpaceTimes state which was updated in the onClick handler.
+              // 🧠 THE SHIELD FIX: Trust the server's read state first, but allow local clicks to override
               const localReadTimeStr = gchatSpaceTimes[sid];
               const localReadTime = localReadTimeStr ? new Date(localReadTimeStr).getTime() : 0;
-              
-              // Fallback to the server lastReadTime ONLY if our local memory is older
               const serverReadTime = s.serverLastReadTime ? new Date(s.serverLastReadTime).getTime() : 0;
               
-              // 🛡️ Use the highest (newest) timestamp to prevent bubbles from reappearing
-              // Added a slight offset to localReadTime to handle millisecond drift
-              const effectiveReadTime = Math.max(localReadTime > 0 ? localReadTime - 1000 : 0, serverReadTime);
+              // Use the newest read time across all platforms (web, mobile, or local click)
+              const effectiveReadTime = Math.max(localReadTime, serverReadTime);
               
-         // Identify the last sender
+              // Identify the last sender
               const lastSenderId = s.lastMessage?.sender?.name || "";
-              const SIYA_ID = "users/112417469383977278282";
-              
-              // Enhanced check to ensure we aren't marking other people's messages as "Me"
-              const lastSenderIsMe = lastSenderId === SIYA_ID || 
-                                     (gchatMe && lastSenderId === gchatMe) || 
-                                     (gchatMeRef.current && lastSenderId === gchatMeRef.current);
+              const activePersona = (import.meta.env.VITE_PERSONA || "SIYA").toUpperCase();
+              const isMe = lastSenderId === "users/112417469383977278282" || 
+                           (gchatMe && lastSenderId === gchatMe) || 
+                           (gchatMeRef.current && lastSenderId === gchatMeRef.current);
               
               // 🏁 THE FINAL TRIGGER:
-              // A chat is unread ONLY if:
-              // 1. Someone else sent the last message.
-              // 2. The activity is newer than our local Click Memory.
-              // 3. We aren't currently viewing the chat.
-              const isUnread = !lastSenderIsMe && apiActive > effectiveReadTime && gchatSelectedSpace?.id !== sid;
+              // Match Google Chat's exact rule: Unread if the last message is NOT mine AND it's newer than the last read event
+              const isCurrentlySelected = gchatSelectedSpace?.id === sid || gchatSelectedSpace?.name === sid;
+              const isUnread = !isCurrentlySelected && (
+                !!unreadGchatSpaces[sid] || 
+                (!isMe && apiActive > effectiveReadTime + 1000)
+              );
 
               // For visual sorting and display
               let spaceTime = s.lastActiveTime || s.createTime;
@@ -6118,7 +6222,7 @@ if (currentView.app === "gchat") {
                       {title}
                     </div>
                   </div>
-                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
                     {isUnread && !isActive && (
                       // 🔵 Authentic GChat Blue Notification Bubble
                       <div className="unread-dot" style={{ 
@@ -6166,22 +6270,47 @@ if (currentView.app === "gchat") {
                           padding: "4px 0"
                         }}>
                           <div
-              style={{ padding: "8px 16px", color: "#202124", cursor: "pointer", fontSize: "13px" }}
-              onMouseEnter={e => e.currentTarget.style.background = "#f1f3f4"}
-              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setArchivedGchatSpaces(prev => {
-                  if (prev.includes(sid)) return prev.filter(id => id !== sid);
-                  return [...prev, sid];
-                });
-                setIsOpen(false);
-              }}
-            >
-              {showArchivedChats ? "Unarchive" : "Archive"}
-            </div>
-          </div>
+                            style={{ padding: "8px 16px", color: "#202124", cursor: "pointer", fontSize: "13px" }}
+                            onMouseEnter={e => e.currentTarget.style.background = "#f1f3f4"}
+                            onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              
+                              // Reset the local read time to a date in the past
+                              const resetTime = new Date(0).toISOString();
+                              setGchatSpaceTimes(prev => ({ ...prev, [sid]: resetTime }));
+                              localStorage.setItem("GCHAT_SPACE_TIMES", JSON.stringify({ ...gchatSpaceTimes, [sid]: resetTime }));
+                              
+                              // Force the blue bubble to appear
+                              setUnreadGchatSpaces(prev => {
+                                const next = { ...prev, [sid]: s.lastActiveTime || new Date().toISOString() };
+                                localStorage.setItem("GCHAT_UNREAD_SPACES", JSON.stringify(next));
+                                return next;
+                              });
+
+                              setActiveGchatMenu(null);
+                            }}
+                          >
+                            Mark as unread
+                          </div>
+                          <div
+                            style={{ padding: "8px 16px", color: "#202124", cursor: "pointer", fontSize: "13px" }}
+                            onMouseEnter={e => e.currentTarget.style.background = "#f1f3f4"}
+                            onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setArchivedGchatSpaces(prev => {
+                                if (prev.includes(sid)) return prev.filter(id => id !== sid);
+                                return [...prev, sid];
+                              });
+                              setActiveGchatMenu(null);
+                            }}
+                          >
+                            {showArchivedChats ? "Unarchive" : "Archive"}
+                          </div>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -6241,8 +6370,8 @@ if (currentView.app === "gchat") {
                    (gchatSelectedSpace.displayName && !gchatSelectedSpace.displayName.includes("users/") ? gchatSelectedSpace.displayName : "Chat");
 
             return (
-              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                {isChatSearchOpen && (
+             <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            {isChatSearchOpen && (
                   <input
                     type="text"
                     placeholder="Search in conversation..."
@@ -6368,6 +6497,8 @@ if (currentView.app === "gchat") {
               el.scrollHeight - el.scrollTop - el.clientHeight < 40;
 
             setGchatAutoScroll(atBottom);
+            // 🚀 JUMP TO BOTTOM LOGIC: Show button only if we are NOT at the bottom
+            setShowJumpToBottom(!atBottom);
           }}
           style={{
             flex: 1,
@@ -6681,45 +6812,110 @@ else {
                                 <div style={{ marginBottom: msg?.text ? "8px" : "0" }}>
                                   {(() => {
                                     const finalUrl = fileData?.attachmentDataRef?.resourceName ? `/.netlify/functions/gchat-download?uri=api:${fileData.attachmentDataRef.resourceName}` : fileData?.downloadUri;
-                                    const isImg = ["png", "jpg", "jpeg", "gif", "webp"].includes(ext);
-                                    const isPdf = ext === "pdf";
-                                    const isWord = ["doc", "docx"].includes(ext);
+const isImg = ["png", "jpg", "jpeg", "gif", "webp"].includes(ext);
+const isPdf = ext === "pdf";
+const isWord = ["doc", "docx"].includes(ext);
+  const isXls = ["xls", "xlsx", "csv"].includes(ext);
 
-                                    // 🟢 Image Preview (Includes PNG): Render directly in thread
-                                    if (isImg) {
-                                      return (
-                                        <div style={{ marginBottom: "8px", borderRadius: "12px", overflow: "hidden", border: "1px solid #dadce0", cursor: "pointer", background: "#f1f3f4" }} onClick={(e) => { e.stopPropagation(); setGchatFilePreview({ name: fileName, url: finalUrl, type: iconClass }); }}>
-                                          <img src={finalUrl} alt={fileName} style={{ display: "block", maxWidth: "100%", maxHeight: "240px", objectFit: "contain", margin: "0 auto" }} />
-                                        </div>
-                                      );
-                                    }
+  if (isWord || isXls) {
+    const badgeColor = isWord ? "#1a73e8" : "#188038";
+    const badgeLabel = isWord ? "DOC" : "XLS";
+    const previewType = isWord ? "doc" : "xls";
 
-                                    // 🟢 PDF Preview: Render a scrollable frame
-                                    if (isPdf) {
-                                      return (
-                                        <div style={{ marginBottom: "8px", borderRadius: "12px", overflow: "hidden", border: "1px solid #dadce0", cursor: "pointer", background: "#f1f3f4", height: "160px", display: "flex", flexDirection: "column", minWidth: "200px" }} onClick={(e) => { e.stopPropagation(); setGchatFilePreview({ name: fileName, url: finalUrl, type: iconClass }); }}>
-                                           <div style={{ flex: 1, overflow: "hidden", background: "#f1f3f4", pointerEvents: "none" }}>
-                                              <iframe title={fileName} src={finalUrl} style={{ width: "100%", height: "100%", border: "none" }} />
-                                           </div>
-                                           <div style={{ background: "#fff", padding: "8px 12px", borderTop: "1px solid #dadce0", display: "flex", alignItems: "center", gap: "8px" }}>
-                                              <span style={{ background: "#ea4335", color: "white", padding: "2px 4px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold" }}>PDF</span>
-                                              <span style={{ fontSize: "12px", color: "#3c4043", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fileName}</span>
-                                           </div>
-                                        </div>
-                                      );
-                                    }
+    return (
+      <div 
+        style={{ 
+          marginBottom: "8px", 
+          borderRadius: "12px", 
+          overflow: "hidden", 
+          border: "1px solid #dadce0", 
+          cursor: "pointer", 
+          background: "#fff", 
+          height: "180px", 
+          display: "flex", 
+          flexDirection: "column", 
+          minWidth: "240px",
+          boxShadow: "0 1px 2px rgba(60,64,67,0.3)"
+        }} 
+        onClick={(e) => { 
+          e.stopPropagation(); 
+          setGchatFilePreview({ name: fileName, url: finalUrl, type: previewType }); 
+        }}
+      >
+         <div style={{ 
+           flex: 1, 
+           background: "#f8f9fa", 
+           display: "flex", 
+           flexDirection: "column",
+           alignItems: "center", 
+           justifyContent: "center",
+           padding: "20px" 
+         }}>
+            <div style={{ 
+              width: "60px", 
+              height: "60px", 
+              background: badgeColor, 
+              borderRadius: "8px", 
+              display: "grid", 
+              placeItems: "center",
+              boxShadow: "0 4px 8px rgba(0,0,0,0.1)"
+            }}>
+              <span style={{ color: "#fff", fontSize: "24px", fontWeight: "bold" }}>
+                {isWord ? "W" : "X"}
+              </span>
+            </div>
+            <div style={{ marginTop: "12px", fontSize: "11px", color: "#5f6368", fontWeight: 500, textAlign: "center" }}>
+              Click to view Actuary Report
+            </div>
+         </div>
+         <div style={{ 
+           background: "#fff", 
+           padding: "10px 16px", 
+           borderTop: "1px solid #f1f3f4", 
+           display: "flex", 
+           alignItems: "center", 
+           gap: "10px" 
+         }}>
+            <div style={{ 
+              background: badgeColor, 
+              color: "white", 
+              padding: "2px 6px", 
+              borderRadius: "4px", 
+              fontSize: "10px", 
+              fontWeight: "bold",
+              flexShrink: 0 
+            }}>
+              {badgeLabel}
+            </div>
+            <span style={{ 
+              fontSize: "13px", 
+              color: "#1f1f1f", 
+              whiteSpace: "nowrap", 
+              overflow: "hidden", 
+              textOverflow: "ellipsis",
+              fontWeight: 500 
+            }}>
+              {fileName}
+            </span>
+         </div>
+      </div>
+    );
+  }
 
-                                    // 🟢 Word Document Preview: Use Google Docs Viewer Proxy
-                                    if (isWord) {
+                                  // 🟢 Word & Excel Preview: Use Google Docs Viewer Proxy
+                                    if (isWord || isXls) {
                                       const absoluteUrl = `${window.location.origin}${finalUrl}`;
                                       const viewerUrl = `https://docs.google.com/gview?url=${encodeURIComponent(absoluteUrl)}&embedded=true`;
+                                      const badgeColor = isWord ? "#1a73e8" : "#188038";
+                                      const badgeLabel = isWord ? "DOC" : "XLS";
+
                                       return (
                                         <div style={{ marginBottom: "8px", borderRadius: "12px", overflow: "hidden", border: "1px solid #dadce0", cursor: "pointer", background: "#f1f3f4", height: "160px", display: "flex", flexDirection: "column", minWidth: "200px" }} onClick={(e) => { e.stopPropagation(); setGchatFilePreview({ name: fileName, url: finalUrl, type: iconClass }); }}>
                                            <div style={{ flex: 1, overflow: "hidden", background: "#f1f3f4", pointerEvents: "none" }}>
                                               <iframe title={fileName} src={viewerUrl} style={{ width: "100%", height: "100%", border: "none" }} />
                                            </div>
                                            <div style={{ background: "#fff", padding: "8px 12px", borderTop: "1px solid #dadce0", display: "flex", alignItems: "center", gap: "8px" }}>
-                                              <span style={{ background: "#1a73e8", color: "white", padding: "2px 4px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold" }}>DOC</span>
+                                              <span style={{ background: badgeColor, color: "white", padding: "2px 4px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold" }}>{badgeLabel}</span>
                                               <span style={{ fontSize: "12px", color: "#3c4043", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fileName}</span>
                                            </div>
                                         </div>
@@ -6730,7 +6926,8 @@ else {
                                     return (
                                       <div className="gchat-file-card" onClick={(e) => {
                                         e.stopPropagation();
-                                        const isViewable = ["pdf", "png", "jpg", "jpeg", "gif", "webp", "doc", "docx"].includes(ext);
+                                        // ⚡ INCLUDED EXCEL: Ensures clicking the standard card also triggers the preview modal
+                                        const isViewable = ["pdf", "png", "jpg", "jpeg", "gif", "webp", "doc", "docx", "xls", "xlsx", "csv"].includes(ext);
                                         if (isViewable) { setGchatFilePreview({ name: fileName, url: finalUrl, type: iconClass }); }
                                         else { window.open(finalUrl, '_blank'); }
                                       }}>
@@ -6757,18 +6954,55 @@ else {
                           )}
                         </div>
                       </div>
-                    );
+                   );
                   })}
                 </div>
               )}
             </>
           )}
         </div>
+       {showJumpToBottom && (
+          <button
+            onClick={() => {
+              const el = gchatBodyRef.current;
+              if (el) el.scrollTop = el.scrollHeight;
+              setGchatAutoScroll(true);
+              setShowJumpToBottom(false);
+            }}
+            style={{
+              position: 'absolute',
+              bottom: '85px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              backgroundColor: '#0b57d0',
+              color: 'white',
+              border: 'none',
+              borderRadius: '24px',
+              padding: '8px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontSize: '13px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              zIndex: 100,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+              fontFamily: "'Google Sans', Roboto, Arial, sans-serif"
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <polyline points="19 12 12 19 5 12"></polyline>
+            </svg>
+            Jump to bottom
+          </button>
+        )}
       </div>
 
     </div>
   );
 }
+
 
 if (currentView.app === "gmail") {
     const allSelected = (filteredEmails || []).length > 0 && selectedEmailIds.size === filteredEmails.length;
@@ -6778,7 +7012,7 @@ if (currentView.app === "gmail") {
       else setSelectedEmailIds(new Set(filteredEmails.map(e => e.id)));
     };
 
-    const handleDeleteSelected = async () => {
+ const handleDeleteSelected = async () => {
       const snapshotIds = Array.from(selectedEmailIds);
       if (snapshotIds.length === 0) return;
       
@@ -6829,6 +7063,26 @@ if (currentView.app === "gmail") {
       }
     };
 
+ const handleMarkUnreadSelected = async () => {
+      const snapshotIds = Array.from(selectedEmailIds);
+      if (snapshotIds.length === 0) return;
+      setGmailLoading(true);
+      try {
+        setGmailEmails(prev => prev.map(e => snapshotIds.includes(e.id) ? { ...e, isUnread: true } : e));
+        const res = await fetch("/.netlify/functions/gmail-mark-unread-bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messageIds: snapshotIds })
+        });
+        if (res.ok) {
+          setSelectedEmailIds(new Set());
+          triggerSnackbar(`${snapshotIds.length} marked as unread.`);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+      setGmailLoading(false);
+    };
     return (
             <div style={{ position: "relative", display: "flex", flexDirection: "column", height: "100%", background: "#fff", borderRadius: "12px", border: "1px solid #e6e6e6", overflow: "hidden" }}>
               
@@ -6917,7 +7171,7 @@ if (currentView.app === "gmail") {
                       {selectedEmailIds.size} selected
                     </span>
                     
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px", borderLeft: "1px solid #dadce0", paddingLeft: "12px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", borderLeft: "1px solid #dadce0", paddingLeft: "12px" }}>
                       {/* MOVE TO TRASH / PERMANENT DELETE */}
                       <button 
                         onClick={handleDeleteSelected} 
@@ -6927,6 +7181,17 @@ if (currentView.app === "gmail") {
                         onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                       >
                         <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                      </button>
+
+                      {/* MARK AS UNREAD */}
+                      <button 
+                        onClick={handleMarkUnreadSelected} 
+                        title="Mark as unread"
+                        style={{ background: "transparent", border: "none", cursor: "pointer", color: "#5f6368", padding: "6px", borderRadius: "50%", display: "grid", placeItems: "center" }}
+                        onMouseEnter={e => e.currentTarget.style.background = "#f1f3f4"}
+                        onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                      >
+                        <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8l8 5 8-5v10zm-8-7L4 6h16l-8 5z"/></svg>
                       </button>
 
                       {/* RESTORE BUTTON (Only shows in Trash) */}

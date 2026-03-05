@@ -273,7 +273,7 @@ const folder = event.queryStringParameters?.folder || "INBOX";
       results.push(p);
       executing.add(p);
       
-      const clean = p.finally(() => executing.delete(p));
+      p.catch(() => {}).finally(() => executing.delete(p));
       if (executing.size >= maxConcurrent) {
         await Promise.race(executing);
       }
