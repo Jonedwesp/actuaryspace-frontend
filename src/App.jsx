@@ -4276,7 +4276,8 @@ useEffect(() => {
           const activeIds = new Set(loadedSpaces.map(s => s.id || s.name));
           setUnreadGchatSpaces(prev => {
             const next = { ...prev };
-            Object.keys(next).forEach(id => { if (!activeIds.has(id)) delete next[id]; });
+            Object.keys(next).forEach(id => { if (!activeIds.has(id) || readSpaceIds.has(id)) delete next[id]; });
+            localStorage.setItem("GCHAT_UNREAD_SPACES", JSON.stringify(next));
             return next;
           });
 
