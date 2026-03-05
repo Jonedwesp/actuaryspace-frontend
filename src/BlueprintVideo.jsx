@@ -11,61 +11,53 @@ import blueprint9 from './assets/blueprint-9.mp4';
 import blueprint10 from './assets/blueprint-10.mp4';
 
 const BlueprintVideo = ({ isPlaying }) => {
-  const [videoIndex, setVideoIndex] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
-  const videoRef = React.useRef(null);
+  const [videoIndex, setVideoIndex] = useState(0);
+  const videoRef = React.useRef(null);
 
-  const playlist = useMemo(() => [blueprint1, blueprint2, blueprint3, blueprint4, blueprint5, blueprint6, blueprint7, blueprint8, blueprint9, blueprint10], []);
+  const playlist = useMemo(() => [blueprint1, blueprint2, blueprint3, blueprint4, blueprint5, blueprint6, blueprint7, blueprint8, blueprint9, blueprint10], []);
 
-  // Force the video to explicitly load and play whenever the index changes
-  useEffect(() => {
-    if (videoRef.current && isPlaying) {
-      videoRef.current.defaultMuted = true;
-      videoRef.current.muted = true;
-      videoRef.current.load();
-      const playPromise = videoRef.current.play();
-      if (playPromise !== undefined) {
-        playPromise.catch(() => {});
-      }
-    }
-  }, [videoIndex, isPlaying]);
+  // 1. Force the browser to continuously play the videos smoothly without network interruptions
+  useEffect(() => {
+    const vid = videoRef.current;
+    if (!vid) return;
 
-  // 🛡️ Fail-safe: clear video spinner if local proxy hangs the network events
-  useEffect(() => {
-    if (isLoading) {
-      const t = setTimeout(() => setIsLoading(false), 1500);
-      return () => clearTimeout(t);
-    }
-  }, [isLoading]);
+    vid.muted = true;
+    vid.defaultMuted = true;
 
-  const handleVideoEnd = () => {
-    setIsLoading(true);
-    setVideoIndex((prev) => (prev + 1) % playlist.length);
-  };
+    if (isPlaying) {
+      const playPromise = vid.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((error) => {
+          console.warn("Autoplay blocked, retrying:", error);
+          setTimeout(() => { if (videoRef.current) videoRef.current.play().catch(()=>{}) }, 100);
+        });
+      }
+    } else {
+      vid.pause();
+    }
+  }, [videoIndex, isPlaying]);
 
-  if (!isPlaying) return null;
+  // 2. Loop seamlessly to the next video
+  const handleVideoEnd = () => {
+    setVideoIndex((prev) => (prev + 1) % playlist.length);
+  };
 
-  return (
-    <div className="video-loader-container" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'transparent' }}>
-      {isLoading && (
-        <div className="spinner-overlay" style={{ backgroundColor: 'rgba(0, 0, 0, 0.15)', position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'grid', placeItems: 'center', zIndex: 5 }}>
-          <div className="loading-spinner" style={{ width: '24px', height: '24px', border: '3px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
-        </div>
-      )}
-      <video
-        ref={videoRef}
-        src={playlist[videoIndex]}
-        autoPlay
-        muted
-        playsInline
-        preload="metadata"
-        onLoadedData={() => setIsLoading(false)}
-        onPlaying={() => setIsLoading(false)}
-        onEnded={handleVideoEnd}
-        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-      />
-    </div>
-  );
+  return (
+    <div className="video-loader-container" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'transparent', opacity: isPlaying ? 1 : 0, transition: 'opacity 0.3s ease', pointerEvents: isPlaying ? 'auto' : 'none' }}>
+      <video
+        ref={videoRef}
+        src={playlist[videoIndex]}
+        autoPlay={isPlaying}
+        muted
+        playsInline
+        preload="auto"
+        onEnded={handleVideoEnd}
+        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+      />
+      {/* Silent hidden video preloads the NEXT clip in the background so there's 0 delay between loops */}
+      <video src={playlist[(videoIndex + 1) % playlist.length]} preload="auto" style={{ display: 'none' }} />
+    </div>
+  );
 };
 
 export default BlueprintVideo;

@@ -144,7 +144,7 @@ export const handler = async (event) => {
     const cardFields = "name,idList,due,idMembers,labels,shortLink,desc,pos";
     const cardResponses = await Promise.all(
       selected.map((list) =>
-        nativeFetch(`${base}/lists/${list.id}/cards?fields=${cardFields}&customFieldItems=true&${auth}`)
+        nativeFetch(`${base}/lists/${list.id}/cards?fields=${cardFields}&customFieldItems=true&pluginData=true&${auth}`)
       )
     );
     const cardArrays = await Promise.all(
@@ -161,6 +161,22 @@ export const handler = async (event) => {
         .filter((c) => c.idList === list.id)
         .sort((a, b) => (a.pos || 0) - (b.pos || 0)) // Ensure strict Trello order
         .map((c) => {
+          // 🟢 NEW: Parse Plugin Data (e.g., Christoph Kettelhoit's Activity)
+          let activityData = null;
+          if (c.pluginData && c.pluginData.length > 0) {
+              c.pluginData.forEach(plugin => {
+                  try {
+                      // Trello stores power-up data as stringified JSON inside the "value" key
+                      const parsedValue = JSON.parse(plugin.value);
+                      if (parsedValue) {
+                          activityData = { ...activityData, ...parsedValue };
+                      }
+                  } catch (e) {
+                      // Silently ignore non-JSON plugin data to prevent crashes
+                  }
+              });
+          }
+
           const labelBadges = (Array.isArray(c.labels) ? c.labels : []).map((l) => {
             const text = l.name || l.color || "Label";
             const type = /RAF LOE/i.test(text) ? "amber" : /RAF LOS/i.test(text) ? "teal" : "green";
@@ -234,6 +250,7 @@ export const handler = async (event) => {
             list: list.name,
             customFields,
             description: c.desc || "",
+            powerUpData: activityData // 🟢 NEW: Expose the parsed Power-Up data
           };
         }),
     }));
