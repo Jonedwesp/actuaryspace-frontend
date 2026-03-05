@@ -88,7 +88,7 @@ export async function handler(event) {
           const unicode = r.emoji?.unicode;
           if (unicode && EMOJI_MAP[unicode]) {
             if (r.reactionCount > 0) {
-              reactions.push(EMOJI_MAP[unicode]);
+              reactions.push({ type: EMOJI_MAP[unicode], count: r.reactionCount });
             }
           }
         });

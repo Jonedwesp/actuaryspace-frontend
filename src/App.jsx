@@ -316,10 +316,16 @@ function formatGchatTime(isoString) {
   if (!isoString) return "";
   const msgTime = new Date(isoString);
   const now = new Date();
-  const isToday = msgTime.toLocaleDateString() === now.toLocaleDateString();
-  return isToday
-    ? msgTime.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false })
-    : msgTime.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const time = msgTime.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfMsgDay = new Date(msgTime.getFullYear(), msgTime.getMonth(), msgTime.getDate());
+  const daysDiff = Math.round((startOfToday - startOfMsgDay) / (1000 * 60 * 60 * 24));
+
+  if (daysDiff === 0) return time;
+  if (daysDiff === 1) return `Yesterday ${time}`;
+  if (daysDiff < 7) return `${msgTime.toLocaleDateString("en-US", { weekday: "short" })} ${time}`;
+  return `${msgTime.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${time}`;
 }
 function formatUKTime(date) {
   // Chats (WhatsApp/Slack): HH:MM
@@ -1305,7 +1311,7 @@ function getTrelloCoverColor(title) {
   return null;
 }
 
-const RightPanel = React.memo(function RightPanel({ filteredGchatSpaces, gchatLoading, gchatError, gchatDmNames, gchatSelectedSpace, setGchatSelectedSpace, unreadGchatSpaces, setUnreadGchatSpaces, gchatSpaceTimes }) {
+const RightPanel = React.memo(function RightPanel({ filteredGchatSpaces, gchatLoading, gchatError, gchatDmNames, gchatSelectedSpace, setGchatSelectedSpace, unreadGchatSpaces, setUnreadGchatSpaces, gchatSpaceTimes, activeTrelloCardId }) {
   // 👇 HYDRATE FROM CACHE: Gives notifications permanent memory across page refreshes!
   const knownTrelloCardsRef = useRef(null);
   const immuneCardsRef = useRef(new Map()); // 🛡️ NEW: Memory shield to stop echoes
@@ -1327,6 +1333,7 @@ const RightPanel = React.memo(function RightPanel({ filteredGchatSpaces, gchatLo
   const [archivedCards, setArchivedCards] = useState([]);
   const [archivedLoading, setArchivedLoading] = useState(false);
   const [archiveSearch, setArchiveSearch] = useState(""); // 👈 NEW: Archive Search
+  const debouncedArchiveSearch = useDebounce(archiveSearch, 300);
   const [cardToDelete, setCardToDelete] = useState(null); // 🚀 NEW: State for custom delete modal
 
 // 👇 NEW: Inline Card Creation State
@@ -2058,7 +2065,7 @@ const RightPanel = React.memo(function RightPanel({ filteredGchatSpaces, gchatLo
       {/* ARCHIVE MODAL OVERLAY */}
       {showArchiveModal && (
         <div style={{ position: 'fixed', top:0, left:0, width:'100vw', height:'100vh', background:'rgba(0,0,0,0.6)', zIndex: 9999, display:'grid', placeItems:'center' }} onClick={() => setShowArchiveModal(false)}>
-          <div style={{ background: '#f4f5f7', width: '400px', maxHeight: '80vh', borderRadius: '3px', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 16px rgba(0,0,0,0.4)' }} onClick={e => e.stopPropagation()}>
+          <div className="popup-anim-in" style={{ background: '#f4f5f7', width: '400px', maxHeight: '80vh', borderRadius: '3px', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 16px rgba(0,0,0,0.4)', transformOrigin: 'center' }} onClick={e => e.stopPropagation()}>
              
              {/* HEADER */}
              <div style={{ padding: '16px 16px 8px 16px', display: 'flex', justifyContent: 'space-between', color: '#172b4d', fontWeight: 600 }}>
@@ -2079,8 +2086,8 @@ const RightPanel = React.memo(function RightPanel({ filteredGchatSpaces, gchatLo
 
              <div style={{ padding: '16px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {archivedLoading ? <div style={{ color: '#5e6c84', textAlign:'center', padding: '20px' }}>Loading archive...</div> :
-                  archivedCards.filter(c => c.title.toLowerCase().includes(archiveSearch.toLowerCase())).length === 0 ? <div style={{ color: '#5e6c84', textAlign:'center', padding: '20px' }}>No archived cards found.</div> :
-                  archivedCards.filter(c => c.title.toLowerCase().includes(archiveSearch.toLowerCase())).map(c => (
+                  archivedCards.filter(c => c.title.toLowerCase().includes(debouncedArchiveSearch.toLowerCase())).length === 0 ? <div style={{ color: '#5e6c84', textAlign:'center', padding: '20px' }}>No archived cards found.</div> :
+                  archivedCards.filter(c => c.title.toLowerCase().includes(debouncedArchiveSearch.toLowerCase())).map(c => (
                     <div 
                       key={c.id} 
                       style={{ background: '#ffffff', borderRadius: '3px', padding: '12px', marginBottom: '8px', cursor: 'pointer', position: 'relative', boxShadow: '0 1px 1px rgba(9,30,66,0.25)', display: 'flex', flexDirection: 'column', gap: '8px', border: '1px solid transparent' }}
@@ -2261,7 +2268,14 @@ const RightPanel = React.memo(function RightPanel({ filteredGchatSpaces, gchatLo
                     onDragOver={(e) => e.preventDefault()}
                     onDragEnd={handleDragEnd}
                     className={getStyles(i, j)}
-                    onClick={() => window.dispatchEvent(new CustomEvent("openTrelloCard", { detail: card }))}
+                    style={activeTrelloCardId === card.id ? { backgroundColor: "#f1f3f4" } : undefined}
+                    onClick={() => {
+                      if (activeTrelloCardId === card.id) {
+                        window.dispatchEvent(new CustomEvent("closeTrelloCard"));
+                      } else {
+                        window.dispatchEvent(new CustomEvent("openTrelloCard", { detail: card }));
+                      }
+                    }}
                   >
                      {/* ... (Your Card Content - Colors, Badges, Title, Footer) ... */}
                      {/* Copy your existing card inner content here if needed, or leave it as is */}
@@ -2505,39 +2519,23 @@ const EmailMetadata = ({ email }) => {
       </div>
 
       {isOpen && (
-        <>
-          {/* Backdrop to capture clicks outside the box */}
-          <div 
-            style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }} 
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              setIsOpen(false);
-            }}
-          />
-          
-          <div 
-            style={{
-              position: "absolute",
-              top: "100%",
-              left: "0",
-              marginTop: "4px",
-              background: "white",
-              border: "1px solid #dadce0",
-              borderRadius: "8px",
-              boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-              padding: "16px",
-              zIndex: 100,
-              minWidth: "480px",
-              fontSize: "13px",
-              color: "#202124",
-              display: "flex",
-              flexDirection: "column",
-              cursor: "default"
-            }}
-            // 🛡️ SHIELD: Ensures clicking inside the details box doesn't close the email view
-            onClick={e => e.stopPropagation()} 
-          >
+        <div
+          style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 90 }}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsOpen(false); }}
+        />
+      )}
+      <PopupSpring
+        show={isOpen}
+        style={{
+          position: "absolute", top: "100%", left: "0", marginTop: "4px",
+          background: "white", border: "1px solid #dadce0", borderRadius: "8px",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.15)", padding: "16px",
+          zIndex: 100, minWidth: "480px", fontSize: "13px", color: "#202124",
+          display: "flex", flexDirection: "column", cursor: "default"
+        }}
+        origin="top left"
+        onClick={e => e.stopPropagation()}
+      >
             <div style={{ display: "grid", gridTemplateColumns: "75px 1fr", gap: "8px 12px", alignItems: "baseline" }}>
               <span style={{ color: "#5f6368", textAlign: "right" }}>from:</span>
               <span><strong>{email.fromName}</strong> {email.fromEmail}</span>
@@ -2557,78 +2555,121 @@ const EmailMetadata = ({ email }) => {
                 Standard encryption (TLS)
               </span>
             </div>
-          </div>
-        </>
-      )}
+      </PopupSpring>
     </div>
   );
 };
 
-// ⚡ NEW: High-speed GChat Sidebar Menu (Extracted to prevent massive UI lag when clicking 3-dots)
-const GChatSidebarMenu = ({ sid, s, showArchivedChats, setArchivedGchatSpaces, setChatToDelete }) => {
-  const [isOpen, setIsOpen] = useState(false);
+// 🍎 iPhone-style spring popup — handles enter (scale in) + exit (scale out before unmount)
+const PopupSpring = ({ show, children, style = {}, className = '', origin = 'top right', onClick }) => {
+  const [phase, setPhase] = useState(() => show ? 'in' : 'hidden');
+  const timerRef = useRef(null);
+  useEffect(() => {
+    if (show) {
+      clearTimeout(timerRef.current);
+      setPhase('in');
+    } else {
+      setPhase('out');
+      timerRef.current = setTimeout(() => setPhase('hidden'), 160);
+    }
+    return () => clearTimeout(timerRef.current);
+  }, [show]);
+  if (phase === 'hidden') return null;
+  return (
+    <div
+      className={`popup-anim-${phase}${className ? ' ' + className : ''}`}
+      style={{ transformOrigin: origin, ...style }}
+      onClick={onClick}
+    >
+      {children}
+    </div>
+  );
+};
 
+// ⚡ High-speed GChat Sidebar Menu — local state so opening/closing never re-renders App
+const GChatSidebarMenu = ({
+  sid, s, showArchivedChats,
+  gchatSpaceTimes, setGchatSpaceTimes, setUnreadGchatSpaces,
+  setArchivedGchatSpaces,
+  mutedGchatSpaces, setMutedGchatSpaces,
+  setTrashedGchatSpaces,
+  gchatSelectedSpace, setGchatSelectedSpace,
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuItem = (label, color, handler) => (
+    <div
+      style={{ padding: "8px 16px", color, cursor: "pointer", fontSize: "13px" }}
+      onMouseEnter={e => e.currentTarget.style.background = "#f1f3f4"}
+      onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+      onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); handler(); setIsOpen(false); }}
+    >{label}</div>
+  );
   return (
     <div className="gchat-menu-wrap" style={{ position: "relative", display: "flex", alignItems: "center" }}>
-      <div 
-        onMouseDown={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setIsOpen(prev => !prev);
-        }}
-        style={{
-          width: "24px",
-          height: "24px",
-          display: "grid",
-          placeItems: "center",
-          borderRadius: "50%",
-          color: "#5f6368",
-          cursor: "pointer"
-        }}
+      <div
+        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setIsOpen(prev => !prev); }}
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: "24px", height: "24px", display: "grid", placeItems: "center", borderRadius: "50%", color: "#5f6368", cursor: "pointer" }}
         onMouseEnter={e => e.currentTarget.style.background = "rgba(0,0,0,0.05)"}
         onMouseLeave={e => e.currentTarget.style.background = "transparent"}
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
       </div>
       {isOpen && (
-        <>
-          {/* Invisible backdrop to capture outside clicks instantly */}
-          <div 
-            style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", zIndex: 999 }}
-            onMouseDown={(e) => { e.stopPropagation(); setIsOpen(false); }}
-          />
-          <div style={{
-            position: "absolute",
-            right: 0,
-            top: "100%",
-            background: "#fff",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-            borderRadius: "4px",
-            border: "1px solid #dadce0",
-            zIndex: 1000,
-            minWidth: "120px",
-            padding: "4px 0"
-          }}>
-            <div
-               
-                            style={{ padding: "8px 16px", color: "#202124", cursor: "pointer", fontSize: "13px" }}
-                            onMouseEnter={e => e.currentTarget.style.background = "#f1f3f4"}
-                            onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setArchivedGchatSpaces(prev => {
-                                if (prev.includes(sid)) return prev.filter(id => id !== sid);
-                                return [...prev, sid];
-                              });
-                              setActiveGchatMenu(null);
-                            }}
-                          >
-                            {showArchivedChats ? "Unarchive" : "Archive"}
-                          </div>
-                        </div>
-        </>
+        <div style={{ position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh", zIndex: 999 }}
+          onMouseDown={(e) => { e.stopPropagation(); setIsOpen(false); }} />
       )}
+      <PopupSpring show={isOpen} style={{ position: "absolute", right: 0, top: "100%", background: "#fff", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", borderRadius: "4px", border: "1px solid #dadce0", zIndex: 1000, minWidth: "140px", padding: "4px 0" }} origin="top right">
+        {menuItem("Mark as unread", "#202124", () => {
+          const resetTime = new Date(0).toISOString();
+          setGchatSpaceTimes(prev => ({ ...prev, [sid]: resetTime }));
+          localStorage.setItem("GCHAT_SPACE_TIMES", JSON.stringify({ ...gchatSpaceTimes, [sid]: resetTime }));
+          setUnreadGchatSpaces(prev => {
+            const next = { ...prev, [sid]: s.lastActiveTime || new Date().toISOString() };
+            localStorage.setItem("GCHAT_UNREAD_SPACES", JSON.stringify(next));
+            return next;
+          });
+        })}
+        {menuItem(showArchivedChats ? "Unarchive" : "Archive", "#202124", () => {
+          setArchivedGchatSpaces(prev => prev.includes(sid) ? prev.filter(id => id !== sid) : [...prev, sid]);
+        })}
+        {menuItem(mutedGchatSpaces.includes(sid) ? "Unmute" : "Mute", "#202124", () => {
+          setMutedGchatSpaces(prev => prev.includes(sid) ? prev.filter(id => id !== sid) : [...prev, sid]);
+        })}
+        {menuItem("Delete", "#d93025", () => {
+          if (!window.confirm("Remove this chat from your list?")) return;
+          setTrashedGchatSpaces(prev => [...prev, sid]);
+          if (gchatSelectedSpace?.id === sid || gchatSelectedSpace?.name === sid) setGchatSelectedSpace(null);
+        })}
+      </PopupSpring>
+    </div>
+  );
+};
+
+const WelcomeMessage = () => {
+  const line1 = "Hi Siya";
+  const line2 = "Where should we start?";
+  const [txt1, setTxt1] = useState("");
+  const [txt2, setTxt2] = useState("");
+  useEffect(() => {
+    let i = 0, j = 0, done1 = false;
+    const tick = setInterval(() => {
+      if (!done1) {
+        i++;
+        setTxt1(line1.slice(0, i));
+        if (i >= line1.length) done1 = true;
+      } else {
+        j++;
+        setTxt2(line2.slice(0, j));
+        if (j >= line2.length) clearInterval(tick);
+      }
+    }, 35);
+    return () => clearInterval(tick);
+  }, []);
+  return (
+    <div style={{ textAlign: "left", padding: "0 48px", transform: "translateY(-32px)" }}>
+      <div style={{ fontSize: "18px", color: "#bdc1c6", fontWeight: 400, marginBottom: "1px", fontFamily: "'Inter', sans-serif", minHeight: "26px" }}>{txt1}</div>
+      <div style={{ fontSize: "30px", color: "#bdc1c6", fontWeight: 500, fontFamily: "'Inter', sans-serif", letterSpacing: "-0.3px", minHeight: "40px" }}>{txt2}</div>
     </div>
   );
 };
@@ -3077,6 +3118,7 @@ const [isLiveCallActive, setIsLiveCallActive] = useState(false);
   }, [isDonnaLoading]);
 
   const [currentView, setCurrentView] = useState({ app: "none", contact: null });
+  const [showWelcome, setShowWelcome] = useState(true);
   const [isGchatSoundEnabled, setIsGchatSoundEnabled] = useState(false);
   const [statusText, setStatusText] = useState("");
   const [taskIndex, setTaskIndex] = useState(0);
@@ -3208,6 +3250,7 @@ const [isLiveCallActive, setIsLiveCallActive] = useState(false);
 const [inputValue, setInputValue] = useState("");
 const [searchQuery, setSearchQuery] = useState("");
 const [notifications, setNotifications] = useState([]);
+const [notifLoading, setNotifLoading] = useState(true);
 const [isMuted, setIsMuted] = useState(() => {
   try { return localStorage.getItem("NOTIF_MUTED") === "true"; }
   catch { return false; }
@@ -3307,19 +3350,17 @@ const [gchatSelectedSpace, setGchatSelectedSpace] = useState(null);
     catch { return []; }
   });
   const [showArchivedChats, setShowArchivedChats] = useState(false);
-  const [activeGchatMenu, setActiveGchatMenu] = useState(null);
   const [chatToDelete, setChatToDelete] = useState(null);
+
+  const [mutedGchatSpaces, setMutedGchatSpaces] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("GCHAT_MUTED") || "[]"); }
+    catch { return []; }
+  });
 
   useEffect(() => { localStorage.setItem("GCHAT_ARCHIVED", JSON.stringify(archivedGchatSpaces)); }, [archivedGchatSpaces]);
   useEffect(() => { localStorage.setItem("GCHAT_TRASHED", JSON.stringify(trashedGchatSpaces)); }, [trashedGchatSpaces]);
+  useEffect(() => { localStorage.setItem("GCHAT_MUTED", JSON.stringify(mutedGchatSpaces)); }, [mutedGchatSpaces]);
 
-  useEffect(() => {
-    const closeMenu = (e) => {
-      if (!e.target.closest(".gchat-menu-wrap")) setActiveGchatMenu(null);
-    };
-    document.addEventListener("click", closeMenu);
-    return () => document.removeEventListener("click", closeMenu);
-  }, []);
 
   // 🧠 MEMORIZE FOREVER: Survive page reloads by loading from/saving to localStorage
   const [unreadGchatSpaces, setUnreadGchatSpaces] = useState(() => {
@@ -3494,12 +3535,14 @@ const debouncedChatSearchText = useDebounce(chatSearchText, 300);
 
 /* 🔴 NEW — Google Chat reactions UI state */
   const pendingReactionsRef = useRef(new Map()); // 👈 ADDED SHIELD
+  const newlyCreatedSpaceIdRef = useRef(null);
   const myReactionsRef = useRef((() => { try { return JSON.parse(localStorage.getItem("GCHAT_MY_REACTIONS") || "{}"); } catch { return {}; } })()); // 🧠 NEW: Permanent memory for your clicks
   const myDeletionsRef = useRef((() => { try { return JSON.parse(localStorage.getItem("GCHAT_MY_DELETIONS") || "[]"); } catch { return []; } })()); // 🧠 NEW: Permanent memory for deletions
   const myEditsRef = useRef((() => { try { return JSON.parse(localStorage.getItem("GCHAT_MY_EDITS") || "{}"); } catch { return {}; } })()); // 🧠 NEW: Permanent memory for edits
 
   const [hoveredMsgId, setHoveredMsgId] = useState(null);
   const [reactions, setReactions] = useState(() => { try { return JSON.parse(localStorage.getItem("GCHAT_MY_REACTIONS") || "{}"); } catch { return {}; } });
+  const [reactionCounts, setReactionCounts] = useState({});
   const [gchatFilePreview, setGchatFilePreview] = useState(null); // { url, name, type }
 
   function toggleReaction(messageId, type) {
@@ -3534,6 +3577,8 @@ useEffect(() => {
     const saved = localStorage.getItem("GCHAT_ME");
     if (saved) setGchatMe(saved);
   }, []);
+
+
 
   useEffect(() => {
     const close = (e) => {
@@ -3981,6 +4026,16 @@ useEffect(() => {
                 return prev;
               });
 
+              // ⚡ LIVE REORDER: Bubble the space to the top of the sidebar
+              setGchatSpaces(prev => {
+                const updated = prev.map(sp =>
+                  (sp.id || sp.name) === sid ? { ...sp, lastActiveTime: ts } : sp
+                );
+                return updated.sort((a, b) =>
+                  new Date(b.lastActiveTime || b.createTime) - new Date(a.lastActiveTime || a.createTime)
+                );
+              });
+
               if (!isCurrentlyViewing) {
                 // Background Unread Count Handling
                 setUnreadGchatSpaces(prev => {
@@ -4017,7 +4072,7 @@ useEffect(() => {
                     chatNotifs.push({
                       ...n, id: msgId, alt: "Google Chat", icon: gchatIcon,
                       text: notifText, timestamp: ts, spaceId: sid,
-                      isSilent: isFirstRun,
+                      isSilent: isFirstRun || mutedGchatSpaces.includes(sid),
                     });
                   }
                 }
@@ -4072,10 +4127,6 @@ useEffect(() => {
               item.alt === "Google Chat" && !item.isSilent
             );
 
-            if (!isMuted) {
-              if (hasNewEmail) new Audio(GMAIL_SOUND_DATA).play().catch(() => {});
-              else if (hasNewChatAction) new Audio(GCHAT_SOUND_DATA).play().catch(() => {});
-            }
           }
 
           if (newItems.length === 0) return prev;
@@ -4098,6 +4149,7 @@ useEffect(() => {
       reportSystemError("Notifications", err.message);
     } finally {
       isFetching = false;
+      setNotifLoading(false);
     }
   }
 
@@ -4155,6 +4207,20 @@ useEffect(() => {
   return () => window.removeEventListener("notify", handleNotify);
 }, [isMuted, notifications]); // Added notifications to dependency for accurate duplication check
 
+  // Global button bounce — fires on every button click, animation always completes
+  useEffect(() => {
+    const handleClick = (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      btn.classList.remove('btn-bounce');
+      void btn.offsetWidth; // force reflow to restart animation
+      btn.classList.add('btn-bounce');
+      btn.addEventListener('animationend', () => btn.classList.remove('btn-bounce'), { once: true });
+    };
+    document.addEventListener('click', handleClick);
+    return () => document.removeEventListener('click', handleClick);
+  }, []);
+
   // 1. GLOBAL IDENTITY LOADER (Runs once on mount, regardless of view)
 useEffect(() => {
     async function fetchWhoAmI() {
@@ -4186,6 +4252,11 @@ useEffect(() => {
     }
     fetchWhoAmI();
   }, []);
+
+  // Hide welcome message as soon as the user opens any section
+  useEffect(() => {
+    if (currentView.app !== "none") setShowWelcome(false);
+  }, [currentView.app]);
 
   // 1.5 SPACE LOADER (Fetches the list of rooms/DMs)
   useEffect(() => {
@@ -4522,6 +4593,7 @@ useEffect(() => {
           setGchatNextPageToken(json.nextPageToken);
         }
 
+        const countsToUpdate = {};
         setReactions((prev) => {
           const next = { ...prev };
           const now = Date.now();
@@ -4533,21 +4605,32 @@ useEffect(() => {
             }
 
             let parsedReactions = [];
+            const parsedCounts = {};
             if (msg.reactions && Array.isArray(msg.reactions)) {
-              parsedReactions = msg.reactions.map(rx => {
+              msg.reactions.forEach(rx => {
+                let type = null, count = 1;
+                if (typeof rx === "string") {
+                  type = ["like","heart","laugh"].includes(rx) ? rx : null;
+                } else if (rx && rx.type) {
+                  type = ["like","heart","laugh"].includes(rx.type) ? rx.type : null;
+                  count = rx.count || 1;
+                } else {
                   const uni = rx.emoji?.unicode || "";
                   const name = (rx.emoji?.name || "").toLowerCase();
-                  if (uni.includes("👍") || name.includes("thumb") || name.includes("+1")) return "like";
-                  if (uni.includes("❤️") || uni.includes("❤") || uni === "💖" || name.includes("heart")) return "heart";
-                  if (uni.includes("😆") || uni.includes("😂") || uni === "😀" || name.includes("laugh") || name.includes("joy") || name.includes("smile") || name.includes("grin")) return "laugh";
-                  return null;
-              }).filter(Boolean);
-            } 
+                  if (uni.includes("👍") || name.includes("thumb") || name.includes("+1")) type = "like";
+                  else if (uni.includes("❤️") || uni.includes("❤") || uni === "💖" || name.includes("heart")) type = "heart";
+                  else if (uni.includes("😆") || uni.includes("😂") || uni === "😀" || name.includes("laugh") || name.includes("joy") || name.includes("smile") || name.includes("grin")) type = "laugh";
+                }
+                if (type) { parsedReactions.push(type); parsedCounts[type] = count; }
+              });
+            }
+            countsToUpdate[msgId] = parsedCounts;
             const mySaved = myReactionsRef.current[msgId] || [];
             next[msgId] = [...new Set([...mySaved, ...parsedReactions])];
           });
           return next;
         });
+        setReactionCounts(prev => ({ ...prev, ...countsToUpdate }));
       }
     } catch (err) {
       if (!cancelled) setGchatMsgError(String(err?.message || err));
@@ -4725,7 +4808,7 @@ pollGmailBackground();
                 id: `cal-${ev.id}`,
                 text: `Meeting in ${Math.round(timeDiffMins)} mins: ${ev.summary || "Event"}`,
                 alt: "Calendar",
-                icon: `data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='100' height='100' fill='%23ffffff'/%3E%3Crect width='26' height='100' fill='%234285F4'/%3E%3Crect width='100' height='26' fill='%234285F4'/%3E%3Crect x='74' width='26' height='74' fill='%23FBBC05'/%3E%3Crect y='74' width='74' height='26' fill='%2334A853'/%3E%3Cpolygon points='74,100 100,74 100,100' fill='%23EA4335'/%3E%3Crect x='26' y='26' width='48' height='48' fill='%23ffffff'/%3E%3Ctext x='50' y='66' font-size='44' font-weight='bold' font-family='sans-serif' fill='%234285F4' text-anchor='middle'%3E${new Date().getDate()}%3C/text%3E%3C/svg%3E`,
+                icon: 'data:image/svg+xml,' + encodeURIComponent('<svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" fill="#ffffff"/><rect width="26" height="100" fill="#4285F4"/><rect width="100" height="26" fill="#4285F4"/><rect x="74" width="26" height="74" fill="#FBBC05"/><rect y="74" width="74" height="26" fill="#34A853"/><polygon points="74,100 100,74 100,100" fill="#EA4335"/><rect x="26" y="26" width="48" height="48" fill="#ffffff"/><text x="50" y="66" font-size="44" font-weight="bold" font-family="sans-serif" fill="#4285F4" text-anchor="middle">' + new Date().getDate() + '</text></svg>'),
                 calendarEventData: ev,
                 timestamp: new Date().toISOString()
               }
@@ -4915,6 +4998,12 @@ useEffect(() => {
       .then(res => res.json())
       .then(data => { if (data.ok && data.members) setTrelloMembers(data.members); })
       .catch(err => console.error("Failed to fetch members", err));
+  }, []);
+
+  useEffect(() => {
+    const handler = () => { setTrelloCard(null); setCurrentView({ app: "none", contact: null }); };
+    window.addEventListener("closeTrelloCard", handler);
+    return () => window.removeEventListener("closeTrelloCard", handler);
   }, []);
 
   useEffect(() => {
@@ -5482,13 +5571,17 @@ const handleStartChat = async (forcedEmail = null) => {
           return next;
         });
 
+        const alreadyExists = gchatSpaces.find(s => (s.id === spaceId || s.name === spaceId));
+        if (!alreadyExists) {
+          newlyCreatedSpaceIdRef.current = spaceId;
+        }
+
         setGchatSpaces(prev => {
           const exists = prev.find(s => (s.id === spaceId || s.name === spaceId));
           if (exists) {
-            // Update the existing space entry to ensure it has the correct display name reference
             return prev.map(s => (s.id === spaceId || s.name === spaceId) ? { ...s, displayName: resolvedName } : s);
           }
-          return [{ ...newSpace, displayName: resolvedName }, ...prev];
+          return [{ ...newSpace, displayName: resolvedName, _provisional: true }, ...prev];
         });
 
         setCurrentView({ app: "gchat", contact: null });
@@ -5650,6 +5743,7 @@ const handleUpdateGChatMessage = async (messageId, newText) => {
       }
 
       if (json.ok && json.message) {
+        setGchatSpaces(prev => prev.map(sp => (sp.id || sp.name) === (gchatSelectedSpace?.id || gchatSelectedSpace?.name) ? { ...sp, _provisional: false } : sp));
         const me = json.message?.sender?.name;
         if (me && !gchatMe) {
           setGchatMe(me);
@@ -5747,6 +5841,7 @@ const handleUpdateGChatMessage = async (messageId, newText) => {
       const isTrashed = trashedGchatSpaces.includes(spaceKey);
       
       if (isTrashed) return false;
+      if (s._provisional && (s.id || s.name) !== (gchatSelectedSpace?.id || gchatSelectedSpace?.name)) return false;
       if (showArchivedChats && !isArchived) return false;
       if (!showArchivedChats && isArchived) return false;
 
@@ -5878,13 +5973,15 @@ if (currentView.app === "gchat") {
               onMouseDown={(e) => { e.stopPropagation(); setNewChatTarget(""); setShowNewChatModal(false); }}
             />
             
-            <div 
+            <div
+              className="popup-anim-in"
               style={{
                 position: "fixed", top: "100px", left: "50%", transform: "translateX(-50%)", width: "600px",
                 background: "white", padding: "24px", borderRadius: "12px",
-                boxShadow: "0 12px 40px rgba(0,0,0,0.3)", zIndex: 9999, border: "1px solid #dadce0"
+                boxShadow: "0 12px 40px rgba(0,0,0,0.3)", zIndex: 9999, border: "1px solid #dadce0",
+                transformOrigin: "top center"
               }}
-              onClick={(e) => e.stopPropagation()} 
+              onClick={(e) => e.stopPropagation()}
             >
               <div style={{fontWeight:500, marginBottom:12, fontSize:"1rem", color:"#202124"}}>
                 Start direct message
@@ -6105,10 +6202,9 @@ if (currentView.app === "gchat") {
                     )}
                   </button>
                 </div>
-                {gchatLoading && <div className="gchat-muted">Loading…</div>}
+                {gchatLoading && gchatSpaces.length === 0 && <div className="gchat-muted">Loading…</div>}
                 {gchatError && <div className="gchat-error">{gchatError}</div>}
 
-        {!gchatLoading && (
           <div style={{ display: "flex", flexDirection: "column", gap: "3px", width: "100%", boxSizing: "border-box" }}>
             {filteredGchatSpaces.map((s) => {
               if (!s) return null;
@@ -6215,117 +6311,58 @@ if (currentView.app === "gchat") {
       return prev.filter(x => !(x.alt === "Google Chat" && x.spaceId === spaceId));
     });
   }}
-                  onMouseEnter={e => !isActive && (e.currentTarget.style.background = "#e8eaed")}
-                  onMouseLeave={e => !isActive && (e.currentTarget.style.background = "#f1f3f4")}
+                  onMouseEnter={e => !isActive && (e.currentTarget.style.background = isUnread ? "#f0f4ff" : "#e8eaed")}
+                  onMouseLeave={e => !isActive && (e.currentTarget.style.background = isUnread ? "#ffffff" : "#f1f3f4")}
                 >
                <div className="gchat-item-text" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, paddingRight: '8px' }}>
-                    <div className="gchat-item-title" style={{ fontWeight: (isActive || isUnread) ? "700" : "500", color: isUnread && !isActive ? "#000000" : undefined }}>
+                    <div className="gchat-item-title" style={{ fontWeight: (isActive || isUnread) ? "700" : "500", color: isUnread && !isActive ? "#000000" : undefined, fontStyle: mutedGchatSpaces.includes(sid) ? "italic" : undefined }}>
                       {title}
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
                     {isUnread && !isActive && (
                       // 🔵 Authentic GChat Blue Notification Bubble
-                      <div className="unread-dot" style={{ 
-                        background: '#0b57d0', 
-                        width: '12px', 
-                        height: '12px', 
-                        borderRadius: '50%', 
+                      <div className="unread-dot" style={{
+                        background: '#0b57d0',
+                        width: '12px',
+                        height: '12px',
+                        borderRadius: '50%',
                         boxShadow: '0 0 4px rgba(11, 87, 208, 0.4)',
                         flexShrink: 0
                       }} />
                     )}
-                    
-          <div className="gchat-menu-wrap" style={{ position: "relative", display: "flex", alignItems: "center" }}>
-                      <div 
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setActiveGchatMenu(activeGchatMenu === sid ? null : sid);
-                        }}
-                        style={{
-                          width: "24px",
-                          height: "24px",
-                          display: "grid",
-                          placeItems: "center",
-                          borderRadius: "50%",
-                          color: "#5f6368",
-                          cursor: "pointer"
-                        }}
-                        onMouseEnter={e => e.currentTarget.style.background = "rgba(0,0,0,0.05)"}
-                        onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2 s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2 s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
-                      </div>
-                      {activeGchatMenu === sid && (
-                        <div style={{
-                          position: "absolute",
-                          right: 0,
-                          top: "100%",
-                          background: "#fff",
-                          boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-                          borderRadius: "4px",
-                          border: "1px solid #dadce0",
-                          zIndex: 1000,
-                          minWidth: "140px",
-                          padding: "4px 0"
-                        }}>
-                          <div
-                            style={{ padding: "8px 16px", color: "#202124", cursor: "pointer", fontSize: "13px" }}
-                            onMouseEnter={e => e.currentTarget.style.background = "#f1f3f4"}
-                            onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              
-                              // Reset the local read time to a date in the past
-                              const resetTime = new Date(0).toISOString();
-                              setGchatSpaceTimes(prev => ({ ...prev, [sid]: resetTime }));
-                              localStorage.setItem("GCHAT_SPACE_TIMES", JSON.stringify({ ...gchatSpaceTimes, [sid]: resetTime }));
-                              
-                              // Force the blue bubble to appear
-                              setUnreadGchatSpaces(prev => {
-                                const next = { ...prev, [sid]: s.lastActiveTime || new Date().toISOString() };
-                                localStorage.setItem("GCHAT_UNREAD_SPACES", JSON.stringify(next));
-                                return next;
-                              });
+                    {mutedGchatSpaces.includes(sid) && (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9aa0a6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" title="Muted" style={{ flexShrink: 0 }}>
+                        <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/>
+                        <line x1="4" y1="4" x2="20" y2="20"/>
+                      </svg>
+                    )}
 
-                              setActiveGchatMenu(null);
-                            }}
-                          >
-                            Mark as unread
-                          </div>
-                          <div
-                            style={{ padding: "8px 16px", color: "#202124", cursor: "pointer", fontSize: "13px" }}
-                            onMouseEnter={e => e.currentTarget.style.background = "#f1f3f4"}
-                            onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setArchivedGchatSpaces(prev => {
-                                if (prev.includes(sid)) return prev.filter(id => id !== sid);
-                                return [...prev, sid];
-                              });
-                              setActiveGchatMenu(null);
-                            }}
-                          >
-                            {showArchivedChats ? "Unarchive" : "Archive"}
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                    <GChatSidebarMenu
+            sid={sid}
+            s={s}
+            showArchivedChats={showArchivedChats}
+            gchatSpaceTimes={gchatSpaceTimes}
+            setGchatSpaceTimes={setGchatSpaceTimes}
+            setUnreadGchatSpaces={setUnreadGchatSpaces}
+            setArchivedGchatSpaces={setArchivedGchatSpaces}
+            mutedGchatSpaces={mutedGchatSpaces}
+            setMutedGchatSpaces={setMutedGchatSpaces}
+            setTrashedGchatSpaces={setTrashedGchatSpaces}
+            gchatSelectedSpace={gchatSelectedSpace}
+            setGchatSelectedSpace={setGchatSelectedSpace}
+          />
                   </div>
                 </button>
               );
             })}
           </div>
-        )}
       </div>
 {/* RIGHT 3/4 — message thread */}
       <div
         className="gchat-thread"
         style={{
-          width: "70%",
+          width: "73%",
           display: "flex",
           flexDirection: "column",
           overflow: "hidden", /* 👈 THE FIX: Removed the duplicate outer scrollbar */
@@ -6336,7 +6373,7 @@ if (currentView.app === "gchat") {
         <div
           className="gchat-topbar"
           style={{
-            borderBottom: "1px solid #ddd",
+            borderBottom: gchatSelectedSpace ? "1px solid #ddd" : "none",
             padding: "8px 24px 8px 12px",
             display: "flex",
             justifyContent: "space-between",
@@ -6347,21 +6384,26 @@ if (currentView.app === "gchat") {
             background: "#fff"
           }}
         >
-          <div className="gchat-top-title">
-            {(() => {
-              if (!gchatSelectedSpace) return "Select a space";
-              if (gchatSelectedSpace.type !== "DIRECT_MESSAGE") return gchatSelectedSpace.displayName || "Unnamed Space";
-
+          {(() => {
+              if (!gchatSelectedSpace) return null;
               const spaceKey = gchatSelectedSpace.id || gchatSelectedSpace.name;
               const cachedName = gchatDmNames[spaceKey] || "";
-
-              // Priority: Global ID Map > Sidebar Learned Name > Display Name 
-              return GCHAT_ID_MAP[spaceKey] || 
-                     (cachedName && !cachedName.includes("users/") && cachedName !== "Direct Message" ? cachedName : null) ||
-                     (otherPersonName && !otherPersonName.includes("users/") ? otherPersonName : null) ||
-                     (gchatSelectedSpace.displayName && !gchatSelectedSpace.displayName.includes("users/") ? gchatSelectedSpace.displayName : "Direct Message");
+              const resolvedTitle = gchatSelectedSpace.type !== "DIRECT_MESSAGE"
+                ? (gchatSelectedSpace.displayName || "Unnamed Space")
+                : (GCHAT_ID_MAP[spaceKey] ||
+                   (cachedName && !cachedName.includes("users/") && cachedName !== "Direct Message" ? cachedName : null) ||
+                   (otherPersonName && !otherPersonName.includes("users/") ? otherPersonName : null) ||
+                   (gchatSelectedSpace.displayName && !gchatSelectedSpace.displayName.includes("users/") ? gchatSelectedSpace.displayName : "Direct Message"));
+              const headerAvatar = avatarFor(resolvedTitle);
+              return (
+                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  <div className="gchat-avatar-circle" style={{ width: "36px", height: "36px", flexShrink: 0 }}>
+                    {headerAvatar ? <img src={headerAvatar} alt={resolvedTitle} /> : <span>{(resolvedTitle || "?").slice(0, 1).toUpperCase()}</span>}
+                  </div>
+                  <div className="gchat-top-title">{resolvedTitle}</div>
+                </div>
+              );
             })()}
-          </div>
           {gchatSelectedSpace && (() => {
             const spaceKey = gchatSelectedSpace.id || gchatSelectedSpace.name;
             const cachedName = gchatDmNames[spaceKey] || "";
@@ -6507,8 +6549,11 @@ if (currentView.app === "gchat") {
             padding: "12px 24px 12px 12px"
           }}
         >
-          {/* 👇 UPDATED: Text removed */}
-          {!gchatSelectedSpace && null}
+          {!gchatSelectedSpace && (
+            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <span style={{ color: "#bdc1c6", fontSize: "20px", fontFamily: "'Inter', sans-serif", fontWeight: 400 }}>Select a space...</span>
+            </div>
+          )}
 
           {gchatSelectedSpace && (
             <>
@@ -6707,7 +6752,7 @@ else {
                     const ext = fileName.split(".").pop().toLowerCase();
                     
                     const isVideo = ["mp4", "webm", "ogg", "mov"].includes(ext);
-                    const isAudio = ["mp3", "wav", "m4a", "aac"].includes(ext);
+                    const isAudio = ["mp3", "wav", "m4a", "aac", "ogg", "opus", "flac"].includes(ext);
 
                     let fileType = "FILE";
                     let iconClass = "default";
@@ -6715,6 +6760,12 @@ else {
                     else if (["png", "jpg", "jpeg", "gif", "webp"].includes(ext)) { fileType = "IMG"; iconClass = "img"; }
                     else if (["xls", "xlsx", "csv"].includes(ext)) { fileType = "XLS"; iconClass = "xls"; }
                     else if (["doc", "docx"].includes(ext)) { fileType = "DOC"; iconClass = "doc"; }
+
+                    const contentType = fileData?.contentType || "";
+                    if (fileType === "FILE") {
+                      if (contentType.includes("google-apps.document")) { fileType = "DOC"; iconClass = "doc"; }
+                      else if (contentType.includes("google-apps.spreadsheet")) { fileType = "XLS"; iconClass = "xls"; }
+                    }
 
                   return (
                               <div 
@@ -6753,7 +6804,7 @@ else {
                           {/* 🛠️ UNIVERSAL HOVER ACTION BAR (Reactions + Edit + Delete) */}
                           {!editingMsgId && !msg.isDeletedLocally && msg.text !== "Message deleted by its author" && (
                             <div className="gchat-hover-actions" style={{
-                              position: 'absolute', top: '-22px', [isMine ? 'right' : 'left']: '0px',
+                              position: 'absolute', top: '-22px', [isMine ? 'left' : 'right']: '0px',
                               background: 'white', border: '1px solid #dadce0', borderRadius: '24px',
                               display: 'flex', gap: '8px', padding: '4px 14px', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', zIndex: 100
                             }}>
@@ -6773,8 +6824,8 @@ else {
                             </div>
                           )}
                         <div className="gchat-meta" style={{ textAlign: isMine ? "right" : "left", width: "100%" }}>
-                            {!isMine && <strong style={{ marginRight: '8px' }}>{senderName}</strong>}
-                            <span className="gchat-time" style={{ marginLeft: isMine ? "0" : "8px", marginRight: isMine ? "8px" : "0" }}>
+                            {!isMine && <strong style={{ marginRight: '4px' }}>{senderName}</strong>}
+                            <span className="gchat-time" style={{ marginLeft: isMine ? "0" : "2px", marginRight: isMine ? "8px" : "0" }}>
                               {formatGchatTime(msg?.createTime)}
                               {(msg.isEditedLocally || (msg.updateTime && msg.createTime && msg.updateTime !== msg.createTime)) && !msg.isDeletedLocally && msg.text !== "Message deleted by its author" && " • Edited"}
                             </span>
@@ -6826,16 +6877,16 @@ const isWord = ["doc", "docx"].includes(ext);
     return (
       <div 
         style={{ 
-          marginBottom: "8px", 
-          borderRadius: "12px", 
-          overflow: "hidden", 
-          border: "1px solid #dadce0", 
-          cursor: "pointer", 
-          background: "#fff", 
-          height: "180px", 
-          display: "flex", 
-          flexDirection: "column", 
-          minWidth: "240px",
+          marginBottom: "8px",
+          borderRadius: "12px",
+          overflow: "hidden",
+          border: "1px solid #dadce0",
+          cursor: "pointer",
+          background: "#fff",
+          height: "180px",
+          display: "flex",
+          flexDirection: "column",
+          width: "280px",
           boxShadow: "0 1px 2px rgba(60,64,67,0.3)"
         }} 
         onClick={(e) => { 
@@ -6865,9 +6916,6 @@ const isWord = ["doc", "docx"].includes(ext);
                 {isWord ? "W" : "X"}
               </span>
             </div>
-            <div style={{ marginTop: "12px", fontSize: "11px", color: "#5f6368", fontWeight: 500, textAlign: "center" }}>
-              Click to view Actuary Report
-            </div>
          </div>
          <div style={{ 
            background: "#fff", 
@@ -6878,13 +6926,16 @@ const isWord = ["doc", "docx"].includes(ext);
            gap: "10px" 
          }}>
             <div style={{ 
-              background: badgeColor, 
-              color: "white", 
-              padding: "2px 6px", 
-              borderRadius: "4px", 
-              fontSize: "10px", 
+              background: badgeColor,
+              color: "white",
+              padding: "2px 6px",
+              borderRadius: "4px",
+              fontSize: "10px",
               fontWeight: "bold",
-              flexShrink: 0 
+              flexShrink: 0,
+              whiteSpace: "nowrap",
+              minWidth: "32px",
+              textAlign: "center"
             }}>
               {badgeLabel}
             </div>
@@ -6911,14 +6962,52 @@ const isWord = ["doc", "docx"].includes(ext);
                                       const badgeLabel = isWord ? "DOC" : "XLS";
 
                                       return (
-                                        <div style={{ marginBottom: "8px", borderRadius: "12px", overflow: "hidden", border: "1px solid #dadce0", cursor: "pointer", background: "#f1f3f4", height: "160px", display: "flex", flexDirection: "column", minWidth: "200px" }} onClick={(e) => { e.stopPropagation(); setGchatFilePreview({ name: fileName, url: finalUrl, type: iconClass }); }}>
+                                        <div style={{ marginBottom: "8px", borderRadius: "12px", overflow: "hidden", border: "1px solid #dadce0", cursor: "pointer", background: "#f1f3f4", height: "160px", display: "flex", flexDirection: "column", width: "280px" }} onClick={(e) => { e.stopPropagation(); setGchatFilePreview({ name: fileName, url: finalUrl, type: iconClass }); }}>
                                            <div style={{ flex: 1, overflow: "hidden", background: "#f1f3f4", pointerEvents: "none" }}>
                                               <iframe title={fileName} src={viewerUrl} style={{ width: "100%", height: "100%", border: "none" }} />
                                            </div>
                                            <div style={{ background: "#fff", padding: "8px 12px", borderTop: "1px solid #dadce0", display: "flex", alignItems: "center", gap: "8px" }}>
-                                              <span style={{ background: badgeColor, color: "white", padding: "2px 4px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold" }}>{badgeLabel}</span>
+                                              <span style={{ background: badgeColor, color: "white", padding: "2px 6px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold", flexShrink: 0, whiteSpace: "nowrap", minWidth: "32px", textAlign: "center" }}>{badgeLabel}</span>
                                               <span style={{ fontSize: "12px", color: "#3c4043", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fileName}</span>
                                            </div>
+                                        </div>
+                                      );
+                                    }
+
+                                    // PDF preview card — direct iframe so browser renders first page natively
+                                    if (isPdf) {
+                                      return (
+                                        <div style={{ marginBottom: "8px", borderRadius: "12px", overflow: "hidden", border: "1px solid #dadce0", cursor: "pointer", background: "#f1f3f4", height: "160px", display: "flex", flexDirection: "column", width: "280px" }} onClick={(e) => { e.stopPropagation(); setGchatFilePreview({ name: fileName, url: finalUrl, type: "pdf" }); }}>
+                                          <div style={{ flex: 1, overflow: "hidden", background: "#fff", pointerEvents: "none" }}>
+                                            <iframe title={fileName} src={`${finalUrl}#toolbar=0&navpanes=0&scrollbar=0`} style={{ width: "100%", height: "500px", border: "none", marginTop: "0" }} />
+                                          </div>
+                                          <div style={{ background: "#fff", padding: "8px 12px", borderTop: "1px solid #dadce0", display: "flex", alignItems: "center", gap: "8px" }}>
+                                            <span style={{ background: "#ea4335", color: "white", padding: "2px 6px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold", flexShrink: 0, whiteSpace: "nowrap", minWidth: "32px", textAlign: "center" }}>PDF</span>
+                                            <span style={{ fontSize: "12px", color: "#3c4043", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fileName}</span>
+                                          </div>
+                                        </div>
+                                      );
+                                    }
+
+                                    // Inline image preview
+                                    if (isImg) {
+                                      return (
+                                        <div style={{ marginBottom: "8px", cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); setGchatFilePreview({ name: fileName, url: finalUrl, type: "img" }); }}>
+                                          <img
+                                            src={finalUrl}
+                                            alt={fileName}
+                                            style={{ maxWidth: "420px", maxHeight: "320px", borderRadius: "12px", display: "block", objectFit: "contain" }}
+                                            onError={(e) => { e.currentTarget.style.display = "none"; }}
+                                          />
+                                        </div>
+                                      );
+                                    }
+
+                                    // Audio / Voice Note player
+                                    if (isAudio || contentType.startsWith("audio/")) {
+                                      return (
+                                        <div style={{ marginBottom: "8px" }}>
+                                          <audio controls src={finalUrl} style={{ width: "240px", height: "36px", outline: "none", display: "block" }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
                                         </div>
                                       );
                                     }
@@ -6948,7 +7037,7 @@ const isWord = ["doc", "docx"].includes(ext);
                             <div style={{ marginTop: 4, display: "flex", gap: 4 }}>
                               {reactions[msgId].map((r) => (
                                 <button key={r} onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); toggleReaction(msgId, r); }} className="gchat-reaction-chip-btn">
-                                  {r === "like" ? "👍 1" : r === "heart" ? "❤️ 1" : "😆 1"}
+                                  {r === "like" ? "👍" : r === "heart" ? "❤️" : "😆"} {reactionCounts[msgId]?.[r] || 1}
                                 </button>
                               ))}
                             </div>
@@ -8890,7 +8979,7 @@ if (currentView.app === "gmail") {
       : parseCustomFieldsFromBadges(c.badges || []);
 
    return (
-      <div className="trello-modal" style={{ maxWidth: "none", width: "calc(100% - 24px)", margin: "0 auto" }}>
+      <div className="trello-modal popup-anim-in" style={{ maxWidth: "none", width: "calc(100% - 24px)", margin: "0 auto", transformOrigin: "top center" }}>
         {/* 1. TOP BAR (Icon + Title + Close) */}
         {/* 1. TOP BAR (Icon + Title + Actions) */}
         {/* 1. TOP BAR (Icon + Title + Actions) */}
@@ -8933,7 +9022,7 @@ if (currentView.app === "gmail") {
 
               {/* DROPDOWN MENU */}
               {trelloMenuOpen && (
-                <div style={{ position: 'absolute', right: 0, top: '40px', background: '#ffffff', boxShadow: '0 8px 16px -4px rgba(9,30,66,0.25), 0 0 0 1px rgba(9,30,66,0.08)', borderRadius: '3px', width: '300px', zIndex: 999, padding: showMoveSubmenu ? '0' : '8px 0', fontSize: '14px', color: '#172b4d' }}>
+                <div className="popup-anim-in" style={{ position: 'absolute', right: 0, top: '40px', background: '#ffffff', boxShadow: '0 8px 16px -4px rgba(9,30,66,0.25), 0 0 0 1px rgba(9,30,66,0.08)', borderRadius: '3px', width: '300px', zIndex: 999, padding: showMoveSubmenu ? '0' : '8px 0', fontSize: '14px', color: '#172b4d', transformOrigin: 'top right' }}>
                   
                   {!showMoveSubmenu ? (
                     <>
@@ -9254,7 +9343,7 @@ if (currentView.app === "gmail") {
                  </button>
 
                  {showAddMenu && (
-                   <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: '4px', background: '#fff', border: '1px solid #dfe1e6', borderRadius: '3px', boxShadow: '0 8px 16px -4px rgba(9,30,66,0.25), 0 0 0 1px rgba(9,30,66,0.08)', width: '300px', zIndex: 1000, color: '#172b4d', fontSize: '14px' }}>
+                   <div className="popup-anim-in" style={{ position: 'absolute', top: '100%', left: 0, marginTop: '4px', background: '#fff', border: '1px solid #dfe1e6', borderRadius: '3px', boxShadow: '0 8px 16px -4px rgba(9,30,66,0.25), 0 0 0 1px rgba(9,30,66,0.08)', width: '300px', zIndex: 1000, color: '#172b4d', fontSize: '14px', transformOrigin: 'top left' }}>
                      
                      {/* 1. MAIN MENU */}
                      {addMenuStep === "main" && (
@@ -9523,7 +9612,7 @@ if (currentView.app === "gmail") {
                          </button>
 
                          {showMemberShortcut && (
-                            <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: '4px', background: '#fff', border: '1px solid #dfe1e6', borderRadius: '3px', boxShadow: '0 8px 16px -4px rgba(9,30,66,0.25), 0 0 0 1px rgba(9,30,66,0.08)', width: '300px', zIndex: 1000, color: '#172b4d', fontSize: '14px' }}>
+                            <div className="popup-anim-in" style={{ position: 'absolute', top: '100%', left: 0, marginTop: '4px', background: '#fff', border: '1px solid #dfe1e6', borderRadius: '3px', boxShadow: '0 8px 16px -4px rgba(9,30,66,0.25), 0 0 0 1px rgba(9,30,66,0.08)', width: '300px', zIndex: 1000, color: '#172b4d', fontSize: '14px', transformOrigin: 'top left' }}>
                                <div style={{ display: 'flex', alignItems: 'center', padding: '12px 12px 8px', borderBottom: '1px solid #091e4221', marginBottom: '8px', position: 'relative' }}>
                                  <div style={{ flex: 1, textAlign: 'center', fontWeight: 600, color: '#5e6c84', fontSize: '14px' }}>Members</div>
                                  <button onClick={() => setShowMemberShortcut(false)} style={{ border:'none', background:'none', cursor:'pointer', color:'#42526e', fontSize:'16px', position: 'absolute', right: '12px' }}>✕</button>
@@ -10834,7 +10923,11 @@ if (currentView.app === "gmail") {
     );
   }
 
-  return <div className="chat-output" />;
+  return (
+    <div className="chat-output" style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      {showWelcome && <WelcomeMessage />}
+    </div>
+  );
 }, [
   currentView,
   // 🟢 NEW: Calendar state dependencies
@@ -10912,16 +11005,12 @@ if (currentView.app === "gmail") {
         gchatSpaceTimes,
         hoveredMsgId,
         reactions,
+        reactionCounts,
         editingMsgId,
         msgToDelete,
-        pendingUpload,
-        isRecording,
-        inputValue,
-        showPlusMenu,
-        systemErrors,
-        showSystemPopup,
         batchStatus,
         reviewingDoc,
+        showWelcome,
        ]);
 
 return (
@@ -10974,7 +11063,7 @@ return (
           <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: isLiveCallActive ? 1 : 0, transition: 'opacity 0.3s ease', pointerEvents: isLiveCallActive ? 'auto' : 'none' }}>
             <BlueprintVideo isPlaying={isLiveCallActive} />
           </div>
-          <div style={{ position: 'absolute', bottom: '12px', right: '14px', display: 'flex', alignItems: 'center', gap: '6px', color: '#5f6368', opacity: isLiveCallActive ? 0 : 1, transition: 'opacity 0.3s ease', pointerEvents: isLiveCallActive ? 'none' : 'auto' }}>
+          <div style={{ position: 'absolute', bottom: '12px', right: '14px', display: 'flex', alignItems: 'center', gap: '6px', color: '#bdc1c6', opacity: isLiveCallActive ? 0 : 1, transition: 'opacity 0.3s ease', pointerEvents: isLiveCallActive ? 'none' : 'auto' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 4C7.58 4 4 7.58 4 12v8h4v-8c0-2.21 1.79-4 4-4s4 1.79 4 4v8h4v-8c0-4.42-3.58-8-8-8z"/>
               <path d="M12 10c-1.1 0-2 .9-2 2v8h4v-8c0-1.1-.9-2-2-2z"/>
@@ -11022,6 +11111,11 @@ return (
   </button>
 </div>
   <div className="notifications" style={{ marginTop: "0px" }}>
+          {notifLoading && notifications.length === 0 && (
+            <div style={{ padding: "8px 12px", fontStyle: "italic", color: "#9aa0a6", fontSize: "15px", fontFamily: "'Inter', sans-serif", textAlign: "center" }}>
+              Loading...
+            </div>
+          )}
           {notifications.map((n) => (
             <div
               className={`notification ${n.alt.toLowerCase().replace(/\s/g, '-')}`}
@@ -11055,46 +11149,43 @@ return (
         }`}
         style={{ paddingRight: currentView.app === "gchat" ? "0" : undefined }}
       >
-        <div className="panel-title" style={{ 
-          display: "flex", 
-          alignItems: "center", 
-          justifyContent: "space-between", 
-          paddingRight: currentView.app === "gchat" ? "40px" : "24px", 
+        <div className="panel-title" style={{
+          display: "flex",
+          alignItems: "center",
+          paddingRight: "24px",
           paddingLeft: "12px",
-          position: "relative" 
         }}>
-          
-          {/* LEFT SIDE: App Buttons */}
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", zIndex: 2 }}>
-            <button className="connect-google-btn" onClick={() => { setGchatSelectedSpace(null); setInputValue(""); setCurrentView({ app: "gchat", contact: null }); }}>
+
+          {/* LEFT SIDE: App Buttons — flex:1 + justify start */}
+          <div style={{ flex: 1, display: "flex", alignItems: "center", gap: "12px" }}>
+            <button className={`connect-google-btn${currentView.app === "gchat" ? " nav-active" : ""}`} onClick={() => { if (currentView.app === "gchat") { setCurrentView({ app: "none", contact: null }); } else { setGchatSelectedSpace(null); setInputValue(""); setCurrentView({ app: "gchat", contact: null }); } }}>
               <img src={gchatIcon} alt="Google Chat" />
               Google Chat
             </button>
 
-            <button className="connect-google-btn" onClick={() => { setInputValue(""); setCurrentView({ app: "gmail", contact: null }); }}>
+            <button className={`connect-google-btn${currentView.app === "gmail" ? " nav-active" : ""}`} onClick={() => { if (currentView.app === "gmail") { setCurrentView({ app: "none", contact: null }); } else { setInputValue(""); setCurrentView({ app: "gmail", contact: null }); } }}>
               <img src={gmailIcon} alt="Gmail" />
               Gmail
             </button>
 
-            <button className="connect-google-btn" onClick={() => { setInputValue(""); setCurrentView({ app: "calendar", contact: null }); }}>
+            <button className={`connect-google-btn${currentView.app === "calendar" ? " nav-active" : ""}`} onClick={() => { if (currentView.app === "calendar") { setCurrentView({ app: "none", contact: null }); } else { setInputValue(""); setCurrentView({ app: "calendar", contact: null }); } }}>
               <CalendarIcon />
               Calendar
             </button>
           </div>
 
-          {/* 🎯 CENTER LOGO */}
-          <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", zIndex: 1, pointerEvents: "none" }}>
+          {/* 🎯 CENTER LOGO — no flex, just its natural width, always centred between two equal flex:1 sides */}
+          <div style={{ display: "flex", alignItems: "center", pointerEvents: "none" }}>
             <img src={logo} alt="Actuary Consulting" style={{ height: "42px", width: "auto", objectFit: "contain" }} />
           </div>
 
-   {/* RIGHT SIDE: Productivity -> Status -> Reconnect -> Close */}
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", zIndex: 2 }}>
-            
+   {/* RIGHT SIDE: Productivity -> Status -> Reconnect -> Close — flex:1 + justify end */}
+          <div style={{ flex: 1, display: "flex", alignItems: "center", gap: "8px", justifyContent: "flex-end" }}>
+
             <button
-              className="connect-google-btn"
+              className={`connect-google-btn${currentView.app === "productivity" ? " nav-active" : ""}`}
               onClick={() => {
-                setInputValue("");
-                setCurrentView({ app: "productivity", contact: null }); 
+                if (currentView.app === "productivity") { setCurrentView({ app: "none", contact: null }); } else { setInputValue(""); setCurrentView({ app: "productivity", contact: null }); }
               }}
               type="button"
             >
@@ -11124,11 +11215,12 @@ return (
                       </span>
                     </button>
                     {!systemOk && showSystemPopup && (
-                      <div style={{
+                      <div className="popup-anim-in" style={{
                         position: "absolute", top: "calc(100% + 8px)", right: 0,
                         background: "#1e1e1e", border: "1px solid #EA4335",
                         borderRadius: "8px", padding: "12px 16px", minWidth: "260px",
-                        zIndex: 9999, boxShadow: "0 4px 20px rgba(0,0,0,0.5)"
+                        zIndex: 9999, boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+                        transformOrigin: "top right"
                       }}>
                         <div style={{ fontWeight: 600, color: "#EA4335", marginBottom: "8px", fontSize: "13px" }}>
                           System Alerts
@@ -11149,7 +11241,7 @@ return (
               Reconnect
             </a>
 
-            {currentView.app !== "none" && (
+            {currentView.app !== "none" && currentView.app !== "trello" && (
               <button
                 onClick={() => setCurrentView({ app: "none", contact: null })}
                 style={{
@@ -11387,7 +11479,7 @@ return (
       )}
       </div>
       {/* RIGHT */}
-  <RightPanel />
+  <RightPanel activeTrelloCardId={trelloCard?.id} />
 
       {/* 👇 NEW: Google Calendar Style Event Details Modal */}
       {selectedEvent && (
@@ -11562,13 +11654,15 @@ return (
             style={{ position: "fixed", top:0, left:0, width:"100vw", height:"100vh", zIndex: 10001, background: "rgba(0,0,0,0.5)" }}
             onMouseDown={(e) => { e.stopPropagation(); setEventToDelete(null); }}
           />
-          <div 
+          <div
+            className="popup-anim-in"
             style={{
               position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: "400px",
               background: "white", padding: "24px", borderRadius: "12px",
-              boxShadow: "0 12px 40px rgba(0,0,0,0.3)", zIndex: 10002, border: "1px solid #dadce0"
+              boxShadow: "0 12px 40px rgba(0,0,0,0.3)", zIndex: 10002, border: "1px solid #dadce0",
+              transformOrigin: "center"
             }}
-            onClick={(e) => e.stopPropagation()} 
+            onClick={(e) => e.stopPropagation()}
           >
             <div style={{fontWeight:500, marginBottom:12, fontSize:"1.2rem", color:"#202124"}}>
               Delete event?
@@ -11632,7 +11726,7 @@ return (
                 <svg width="20" height="20" fill="#5f6368" viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
               </div>
               <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flex: 1 }}>
-                <input type="date" value={newEventDraft.date} onChange={e => setNewEventDraft({ ...newEventDraft, date: e.target.value })} style={{ border: 'none', outline: 'none', fontSize: '14px', color: '#3c4043', cursor: 'pointer', background: 'transparent' }} />
+                <input type="date" value={newEventDraft.date} min={new Date().toISOString().split('T')[0]} onChange={e => setNewEventDraft({ ...newEventDraft, date: e.target.value })} style={{ border: 'none', outline: 'none', fontSize: '14px', color: '#3c4043', cursor: 'pointer', background: 'transparent' }} />
                 <input type="time" value={newEventDraft.startTime} onChange={e => setNewEventDraft({ ...newEventDraft, startTime: e.target.value })} style={{ border: 'none', outline: 'none', fontSize: '14px', color: '#3c4043', cursor: 'pointer', background: '#f1f3f4', padding: '4px 8px', borderRadius: '4px' }} />
                 <span style={{ color: '#5f6368' }}>–</span>
                 <input type="time" value={newEventDraft.endTime} onChange={e => setNewEventDraft({ ...newEventDraft, endTime: e.target.value })} style={{ border: 'none', outline: 'none', fontSize: '14px', color: '#3c4043', cursor: 'pointer', background: '#f1f3f4', padding: '4px 8px', borderRadius: '4px' }} />

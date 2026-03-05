@@ -141,6 +141,7 @@ html, body {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  height: 100%;
 }
 
 /* 🛡️ Guard: This container MUST be the relative anchor to stop the bar from overlapping side panels */
@@ -156,6 +157,8 @@ html, body {
 .gchat-thread-body {
   flex: 1;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
   padding: 12px 12px 100px 12px !important; /* 👈 HIGH PADDING: Messages end above the bar */
 }
 
@@ -194,7 +197,7 @@ html, body {
 /* Ensure the sidebar doesn't get pushed or covered */
 .gchat-sidebar {
   height: 100% !important;
-  flex: 0 0 30% !important;
+  flex: 0 0 27% !important;
   display: flex;
   flex-direction: column;
   padding: 12px 16px 12px 2px;
@@ -361,6 +364,10 @@ html, body {
 .tl-card:hover {
   border: 1px solid #388BFF;
   padding: 7px 11px; /* Compensate for border width */
+}
+
+.tl-card:active {
+  animation: press-bounce 0.25s ease;
 }
 
 /* 1. Labels Row (Top) */
@@ -1677,6 +1684,41 @@ html, body {
   background: #f1f3f4;
 }
 
+.connect-google-btn.nav-active {
+  background: #f1f3f4;
+  border-color: #9aa0a6;
+}
+
+@keyframes press-bounce {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(0.93); }
+  65%  { transform: scale(1.04); }
+  100% { transform: scale(1); }
+}
+
+.btn-bounce {
+  animation: press-bounce 0.25s ease !important;
+}
+
+@keyframes popup-anim-in {
+  0%   { transform: scale(0.75); opacity: 0; }
+  100% { transform: scale(1);    opacity: 1; }
+}
+
+@keyframes popup-anim-out {
+  0%   { transform: scale(1);    opacity: 1; }
+  100% { transform: scale(0.75); opacity: 0; }
+}
+
+.popup-anim-in {
+  animation: popup-anim-in 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.popup-anim-out {
+  animation: popup-anim-out 0.15s ease-in forwards;
+  pointer-events: none;
+}
+
 /* ===== Google Chat left list pills ===== */
 
 .gchat-sidebar {
@@ -1799,11 +1841,17 @@ html, body {
 .gchat-meta {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   margin-bottom: 4px;
   font-size: 0.85rem;
   color: #555;
   font-weight: 500;
+}
+
+.gchat-time {
+  font-size: 0.75rem;
+  color: #80868b;
+  font-weight: 400;
 }
 
 .gchat-msg.mine .gchat-meta {
@@ -2336,6 +2384,8 @@ html, body {
   padding: 6px;
   z-index: 1000;
   min-width: 140px;
+  animation: popup-anim-in 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  transform-origin: bottom right;
 }
 
 /* Center the specific headers for Left and Right panels */
@@ -2598,6 +2648,8 @@ html, body {
   margin-top: 8px;
   display: flex;
   flex-direction: column;
+  animation: popup-anim-in 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  transform-origin: top left;
 }
 
 .label-picker-header {
@@ -2723,6 +2775,8 @@ html, body {
   flex-direction: column;
   overflow: hidden;
   font-family: 'Roboto', sans-serif; /* Ensure Google font */
+  animation: popup-anim-in 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  transform-origin: center center;
 }
 
 /* Header */

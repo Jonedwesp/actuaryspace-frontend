@@ -1,32 +1,47 @@
 // netlify/functions/gchat-download.js
 
+// Module-level token cache — Lambda instances stay warm ~15 min,
+// so multiple attachments in the same session share one token fetch.
+let cachedToken = null;
+let tokenExpiry = 0;
+
+async function getToken(RT, CLIENT_ID, CLIENT_SECRET) {
+  const now = Date.now();
+  if (cachedToken && now < tokenExpiry - 60000) return cachedToken; // 1-min buffer
+
+  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: CLIENT_ID,
+      client_secret: CLIENT_SECRET,
+      refresh_token: RT,
+      grant_type: "refresh_token",
+    }),
+  });
+
+  const tokenJson = await tokenRes.json();
+  if (!tokenJson.access_token) {
+    console.error("Token Refresh Error:", tokenJson);
+    throw new Error("Auth Failed");
+  }
+
+  cachedToken = tokenJson.access_token;
+  tokenExpiry = now + (tokenJson.expires_in || 3600) * 1000;
+  return cachedToken;
+}
+
 export async function handler(event) {
   let { uri } = event.queryStringParameters || {};
   if (!uri) return { statusCode: 400, body: "Missing uri" };
 
-  const RT = process.env.AS_GCHAT_RT; // Ensure this is the new "Siya Token"
+  const RT = process.env.AS_GCHAT_RT;
   const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
   const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 
   try {
-    // 1. Get Access Token
-    const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
-        refresh_token: RT,
-        grant_type: "refresh_token",
-      }),
-    });
-    
-    const tokenJson = await tokenRes.json();
-    if (!tokenJson.access_token) {
-        console.error("Token Refresh Error:", tokenJson);
-        return { statusCode: 502, body: "Auth Failed" };
-    }
-    const accessToken = tokenJson.access_token;
+    // 1. Get Access Token (cached per Lambda instance)
+    const accessToken = await getToken(RT, CLIENT_ID, CLIENT_SECRET);
 
     // 2. Construct URL (Using the Media Download endpoint)
     let fetchUrl = uri;
@@ -48,25 +63,22 @@ export async function handler(event) {
     // 4. Process File & Magic Byte Detection
     const arrayBuffer = await fileRes.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
-    
-    // Default to what Google says, but fallback to octet-stream
+
     let contentType = fileRes.headers.get("content-type") || "application/octet-stream";
 
-    // 🕵️‍♂️ MAGIC FIX: Check file signature to force PDF
-    // If Google says "octet-stream" but the file starts with "%PDF", force correct type.
-    const headerBytes = buffer.subarray(0, 4).toString(); 
+    const headerBytes = buffer.subarray(0, 4).toString();
     if (headerBytes === "%PDF") {
-        contentType = "application/pdf";
+      contentType = "application/pdf";
     }
 
-    // 5. Return Response
+    // 5. Return Response — browser caches for 1 hour so repeated views are instant
     return {
       statusCode: 200,
       headers: {
         "Content-Type": contentType,
-        "Content-Disposition": "inline", // 👈 Tells browser: "Show this, don't save it"
-        "Cache-Control": "no-cache",
-        "Access-Control-Allow-Origin": "*" // Allow frontend to fetch this
+        "Content-Disposition": "inline",
+        "Cache-Control": "private, max-age=3600",
+        "Access-Control-Allow-Origin": "*"
       },
       body: buffer.toString('base64'),
       isBase64Encoded: true
