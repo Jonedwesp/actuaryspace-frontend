@@ -1,5 +1,4 @@
-import { google } from 'googleapis';
-import { getAccessToken } from './_google-creds';
+import { getAccessToken } from './_google-creds.js';
 
 export const handler = async (event) => {
   try {
@@ -7,17 +6,20 @@ export const handler = async (event) => {
     if (!spaceId) return { statusCode: 400, body: JSON.stringify({ error: "Missing spaceId" }) };
 
     const token = await getAccessToken(event);
-    const chat = google.chat({ version: 'v1', auth: token });
+    const cleanSpaceId = spaceId.replace('spaces/', '');
 
-    // Resource name format: users/me/spaces/{space}/spaceReadState
-    const res = await chat.users.spaces.getSpaceReadState({
-      name: `users/me/spaces/${spaceId.replace('spaces/', '')}/spaceReadState`
-    });
+    const response = await fetch(
+      `https://chat.googleapis.com/v1/users/me/spaces/${cleanSpaceId}/spaceReadState`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+
+    const readState = await response.json();
+    if (!response.ok) throw new Error(readState.error?.message || 'Read state API error');
 
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ok: true, readState: res.data })
+      body: JSON.stringify({ ok: true, readState })
     };
   } catch (err) {
     console.error("Fetch Read State Error:", err);
