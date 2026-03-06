@@ -16,7 +16,7 @@
 [functions]
   directory = "netlify/functions"
   included_files = ["netlify/functions/service-account.enc.json"]
-  external_node_modules = ["google-auth-library"]
+  external_node_modules = ["google-auth-library", "@netlify/functions"]
 
 [build.environment]
   SECRETS_SCAN_ENABLED = "false"

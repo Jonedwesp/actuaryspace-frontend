@@ -142,6 +142,7 @@ html, body {
 .middle-content {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
   height: 100%;
 }
@@ -163,16 +164,16 @@ html, body {
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  padding: 12px 12px 100px 12px !important;
+  padding: 12px 24px 16px 12px !important;
 }
 
 /* 1. Fix Chat Bar: Locked Under Messages, No Overlap */
 .chat-bar {
   position: absolute !important;
   bottom: 24px !important;
-  
-  left: calc(28% + 1rem) !important;
-  right: 1rem !important;
+
+  left: calc(28% + 13px) !important;
+  right: calc(1rem + 19px) !important;
   transform: none !important;
 
   width: auto !important;
@@ -510,6 +511,31 @@ html, body {
   align-items: center;
 }
 
+/* Card counter row (description, attachments, comments, checklists) */
+.tl-counters {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+  color: #626f86;
+  font-size: 12px;
+}
+
+.tl-cnt {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* Timer row (WorkDuration, Activity Duration) */
+.tl-timers {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 12px;
+  color: #626f86;
+}
+
 /* Member Avatars */
 .tl-people {
   display: flex;
@@ -810,10 +836,10 @@ html, body {
 
 .email-pane {
   background:#fff;
-  border:1px solid #e6e6e6;
+  border: 1px solid #8993a4;
   border-radius:12px;
   padding: .9rem .9rem .8rem;
-  box-shadow: 0 1px 3px rgba(0,0,0,.04);
+  box-shadow: 0 8px 16px -4px rgba(9,30,66,0.25), 0 0 0 1px rgba(9,30,66,0.08);
 }
 
 /* Full-width email (no preview open) — the pane itself scrolls */
@@ -1744,6 +1770,23 @@ html, body {
   pointer-events: none;
 }
 
+/* Middle panel app open/close — no overshoot so overflow:hidden doesn't clip */
+@keyframes middle-app-in {
+  from { transform: scale(0.88); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+@keyframes middle-app-out {
+  from { transform: scale(1);    opacity: 1; }
+  to   { transform: scale(0.88); opacity: 0; }
+}
+.middle-app-in {
+  animation: middle-app-in 0.28s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+}
+.middle-app-out {
+  animation: middle-app-out 0.18s ease-in forwards;
+  pointer-events: none;
+}
+
 /* ===== Google Chat left list pills ===== */
 
 .gchat-sidebar {
@@ -1806,6 +1849,14 @@ html, body {
   height: 10px;
   border-radius: 50%;
   flex-shrink: 0;
+}
+
+/* ===== Google Chat shell border (matches other apps) ===== */
+.gchat-shell {
+  border: 1px solid #8993a4;
+  border-radius: 12px;
+  box-shadow: 0 8px 16px -4px rgba(9,30,66,0.25), 0 0 0 1px rgba(9,30,66,0.08);
+  overflow: hidden;
 }
 
 /* ===== Google Chat font (Google-like) ===== */
@@ -3081,8 +3132,9 @@ html, body {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  border: 1px solid #e6e6e6;
+  border: 1px solid #8993a4;
   border-radius: 12px;
+  box-shadow: 0 8px 16px -4px rgba(9,30,66,0.25), 0 0 0 1px rgba(9,30,66,0.08);
 }
 
 /* Master View: Vertical Stack of Horizontal Cards */

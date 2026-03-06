@@ -1,18 +1,23 @@
 import admin from 'firebase-admin';
 
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-    }),
-  });
+let db = null;
+
+if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+  if (!admin.apps.length) {
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+      }),
+    });
+  }
+  db = admin.firestore();
 }
 
-const db = admin.firestore();
-
 export const handler = async (event) => {
+  if (!db) return { statusCode: 200, body: JSON.stringify({ ok: false, error: "Firebase not configured" }) };
+
   const messageId = event.queryStringParameters.messageId;
   if (!messageId) return { statusCode: 400, body: JSON.stringify({ ok: false }) };
 

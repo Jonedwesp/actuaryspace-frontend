@@ -10,21 +10,19 @@ export const handler = async (event, context) => {
 
   try {
     // Fetch all members on the board
-    const url = `https://api.trello.com/1/boards/${BOARD_ID}/members?key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`;
+    const url = `https://api.trello.com/1/boards/${BOARD_ID}/members?fields=fullName,username,avatarHash,avatarUrl&key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`;
     const response = await fetch(url);
-    
+
     if (!response.ok) throw new Error(`Trello API responded with ${response.status}`);
-    
+
     const members = await response.json();
 
-    // Clean up the data to just what we need (Name, ID, and Avatar URL)
-    const formattedMembers = members.map(m => ({
-      id: m.id,
-      fullName: m.fullName,
-      username: m.username,
-      // Trello provides a base URL; we append /50.png for the standard avatar size
-      avatarUrl: m.avatarUrl ? `${m.avatarUrl}/50.png` : null 
-    }));
+    const formattedMembers = members.map(m => {
+      const avatarUrl = m.avatarHash
+        ? `https://trello-avatars.s3.amazonaws.com/${m.avatarHash}/50.png`
+        : null;
+      return { id: m.id, fullName: m.fullName, username: m.username, avatarUrl };
+    });
 
     return {
       statusCode: 200,

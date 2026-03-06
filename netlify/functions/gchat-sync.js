@@ -52,6 +52,22 @@ export async function handler(event) {
                  sId === "users/112417469383977278282";
         };
 
+        // 🔔 CHECK IF SIYA IS @MENTIONED in a message's annotations
+        const isSiyaMentioned = (msg) => {
+          return (msg.annotations || []).some(a => {
+            const u = a.userMention?.user;
+            if (!u) return false;
+            const id = u.name || "";
+            const name = (u.displayName || "").toLowerCase();
+            const email = (u.email || "").toLowerCase();
+            return id === "users/112417469383977278282" ||
+                   id === "users/116712532865547233135" ||
+                   name.includes("siyabonga") ||
+                   email === "siya@actuaryspace.co.za" ||
+                   email === "siyabonga@actuaryconsulting.co.za";
+          });
+        };
+
         // If spaceReadState failed, fall back to 2 days ago — never surface old messages
         const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
         const effectiveCutoff = lastReadTime || twoDaysAgo;
@@ -83,6 +99,7 @@ export async function handler(event) {
             senderName: senderName,
             sender: { name: senderId },
             timestamp: msg.createTime,
+            isMentioned: isSiyaMentioned(msg),
           };
         });
       } catch (e) {

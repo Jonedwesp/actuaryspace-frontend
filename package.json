@@ -48,6 +48,7 @@
     ]
   },
   "devDependencies": {
+    "@netlify/functions": "^5.1.2",
     "@vitejs/plugin-react": "^5.1.4",
     "netlify-cli": "^23.15.1",
     "vite": "^7.3.1"

@@ -141,7 +141,7 @@ export const handler = async (event) => {
     }
 
     // --- 4b. Fetch cards ONLY for the selected lists (much faster than whole board) ---
-    const cardFields = "name,idList,due,idMembers,labels,shortLink,desc,pos";
+    const cardFields = "name,idList,due,idMembers,labels,shortLink,desc,pos,badges";
     const cardResponses = await Promise.all(
       selected.map((list) =>
         nativeFetch(`${base}/lists/${list.id}/cards?fields=${cardFields}&customFieldItems=true&pluginData=true&${auth}`)
@@ -184,15 +184,19 @@ export const handler = async (event) => {
           });
 
      const customFields = {};
-          (Array.isArray(c.customFieldItems) ? c.customFieldItems : []).forEach((item) => {
+(Array.isArray(c.customFieldItems) ? c.customFieldItems : []).forEach((item) => {
             const field = cfById[item.idCustomField];
             if (!field) return;
             const name = (field.name || "").trim();
 
             /// Timer fields are number type, not dropdowns
-            if (name === "TimerStart" || name === "Duration" || name === "WorkTimerStart" || name === "WorkDuration") {
+            /// Canonical mapping: "[SYSTEM] WorkDuration" → "WorkDuration", "[SYSTEM] WorkStartTime" → "WorkTimerStart"
+            let canonName = name;
+            if (name.includes("WorkDuration")) canonName = "WorkDuration";
+            else if (name.includes("WorkStartTime") || name.includes("WorkTimerStart")) canonName = "WorkTimerStart";
+            if (canonName === "TimerStart" || canonName === "Duration" || canonName === "WorkTimerStart" || canonName === "WorkDuration") {
               const val = item.value?.number ?? item.value?.text ?? "";
-              if (val !== "" && val !== null && val !== undefined) customFields[name] = String(val);
+              if (val !== "" && val !== null && val !== undefined) customFields[canonName] = String(val);
               return;
             }
             if (!["Priority", "Active", "Status"].includes(name)) return;
@@ -250,7 +254,11 @@ export const handler = async (event) => {
             list: list.name,
             customFields,
             description: c.desc || "",
-            powerUpData: activityData // 🟢 NEW: Expose the parsed Power-Up data
+            powerUpData: activityData,
+            commentCount: c.badges?.comments || 0,
+            attachmentCount: c.badges?.attachments || 0,
+            checkItemsTotal: c.badges?.checkItems || 0,
+            checkItemsChecked: c.badges?.checkItemsChecked || 0,
           };
         }),
     }));
