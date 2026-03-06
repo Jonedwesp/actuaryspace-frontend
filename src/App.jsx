@@ -178,8 +178,8 @@ const PERSONA = import.meta.env.VITE_PERSONA || "UNKNOWN";
 const PERSONA_TRELLO_LISTS =
   PERSONA.toUpperCase() === "SIYA"
     ? [
-        "Siya - Review", 
-        "Siya",
+        "Siya", 
+        "Siya - Review",
         "Bonisa",        
         "Songeziwe",     
         "Enock"          
@@ -1517,7 +1517,7 @@ const RightPanel = React.memo(function RightPanel({ filteredGchatSpaces, gchatLo
   // 👇 ADD THIS: Initialize with your default order
   const listOrderRef = useRef(
     PERSONA.toUpperCase() === "SIYA"
-      ? ["Siya - Review", "Siya", "Bonisa", "Songeziwe", "Enock"]
+      ? ["Siya", "Siya - Review", "Bonisa", "Songeziwe", "Enock"]
       : ["Yolandie to Data Capture", "Yolandie to Analyst", "Yolandie to Data Analyst", "Yolandie to Reviewer", "Yolandie to Send"]
   );
 
@@ -1784,8 +1784,8 @@ const RightPanel = React.memo(function RightPanel({ filteredGchatSpaces, gchatLo
 
         // 1. DEFINE TEAM DATA
         const TEAM_DATA = [
-          { id: "list-siya-review", title: "Siya - Review", cards: [] },
           { id: "list-siya", title: "Siya", cards: [] },
+          { id: "list-siya-review", title: "Siya - Review", cards: [] },
           { id: "list-bonisa", title: "Bonisa", cards: [] },
           { id: "list-songeziwe", title: "Songeziwe", cards: [] },
           { id: "list-enock", title: "Enock", cards: [] }
@@ -1853,7 +1853,7 @@ const RightPanel = React.memo(function RightPanel({ filteredGchatSpaces, gchatLo
         if (!persona || persona === "unknown") persona = "siya"; 
 
         const PERSONA_TITLES = persona === "siya"
-            ? ["Siya - Review", "Siya", "Bonisa", "Songeziwe", "Enock"]
+            ? ["Siya", "Siya - Review", "Bonisa", "Songeziwe", "Enock"]
             : ["Yolandie to Data Capture", "Yolandie to Analyst", "Yolandie to Data Analyst", "Yolandie to Reviewer", "Yolandie to Send"];
 
         // Broadcast ALL lists (unfiltered) so the Move dropdown has every option
@@ -2049,18 +2049,7 @@ const RightPanel = React.memo(function RightPanel({ filteredGchatSpaces, gchatLo
 
   return (
     <div className="right-panel">
-      <div className="panel-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingRight: '8px' }}>
-        <span>Trello Cards</span>
-        <button 
-          onClick={openArchiveBin} 
-          style={{ background: 'transparent', border: 'none', color: '#9fadbc', cursor: 'pointer', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 500, transition: 'color 0.2s' }}
-          onMouseEnter={e => e.currentTarget.style.color = '#8993a4'} // 🎨 LIGHT GRAY HOVER
-          onMouseLeave={e => e.currentTarget.style.color = '#9fadbc'}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM6.24 5h11.52l.83 1H5.41l.83-1zM5 19V8h14v11H5zm11-5.5l-4 4-4-4 1.41-1.41L11 13.67V10h2v3.67l1.59-1.58L16 13.5z"/></svg>
-          Archive Bin
-        </button>
-      </div>
+      <div className="panel-title" style={{ textAlign: 'center' }}>Trello Cards</div>
 
       {/* ARCHIVE MODAL OVERLAY */}
       {showArchiveModal && (
@@ -2234,27 +2223,7 @@ const RightPanel = React.memo(function RightPanel({ filteredGchatSpaces, gchatLo
                 style={{ cursor: "grab", display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} 
               >
                 <span className="tl-title">{bucket.title}</span>
-                <span 
-                    className="tl-actions" 
-                    onClick={(e) => togglePin(bucket.id, e)}
-                    style={{ 
-                        cursor: "pointer", 
-                        opacity: pinnedLists.includes(bucket.id) ? 1 : 0.4, 
-                        color: pinnedLists.includes(bucket.id) ? '#0052cc' : '#42526e', 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        padding: '4px',
-                        transition: 'all 0.2s ease'
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.opacity = 1}
-                    onMouseLeave={(e) => e.currentTarget.style.opacity = pinnedLists.includes(bucket.id) ? 1 : 0.4}
-                    title={pinnedLists.includes(bucket.id) ? "Unpin List" : "Pin List"}
-                >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill={pinnedLists.includes(bucket.id) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="12" y1="17" x2="12" y2="22"></line>
-                        <path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 11.2V6a3 3 0 0 0-6 0v5.2a2 2 0 0 1-1.11 1.35l-1.78.9A2 2 0 0 0 5 15.24Z"></path>
-                    </svg>
-                </span>
+              
               </div>
               
               {/* CARDS */}
@@ -2377,7 +2346,17 @@ const RightPanel = React.memo(function RightPanel({ filteredGchatSpaces, gchatLo
           ))}
         </div>
 
-        <div className="panel-title" style={{ marginTop: "0.75rem" }}>Client Files</div>
+        <div style={{ marginTop: "0.75rem", marginBottom: "1.5rem", display: 'flex', justifyContent: 'center' }}>
+        <button
+          onClick={openArchiveBin}
+          style={{ background: 'transparent', border: 'none', color: '#9fadbc', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 500, transition: 'color 0.2s' }}
+          onMouseEnter={e => e.currentTarget.style.color = '#8993a4'}
+          onMouseLeave={e => e.currentTarget.style.color = '#9fadbc'}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M20.54 5.23l-1.39-1.68C18.88 3.21 18.47 3 18 3H6c-.47 0-.88.21-1.16.55L3.46 5.23C3.17 5.57 3 6.02 3 6.5V19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6.5c0-.48-.17-.93-.46-1.27zM6.24 5h11.52l.83 1H5.41l.83-1zM5 19V8h14v11H5zm11-5.5l-4 4-4-4 1.41-1.41L11 13.67V10h2v3.67l1.59-1.58L16 13.5z"/></svg>
+          Archive Bin
+        </button>
+      </div>
         <div className="doc-grid">
            {files.map((f) => (
             <button key={f.id} className={`doc-card ${f.type}`} onClick={() => window.dispatchEvent(new CustomEvent("openEmailAttachmentPreview", { detail: { file: f } }))} title={f.name}>
@@ -2564,7 +2543,9 @@ const EmailMetadata = ({ email }) => {
 const PopupSpring = ({ show, children, style = {}, className = '', origin = 'top right', onClick }) => {
   const [phase, setPhase] = useState(() => show ? 'in' : 'hidden');
   const timerRef = useRef(null);
+  const isFirstRun = useRef(true);
   useEffect(() => {
+    if (isFirstRun.current) { isFirstRun.current = false; return; }
     if (show) {
       clearTimeout(timerRef.current);
       setPhase('in');
@@ -2605,7 +2586,7 @@ const GChatSidebarMenu = ({
     >{label}</div>
   );
   return (
-    <div className="gchat-menu-wrap" style={{ position: "relative", display: "flex", alignItems: "center" }}>
+    <div className="gchat-menu-wrap" style={{ position: "relative", display: "flex", alignItems: "center" }} onClickCapture={(e) => e.stopPropagation()}>
       <div
         onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setIsOpen(prev => !prev); }}
         onClick={(e) => e.stopPropagation()}
@@ -4210,6 +4191,7 @@ useEffect(() => {
   // Global button bounce — fires on every button click, animation always completes
   useEffect(() => {
     const handleClick = (e) => {
+      if (e.target.closest('.gchat-menu-wrap')) return; // don't bounce the pill when 3-dot is clicked
       const btn = e.target.closest('button');
       if (!btn) return;
       btn.classList.remove('btn-bounce');
@@ -5964,6 +5946,52 @@ if (currentView.app === "gchat") {
     return (
       <div className="gchat-shell" style={{ display: "flex", height: "100%", position: "relative" }}>
 
+
+
+      {/* LEFT 1/4 — spaces + DMs */}
+     {/* LEFT SIDEBAR — widened to 32% */}
+      <div
+        className="gchat-sidebar"
+        style={{
+          width: "30%",
+          borderRight: "1px solid #ddd",
+          overflowY: "auto",
+          padding: "12px 32px 12px 2px", 
+          position: "relative",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center"
+        }}
+        onClick={() => {}}
+      >
+{/* "Start direct message" Button */}
+        <div style={{ width: "100%", paddingBottom: "16px", position: "relative" }}>
+          <button 
+            style={{ 
+              width: "100%",
+              padding: "10px 16px",
+              borderRadius: "24px", 
+              background: "#e3e3e3", 
+              color: "#1f1f1f",
+              border: "none",
+              fontSize: "14px", 
+              fontWeight: 500, 
+              cursor: "pointer",
+              textAlign: "center",
+              transition: "background 0.2s ease"
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.background = "#d6d6d6";
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = "#e3e3e3";
+            }}
+            onMouseDown={(e) => { e.stopPropagation(); setShowNewChatModal(true); }}
+          >
+            Start direct message
+          </button>
+        
+
         {/* Modal Overlay - Centered in Middle Panel */}
         {showNewChatModal && (
           <>
@@ -5976,10 +6004,10 @@ if (currentView.app === "gchat") {
             <div
               className="popup-anim-in"
               style={{
-                position: "fixed", top: "100px", left: "50%", transform: "translateX(-50%)", width: "600px",
+                position: "absolute", top: "calc(100% - 16px)", left: 0, width: "100%", minWidth: "320px",
                 background: "white", padding: "24px", borderRadius: "12px",
                 boxShadow: "0 12px 40px rgba(0,0,0,0.3)", zIndex: 9999, border: "1px solid #dadce0",
-                transformOrigin: "top center"
+                transformOrigin: "top left"
               }}
               onClick={(e) => e.stopPropagation()}
             >
@@ -6089,50 +6117,6 @@ if (currentView.app === "gchat") {
             </div>
           </>
         )}
-
-
-      {/* LEFT 1/4 — spaces + DMs */}
-     {/* LEFT SIDEBAR — widened to 32% */}
-      <div
-        className="gchat-sidebar"
-        style={{
-          width: "30%",
-          borderRight: "1px solid #ddd",
-          overflowY: "auto",
-          padding: "12px 32px 12px 2px", 
-          position: "relative",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center"
-        }}
-        onClick={() => {}}
-      >
-{/* "Start direct message" Button */}
-        <div style={{ width: "100%", paddingBottom: "16px" }}>
-          <button 
-            style={{ 
-              width: "100%",
-              padding: "10px 16px",
-              borderRadius: "24px", 
-              background: "#e3e3e3", 
-              color: "#1f1f1f",
-              border: "none",
-              fontSize: "14px", 
-              fontWeight: 500, 
-              cursor: "pointer",
-              textAlign: "center",
-              transition: "background 0.2s ease"
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.background = "#d6d6d6";
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.background = "#e3e3e3";
-            }}
-            onMouseDown={(e) => { e.stopPropagation(); setShowNewChatModal(true); }}
-          >
-            Start direct message
-          </button>
         </div>
 
   {/* 🔍 GCHAT SEARCH BAR */}
@@ -8984,27 +8968,20 @@ if (currentView.app === "gmail") {
         {/* 1. TOP BAR (Icon + Title + Actions) */}
         {/* 1. TOP BAR (Icon + Title + Actions) */}
         {/* 1. TOP BAR (Icon + Title + Actions) */}
-        <div className="trello-modal-topbar">
-          <div className="trello-header-main">
-            <div className="trello-icon-header">
-               <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="2"/>
-                  <line x1="7" y1="9" x2="17" y2="9" stroke="currentColor" strokeWidth="2"/>
-               </svg>
-            </div>
-            <div style={{ flex: 1 }}>
-              <input 
-                className="trello-title-input" 
-                value={c.title} 
-                onChange={(e) => setTrelloCard(prev => ({...prev, title: e.target.value}))}
-              />
-              <div className="trello-list-subtitle">
-                in list <a href="#">{c.boardList || "Yolandie to Send"}</a>
-              </div>
-            </div>
-          </div>
-          
-          {/* ACTIONS: Kebab Menu & Close */}
+                {/* 1. COVER RECTANGLE */}
+        {(() => {
+          const coverColorMap = { sky: "#6CC3E0", orange: "#FAA53D", blue: "#579DFF", green: "#4BCE97", yellow: "#F5CD47", red: "#F87168", purple: "#9F8FEF" };
+          const coverHex = coverColorMap[c.cover?.color];
+          return (
+            <div style={{
+              height: coverHex ? '112px' : '56px',
+              background: coverHex || '#ffffff',
+              position: 'relative',
+              flexShrink: 0,
+              borderRadius: '12px 12px 0 0',
+            }}>
+              <div style={{ position: 'absolute', top: '50%', right: '20px', transform: 'translateY(-50%)', zIndex: 10 }}>
+                {/* ACTIONS: Kebab Menu & Close */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
             
             <div className="kebab-wrap" style={{ position: 'relative' }}>
@@ -9022,7 +8999,7 @@ if (currentView.app === "gmail") {
 
               {/* DROPDOWN MENU */}
               {trelloMenuOpen && (
-                <div className="popup-anim-in" style={{ position: 'absolute', right: 0, top: '40px', background: '#ffffff', boxShadow: '0 8px 16px -4px rgba(9,30,66,0.25), 0 0 0 1px rgba(9,30,66,0.08)', borderRadius: '3px', width: '300px', zIndex: 999, padding: showMoveSubmenu ? '0' : '8px 0', fontSize: '14px', color: '#172b4d', transformOrigin: 'top right' }}>
+                <div className="popup-anim-in" style={{ position: 'absolute', right: 0, top: '40px', background: '#ffffff', boxShadow: '0 8px 16px -4px rgba(9,30,66,0.25), 0 0 0 1px rgba(9,30,66,0.08)', borderRadius: '3px', width: '300px', zIndex: 9999, padding: showMoveSubmenu ? '0' : '8px 0', fontSize: '14px', color: '#172b4d', transformOrigin: 'top right' }}>
                   
                   {!showMoveSubmenu ? (
                     <>
@@ -9322,13 +9299,33 @@ if (currentView.app === "gmail") {
               onClick={() => { setTrelloMenuOpen(false); setTrelloCard(null); }}
             >✕</button>
           </div>
-        </div>
+              </div>
+            </div>
+          );
+        })()}
+        {/* HORIZONTAL SEPARATOR */}
+        <div style={{ height: '1px', background: '#c1c7d0', flexShrink: 0 }} />
 
         {/* 2. BODY (Columns) */}
-        <div className="trello-modal-body" style={{ display: 'flex', gap: '24px' }}>
-          
+        <div className="trello-modal-body" style={{ display: 'flex', gap: '0' }}>
+
           {/* LEFT COLUMN (55%) */}
-          <div className="trello-main-col" style={{ flex: "5.5", minWidth: 0 }}>
+          <div className="trello-main-col" style={{ flex: "5.5", minWidth: 0, paddingTop: '20px', paddingRight: '32px' }}>
+            <div className="trello-header-main">
+            <div className="trello-icon-header">
+               <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                  <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="2"/>
+                  <line x1="7" y1="9" x2="17" y2="9" stroke="currentColor" strokeWidth="2"/>
+               </svg>
+            </div>
+            <div style={{ flex: 1 }}>
+              <input 
+                className="trello-title-input" 
+                value={c.title} 
+                onChange={(e) => setTrelloCard(prev => ({...prev, title: e.target.value}))}
+              />
+            </div>
+          </div>
             
             {/* Action Row (Buttons under title) */}
             <div className="trello-action-row">
@@ -10483,7 +10480,7 @@ if (currentView.app === "gmail") {
           </div>
 
          {/* RIGHT COLUMN (45%) */}
-         <div className="trello-sidebar-col" style={{ flex: "4.5", minWidth: 0 }}>
+         <div className="trello-sidebar-col" style={{ flex: "4.5", minWidth: 0, background: "#f4f5f7", borderLeft: "1px solid #c1c7d0", paddingTop: "20px", paddingLeft: "20px", paddingRight: "16px" }}>
   <ActivityPane
       cardId={c.id} 
       currentUserAvatarUrl={avatarFor(import.meta.env.VITE_PERSONA || "SIYA") || "https://trello-avatars.s3.amazonaws.com/cee5b736fb38fc4e0555e8491649392c/50.png"} 
@@ -11241,20 +11238,6 @@ return (
               Reconnect
             </a>
 
-            {currentView.app !== "none" && currentView.app !== "trello" && (
-              <button
-                onClick={() => setCurrentView({ app: "none", contact: null })}
-                style={{
-                  width: "32px", height: "32px", borderRadius: "50%",
-                  border: "1px solid #dadce0", background: "white",
-                  display: "grid", placeItems: "center", cursor: "pointer",
-                  color: "#5f6368", fontSize: "18px", fontWeight: "300"
-                }}
-                title="Close App"
-              >
-                ×
-              </button>
-            )}
           </div>
         </div>
 
