@@ -148,20 +148,22 @@ html, body {
 
 /* 🛡️ Guard: This container MUST be the relative anchor to stop the bar from overlapping side panels */
 .gchat-thread {
-  flex: 0 0 70% !important;
+  flex: 1 !important; /* fills all space after sidebar → scrollbar flush against right border */
   height: 100%;
   display: flex;
   flex-direction: column;
   position: relative; /* 👈 This locks the absolute child (chat-bar) inside */
+  overflow: hidden;
 }
 
 /* Adjust Message List padding so messages start above the bar and don't get hidden */
 .gchat-thread-body {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  padding: 12px 12px 100px 12px !important; /* 👈 HIGH PADDING: Messages end above the bar */
+  padding: 12px 12px 100px 12px !important;
 }
 
 /* 1. Fix Chat Bar: Locked Under Messages, No Overlap */
@@ -169,16 +171,13 @@ html, body {
   position: absolute !important;
   bottom: 24px !important;
   
-  /* 🎯 THE OVERLAP PREVENTER: */
-  /* These fixed percentages force the bar to stay in the center area */
-  left: 32% !important; 
-  right: 32% !important;
+  left: calc(28% + 1rem) !important;
+  right: 1rem !important;
   transform: none !important;
-  
-  /* Sizing: Auto-calculates based on the 32% margins above */
-  width: 97% !important;
-  max-width: 720px !important;
-  
+
+  width: auto !important;
+  max-width: 780px !important;
+
   margin: 0 auto !important;
   display: flex;
   align-items: flex-end;
@@ -3082,6 +3081,8 @@ html, body {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  border: 1px solid #e6e6e6;
+  border-radius: 12px;
 }
 
 /* Master View: Vertical Stack of Horizontal Cards */

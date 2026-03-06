@@ -21,7 +21,7 @@ function useDebounce(value, delay) {
 
 // --- Smart Link Component for Workspace Apps ---
 const SmartLink = ({ url, label, setIsLiveCallActive, setSelectedEvent, className, style, children }) => {
-  const [isHovered, setIsHovered] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
 
 const handleClick = async (e) => {
     e.stopPropagation();
@@ -34,12 +34,17 @@ const handleClick = async (e) => {
       // Dismiss the calendar pop-up instantly
       if (setSelectedEvent) setSelectedEvent(null);
 
-      // 🚀 0ms LATENCY: Start AI and open Workstation immediately
-      if (setIsLiveCallActive) setIsLiveCallActive(true);
       window.dispatchEvent(new CustomEvent("googleMeetLaunched"));
+      
+      // Open in a new tab immediately to bypass iframe restrictions
       const initialSeparator = url.includes('?') ? '&' : '?';
       const initialAuthUrl = `${url}${initialSeparator}authuser=siyabonga@actuaryconsulting.co.za`;
-      launchWorkstationWindow(initialAuthUrl);
+      const meetTab = window.open(initialAuthUrl, '_blank');
+
+      // Trigger the NLM Video playback after a 4-second delay (simulating answer)
+      setTimeout(() => {
+        if (setIsLiveCallActive) setIsLiveCallActive(true);
+      }, 4000);
 
       try {
         const res = await fetch("/.netlify/functions/calendar-create", {
@@ -50,10 +55,10 @@ const handleClick = async (e) => {
         const json = await res.json();
         
         if (json.ok && json.event?.hangoutLink) {
-          // Upgrade the iframe silently to the host link once the server finishes
+          // Upgrade the new tab silently to the host link once the server finishes
           const hostSeparator = json.event.hangoutLink.includes('?') ? '&' : '?';
           const hostAuthUrl = `${json.event.hangoutLink}${hostSeparator}authuser=siyabonga@actuaryconsulting.co.za`;
-          launchWorkstationWindow(hostAuthUrl);
+          if (meetTab) meetTab.location.href = hostAuthUrl;
         }
       } catch (err) {
         console.error("SmartLink host generation failed in background", err);
@@ -63,18 +68,18 @@ const handleClick = async (e) => {
   const isWorkspaceLink = url?.includes('meet.google.com') || url?.includes('docs.google.com') || url?.includes('sheets.google.com');
 
   return (
-    <div 
-      className="smart-link-wrapper" 
-      style={{ display: "inline-flex", position: "relative", alignItems: "center", maxWidth: "100%" }}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-    >
-      <a
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        onClick={handleClick}
-        onContextMenu={() => {
+    <div 
+      className="smart-link-wrapper" 
+      style={{ display: "inline-flex", position: "relative", alignItems: "center", maxWidth: "100%" }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={handleClick}
+        onContextMenu={() => {
           if (setSelectedEvent) {
             setTimeout(() => setSelectedEvent(null), 2000);
           }
@@ -83,11 +88,11 @@ const handleClick = async (e) => {
             window.dispatchEvent(new CustomEvent("armedForSplitView"));
           }
         }}
-        className={className}
-        style={{ ...style, textDecoration: isHovered ? "underline" : "none", overflow: "hidden", textOverflow: "ellipsis" }}
-      >
-        {label || children}
-      </a>
+        className={className}
+        style={{ ...style, textDecoration: isHovered ? "underline" : "none", overflow: "hidden", textOverflow: "ellipsis" }}
+      >
+        {label || children}
+      </a>
       
       {isHovered && isWorkspaceLink && (
         <div style={{
@@ -3032,6 +3037,7 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
 });
 
 export default function App() {
+  const [callBtnHovered, setCallBtnHovered] = useState(false);
   const [systemErrors, setSystemErrors] = useState({});
   const [showSystemPopup, setShowSystemPopup] = useState(false);
   const reportSystemError = (source, message) => setSystemErrors(prev => ({ ...prev, [source]: message }));
@@ -3145,15 +3151,17 @@ const [isLiveCallActive, setIsLiveCallActive] = useState(false);
   const [workstationUrl, setWorkstationUrl] = useState(null);
   const workstationIframeRef = useRef(null);
 
-  // ⚡ LISTEN FOR GOOGLE MEET LAUNCHES & WORKSTATION PANE
+// ⚡ LISTEN FOR GOOGLE MEET LAUNCHES & WORKSTATION PANE
   useEffect(() => {
     const handleWorkstation = (e) => {
       const incomingUrl = e.detail;
       setWorkstationUrl(incomingUrl);
       
-      // 🚀 START AI IMMEDIATELY if it is a Google Meet link
       if (incomingUrl && incomingUrl.includes("meet.google.com")) {
-        setIsLiveCallActive(true);
+        // NLM playback delayed to simulate the "answered" state
+        setTimeout(() => {
+          setIsLiveCallActive(true);
+        }, 4000);
       } else {
         setIsLiveCallActive(false);
       }
@@ -3204,7 +3212,7 @@ const [isLiveCallActive, setIsLiveCallActive] = useState(false);
   }, [isLiveCallActive, taskIndex, aiTasks]);
 
   // 🕒 SESSION START: Marks the exact millisecond the user opened the workspace
-  const sessionStartTime = useRef(new Date());
+  const sessionStartTime = useRef(new Date());
 
   // 👇 NEW: Fetch Live Trello Members on load and populate the cache
   useEffect(() => {
@@ -3309,6 +3317,8 @@ const chatTextareaRef = useRef(null);
  /* Google Chat */
   const gchatBodyRef = useRef(null);
   const [showNewChatModal, setShowNewChatModal] = useState(false);
+  const [newChatPopupPos, setNewChatPopupPos] = useState({ top: 0, left: 0 });
+  const newChatBtnRef = useRef(null);
   const [newChatTarget, setNewChatTarget] = useState("");
   const newChatEmailRef = useRef(null);
 
@@ -3371,6 +3381,7 @@ const [gchatDmNames, setGchatDmNames] = useState(() => {
   catch { return {}; }
 });
   const [gchatAutoScroll, setGchatAutoScroll] = useState(true);
+  const isProgrammaticScrollRef = useRef(false);
   const [gchatSearchQuery, setGchatSearchQuery] = useState("");
   const [isChatSearchOpen, setIsChatSearchOpen] = useState(false);
 const [chatSearchText, setChatSearchText] = useState("");
@@ -3570,6 +3581,16 @@ useEffect(() => {
     return () => document.removeEventListener("click", close);
   }, []);
 
+// Reset to bottom + hide jump button whenever a new space is selected
+  useEffect(() => {
+    if (!gchatSelectedSpace?.id) return;
+    setGchatAutoScroll(true);
+    setShowJumpToBottom(false);
+    isProgrammaticScrollRef.current = true;
+    const el = gchatBodyRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [gchatSelectedSpace?.id]);
+
 // ✅ put scroll effect AFTER the above state exists
   React.useLayoutEffect(() => {
     const el = gchatBodyRef.current;
@@ -3577,6 +3598,7 @@ useEffect(() => {
     if (!gchatAutoScroll) return;
 
     // Synchronously jump to bottom before the browser paints the screen
+    isProgrammaticScrollRef.current = true;
     el.scrollTop = el.scrollHeight;
   }, [gchatMessages, gchatSelectedSpace?.id, gchatAutoScroll]);
 
@@ -4050,10 +4072,13 @@ useEffect(() => {
                       : (resolvedSpaceTitle !== "Colleague"
                           ? `${resolvedSpaceTitle} - ${resolvedSender}: ${n.text}`
                           : n.text);
+
+                    const isBrandNewChat = new Date(ts) > sessionStartTime.current;
                     chatNotifs.push({
                       ...n, id: msgId, alt: "Google Chat", icon: gchatIcon,
                       text: notifText, timestamp: ts, spaceId: sid,
-                      isSilent: isFirstRun || mutedGchatSpaces.includes(sid),
+                      // 🔔 FIX: Bypass silent flag if message is truly new to this session
+                      isSilent: (!isBrandNewChat) || mutedGchatSpaces.includes(sid),
                     });
                   }
                 }
@@ -4144,32 +4169,33 @@ useEffect(() => {
     const n = e.detail;
     if (!n) return;
     
+    const id = n.id || `notif-${Date.now()}-${Math.random()}`;
+
+    // 🛡️ 1. TRULY BRAND NEW CHECK (Outside of batched state)
+    // If it's historical or already dismissed, kill it immediately
+    const isHistorical = new Date(n.timestamp) < sessionStartTime.current;
+    if (isHistorical || dismissedNotifsRef.current.has(id)) return;
+
+    // 🔔 2. TRIGGER SOUND IMMEDIATELY (Priority #1)
+    if (!isMuted && !n.isSilent) {
+      console.log(`[Audio Engine] Playing sound for: ${n.alt}`);
+      const soundSource = n.alt === "Gmail" ? GMAIL_SOUND_DATA : 
+                          n.alt === "Google Chat" ? GCHAT_SOUND_DATA :
+                          n.alt === "Trello" ? TRELLO_SOUND_DATA :
+                          n.alt === "Calendar" ? CALENDAR_SOUND_DATA : null;
+      if (soundSource) {
+        const audio = new Audio(soundSource);
+        audio.play().catch(err => console.warn(`[Audio Engine] ${n.alt} sound blocked. Interaction needed.`, err));
+      }
+    }
+
+    // 📝 3. UPDATE DATA (Batched State)
     setNotifications(prev => {
-      const id = n.id || `notif-${Date.now()}-${Math.random()}`;
-      
-      // If we already have this ID in our list, ignore the duplicate
       if (prev.some(p => p.id === id)) return prev;
 
-      // If it's a Chat notification, also mark it in the seenGchatIdsRef
-      if (n.alt === "Google Chat" && seenGchatIdsRef.current) {
-        seenGchatIdsRef.current.add(id);
-      }
-
-      if (dismissedNotifsRef.current.has(id)) return prev;
-
-      if (!isMuted && !n.isSilent) {
-        // 🔔 SOUND SHIELD: only plays if the notification is not marked 'silent'
-        // (Historical items on reload will now be silent)
-        if (n.alt === "Gmail") {
-          new Audio(GMAIL_SOUND_DATA).play().catch(() => {});
-        } else if (n.alt === "Google Chat") {
-          new Audio(GCHAT_SOUND_DATA).play().catch(() => {});
-        } else if (n.alt === "Trello") {
-          new Audio(TRELLO_SOUND_DATA).play().catch(() => {});
-        } else if (n.alt === "Calendar") {
-          new Audio(CALENDAR_SOUND_DATA).play().catch(() => {});
-        }
-      }
+      // Mark as seen to prevent the poller from re-broadcasting
+      if (n.alt === "Google Chat" && seenGchatIdsRef.current) seenGchatIdsRef.current.add(id);
+      if (n.alt === "Gmail" && seenGmailIdsRef.current) seenGmailIdsRef.current.add(id);
 
       const mapped = {
         ...n,
@@ -4186,11 +4212,15 @@ useEffect(() => {
 
   window.addEventListener("notify", handleNotify);
   return () => window.removeEventListener("notify", handleNotify);
-}, [isMuted, notifications]); // Added notifications to dependency for accurate duplication check
+}, [isMuted]); // Removed 'notifications' to prevent infinite effect triggers
 
   // Global button bounce — fires on every button click, animation always completes
   useEffect(() => {
     const handleClick = (e) => {
+      // 🔔 AUDIO PRIMING: Forces browser to allow sounds after first click
+      const silentAudio = new Audio("data:audio/wav;base64,UklGRigAAABXQVZFRm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==");
+      silentAudio.play().catch(() => {});
+
       if (e.target.closest('.gchat-menu-wrap')) return; // don't bounce the pill when 3-dot is clicked
       const btn = e.target.closest('button');
       if (!btn) return;
@@ -4706,25 +4736,24 @@ useEffect(() => {
           setNotifications(prev => {
             if (prev.find(p => p.id === email.id)) return prev;
             
-            const mapped = {
-              id: email.id,
-              alt: "Gmail",
-              icon: gmailIcon,
-              text: `${email.from.split("<")[0].replace(/"/g, '').trim()}: ${email.subject}`,
-              timestamp: email.date,
-              gmailData: email,
-              time: formatNotificationDate(email.date),
-              isSilent: isFirstRun || seenGmailIdsRef.current.has(email.id) // No sound for pre-existing or seen items
-            };
+            const isBrandNew = new Date(email.date) > sessionStartTime.current;
+          const mapped = {
+            id: email.id,
+            alt: "Gmail",
+            icon: gmailIcon,
+            text: `${email.from.split("<")[0].replace(/"/g, '').trim()}: ${email.subject}`,
+            timestamp: email.date,
+            gmailData: email,
+            time: formatNotificationDate(email.date),
+            // 🔔 FIX: Sound plays if the email arrived AFTER you opened the site, regardless of "first run"
+            isSilent: (!isBrandNew) || seenGmailIdsRef.current.has(email.id)
+          };
             
             return [mapped, ...prev].sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
           });
         }
         
-        // Audio/Memory housekeeping
-        if (!seenGmailIdsRef.current.has(email.id)) {
-          seenGmailIdsRef.current.add(email.id);
-        }
+        // 🔔 FIX: Removed the eager ID adding here so the Global Listener doesn't think it's a duplicate before playing sound
       });
 
       // Once the first loop finishes, future runs are no longer the "initial" batch
@@ -5944,19 +5973,18 @@ if (currentView.app === "gchat") {
 
     // 👇 Standard Chat UI (If no preview is active)
     return (
-      <div className="gchat-shell" style={{ display: "flex", height: "100%", position: "relative" }}>
+      <div className="gchat-shell" style={{ display: "flex", height: "100%", position: "relative", background: "#fff", borderRadius: "12px", border: "1px solid #e6e6e6", overflow: "hidden" }}>
 
 
 
-      {/* LEFT 1/4 — spaces + DMs */}
-     {/* LEFT SIDEBAR — widened to 32% */}
+      {/* LEFT SIDEBAR — widened to 32% */}
       <div
         className="gchat-sidebar"
         style={{
           width: "30%",
           borderRight: "1px solid #ddd",
           overflowY: "auto",
-          padding: "12px 32px 12px 2px", 
+          padding: "12px 16px 12px 16px", 
           position: "relative",
           display: "flex",
           flexDirection: "column",
@@ -5965,7 +5993,7 @@ if (currentView.app === "gchat") {
         onClick={() => {}}
       >
 {/* "Start direct message" Button */}
-        <div style={{ width: "100%", paddingBottom: "16px", position: "relative" }}>
+        <div ref={newChatBtnRef} style={{ width: "100%", paddingBottom: "16px", position: "relative" }}>
           <button 
             style={{ 
               width: "100%",
@@ -5986,7 +6014,7 @@ if (currentView.app === "gchat") {
             onMouseLeave={e => {
               e.currentTarget.style.background = "#e3e3e3";
             }}
-            onMouseDown={(e) => { e.stopPropagation(); setShowNewChatModal(true); }}
+            onMouseDown={(e) => { e.stopPropagation(); const r = newChatBtnRef.current?.getBoundingClientRect(); if (r) setNewChatPopupPos({ top: r.top, left: r.right + 8 }); setShowNewChatModal(true); }}
           >
             Start direct message
           </button>
@@ -6004,7 +6032,7 @@ if (currentView.app === "gchat") {
             <div
               className="popup-anim-in"
               style={{
-                position: "absolute", top: "calc(100% - 16px)", left: 0, width: "100%", minWidth: "320px",
+                position: "fixed", top: newChatPopupPos.top, left: newChatPopupPos.left, width: "380px",
                 background: "white", padding: "24px", borderRadius: "12px",
                 boxShadow: "0 12px 40px rgba(0,0,0,0.3)", zIndex: 9999, border: "1px solid #dadce0",
                 transformOrigin: "top left"
@@ -6441,73 +6469,123 @@ if (currentView.app === "gchat") {
                     <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                   </svg>
                 </button>
-            <button
-                  title={`Call ${callName}`}
-                  onClick={async () => {
-                    const now = new Date();
-                    const startTime = now.toISOString();
-                    const endTime = new Date(now.getTime() + 30 * 60 * 1000).toISOString();
+        <div 
+                              style={{ position: "relative" }}
+                              onMouseEnter={() => setCallBtnHovered(true)}
+                              onMouseLeave={() => setCallBtnHovered(false)}
+                            >
+                              <button
+                                onClick={async () => {
+                                  setCallBtnHovered(false); // Hide tooltip on click
+                                  const now = new Date();
+                                  const startTime = now.toISOString();
+                                  const endTime = new Date(now.getTime() + 30 * 60 * 1000).toISOString();
 
-                    // 🚀 0ms LATENCY: Start AI and open Workstation immediately
-                    setIsLiveCallActive(true);
-                    window.dispatchEvent(new CustomEvent("googleMeetLaunched"));
-                    launchWorkstationWindow('https://meet.google.com/new?authuser=siyabonga@actuaryconsulting.co.za');
+                                  window.dispatchEvent(new CustomEvent("googleMeetLaunched"));
+                                  
+                                  // Open in a new tab instead of the split-pane workspace (bypasses iframe restrictions)
+                                  const meetTab = window.open('https://meet.google.com/new?authuser=siyabonga@actuaryconsulting.co.za', '_blank');
 
-                    try {
-                      const res = await fetch("/.netlify/functions/calendar-create", {
-                        method: "POST",
-                        credentials: "include",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          summary: `Chat Call: ${callName}`,
-                          start: { dateTime: startTime },
-                          end: { dateTime: endTime }
-                        }),
-                      });
-                      const json = await res.json();
-                      
-                      if (json.ok && json.event?.hangoutLink) {
-                        const meetUrl = json.event.hangoutLink;
-                        const separator = meetUrl.includes('?') ? '&' : '?';
-                        const authUrl = `${meetUrl}${separator}authuser=siyabonga@actuaryconsulting.co.za`;
-                        
-                        launchWorkstationWindow(authUrl); // Upgrade iframe silently
-                        
-                        await fetch("/.netlify/functions/gchat-send", {
-                          method: "POST",
-                          credentials: "include",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            space: gchatSelectedSpace.id,
-                            text: `I'm starting a video call. Join here: ${meetUrl}`,
-                          }),
-                        });
-                      } else {
-                        throw new Error("Could not generate host link");
-                      }
-                    } catch (err) {
-                      console.error("Failed to start impersonated call", err);
-                    }
-                  }}
-                  style={{
-                    background: "#f1f3f4",
-                    border: "none",
-                    cursor: "pointer",
-                    width: "40px",
-                    height: "40px",
-                    borderRadius: "50%",
-                    display: "grid",
-                    placeItems: "center",
-                    color: "#444746",
-                    transition: "background 0.2s"
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = "#e3e3e3"}
-                  onMouseLeave={(e) => e.currentTarget.style.background = "#f1f3f4"}
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
-                  </svg>
-                </button>
+                                  // Trigger the NLM Video playback after a 4-second delay (simulating answer)
+                                  setTimeout(() => {
+                                    setIsLiveCallActive(true);
+                                  }, 4000);
+
+                                  try {
+                                    const res = await fetch("/.netlify/functions/calendar-create", {
+                                      method: "POST",
+                                      credentials: "include",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({
+                                        summary: `Chat Call: ${callName}`,
+                                        start: { dateTime: startTime },
+                                        end: { dateTime: endTime }
+                                      }),
+                                    });
+                                    const json = await res.json();
+                                    
+                                    if (json.ok && json.event?.hangoutLink) {
+                                      const meetUrl = json.event.hangoutLink;
+                                      const separator = meetUrl.includes('?') ? '&' : '?';
+                                      const authUrl = `${meetUrl}${separator}authuser=siyabonga@actuaryconsulting.co.za`;
+                                      
+                                      // Update the new tab to the generated meeting URL
+                                      if (meetTab) meetTab.location.href = authUrl; 
+                                      
+                                      await fetch("/.netlify/functions/gchat-send", {
+                                        method: "POST",
+                                        credentials: "include",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({
+                                          space: gchatSelectedSpace.id,
+                                          text: `I'm starting a video call. Join here: ${meetUrl}`,
+                                        }),
+                                      });
+                                    } else {
+                                      throw new Error("Could not generate host link");
+                                    }
+                                  } catch (err) {
+                                    console.error("Failed to start impersonated call", err);
+                                  }
+                                }}
+                                onContextMenu={() => {
+                                  // 🚀 ARM FOR SPLIT VIEW: Prepares the app to watch for the window shrinking
+                                  window.dispatchEvent(new CustomEvent("armedForSplitView"));
+                                }}
+                                style={{
+                                  background: "#f1f3f4",
+                                  border: "none",
+                                  cursor: "pointer",
+                                  width: "40px",
+                                  height: "40px",
+                                  borderRadius: "50%",
+                                  display: "grid",
+                                  placeItems: "center",
+                                  color: "#444746",
+                                  transition: "background 0.2s"
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = "#e3e3e3"}
+                                onMouseLeave={(e) => e.currentTarget.style.background = "#f1f3f4"}
+                              >
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                                </svg>
+                              </button>
+
+                          {callBtnHovered && (
+                                <div style={{
+                                  position: "absolute",
+                                  top: "100%",
+                                  right: 0,
+                                  marginTop: "8px",
+                                  backgroundColor: "#f1f3f4",
+                                  color: "#202124",
+                                  padding: "8px 12px",
+                                  borderRadius: "8px",
+                                  fontSize: "13px",
+                                  fontWeight: "600",
+                                  whiteSpace: "normal",
+                                  width: "120px",
+                                  textAlign: "center",
+                                  lineHeight: "1.4",
+                                  zIndex: 999999,
+                                  boxShadow: "0 6px 16px rgba(0,0,0,0.15)",
+                                  pointerEvents: "none",
+                                  fontFamily: "system-ui, -apple-system, sans-serif"
+                                }}>
+                                  Right-click for more options...
+                                  <div style={{
+                                    content: '""',
+                                    position: "absolute",
+                                    bottom: "100%",
+                                    right: "14px",
+                                    borderWidth: "6px",
+                                    borderStyle: "solid",
+                                    borderColor: "transparent transparent #f1f3f4 transparent"
+                                  }} />
+                                </div>
+                              )}
+                            </div>
               </div>
             );
           })()}
@@ -6517,6 +6595,10 @@ if (currentView.app === "gchat") {
           className="gchat-thread-body"
           ref={gchatBodyRef}
           onScroll={() => {
+            if (isProgrammaticScrollRef.current) {
+              isProgrammaticScrollRef.current = false;
+              return;
+            }
             const el = gchatBodyRef.current;
             if (!el) return;
 
@@ -6524,7 +6606,6 @@ if (currentView.app === "gchat") {
               el.scrollHeight - el.scrollTop - el.clientHeight < 40;
 
             setGchatAutoScroll(atBottom);
-            // 🚀 JUMP TO BOTTOM LOGIC: Show button only if we are NOT at the bottom
             setShowJumpToBottom(!atBottom);
           }}
           style={{
@@ -7035,10 +7116,12 @@ const isWord = ["doc", "docx"].includes(ext);
             </>
           )}
         </div>
+
        {showJumpToBottom && (
           <button
             onClick={() => {
               const el = gchatBodyRef.current;
+              isProgrammaticScrollRef.current = true;
               if (el) el.scrollTop = el.scrollHeight;
               setGchatAutoScroll(true);
               setShowJumpToBottom(false);
@@ -10629,8 +10712,8 @@ if (currentView.app === "gmail") {
       calendarGrid.push({ date: new Date(viewYear, viewMonth + 1, i), isCurrentMonth: false });
     }
 
-   return (
-      <div style={{ padding: "24px", background: "#fff", height: "100%", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+return (
+      <div style={{ position: "relative", padding: "24px", background: "#fff", height: "100%", overflow: "hidden", display: "flex", flexDirection: "column", borderRadius: "12px", border: "1px solid #e6e6e6" }}>
         
         {/* Header */}
         <div style={{ marginBottom: "24px", display: "flex", alignItems: "center", flexShrink: 0 }}>
@@ -10983,32 +11066,33 @@ if (currentView.app === "gmail") {
         showNewChatModal,
         newChatTarget,
 
-   // 🟢 NEW: Google Chat state dependencies
-        gchatMessages,
-        gchatLoadingOlder,
-        gchatNextPageToken,
-        gchatMsgLoading,
-        gchatMsgError,
-        gchatSelectedSpace,
-        gchatDmNames,
-        gchatFilePreview,
-        debouncedChatSearchText, // 👈 THE FIX: This tells React to refresh the view when you stop typing
-        gchatSearchQuery,
-        debouncedGchatSearchQuery,
-        chatSearchText,
-        isChatSearchOpen,
-        gchatSpaces,
-        unreadGchatSpaces,
-        gchatSpaceTimes,
-        hoveredMsgId,
-        reactions,
-        reactionCounts,
-        editingMsgId,
-        msgToDelete,
-        batchStatus,
-        reviewingDoc,
-        showWelcome,
-       ]);
+  // 🟢 NEW: Google Chat state dependencies
+        gchatMessages,
+        gchatLoadingOlder,
+        gchatNextPageToken,
+        gchatMsgLoading,
+        gchatMsgError,
+        gchatSelectedSpace,
+        gchatDmNames,
+        gchatFilePreview,
+        debouncedChatSearchText, // 👈 THE FIX: This tells React to refresh the view when you stop typing
+        gchatSearchQuery,
+        debouncedGchatSearchQuery,
+        chatSearchText,
+        isChatSearchOpen,
+        gchatSpaces,
+        unreadGchatSpaces,
+        gchatSpaceTimes,
+        hoveredMsgId,
+        reactions,
+        reactionCounts,
+        editingMsgId,
+        msgToDelete,
+        batchStatus,
+        reviewingDoc,
+        showWelcome,
+        callBtnHovered,
+       ]);
 
 return (
   <PasswordGate>
@@ -11246,7 +11330,7 @@ return (
           <div className="middle-content" style={{ 
             flex: 1, 
             paddingLeft: currentView.app === "gchat" ? "0" : undefined,
-            paddingRight: currentView.app === "gchat" ? "0" : undefined 
+            paddingRight: currentView.app === "gchat" ? "16px" : undefined 
           }}>
             {middleContent}
           </div>
