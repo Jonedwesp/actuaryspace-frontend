@@ -70,28 +70,39 @@ export async function handler(event) {
 
     const rawSpaces = data.spaces || [];
 
-    // 🚀 STABLE SYNC: Fetch Read State with specific error handling for each request
+    // 🚀 OPTIMIZED: Only fetch read state for recently active spaces (last 7 days)
+    // This reduces API calls from ~100 to ~10-20, dramatically improving load time.
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
     const spacesWithReadState = await Promise.all(rawSpaces.map(async (s) => {
       const spaceName = s.name; // e.g. "spaces/AAAA..."
       const lastActive = s.lastActiveTime || s.createTime;
-      
-      try {
-        // Correct resource path: users/me/spaces/ID/spaceReadState
-        const rsUrl = `https://chat.googleapis.com/v1/users/me/${spaceName}/spaceReadState`;
-        
-        const rsRes = await fetch(rsUrl, {
-          headers: { "Authorization": `Bearer ${accessToken}` }
-        });
-        
-        const rsData = await rsRes.json();
-        
+      const lastActiveMs = lastActive ? new Date(lastActive).getTime() : 0;
+
+      // Skip read state API call for inactive spaces — treat as fully read
+      if (lastActiveMs < sevenDaysAgo) {
         return {
           id: spaceName,
           displayName: s.displayName || "",
           type: s.spaceType,
           createTime: s.createTime || null,
           lastActiveTime: lastActive,
-          // 🛡️ serverLastReadTime is the "Server Truth" we need for bolding
+          serverLastReadTime: lastActive // Treated as read
+        };
+      }
+
+      try {
+        const rsUrl = `https://chat.googleapis.com/v1/users/me/${spaceName}/spaceReadState`;
+        const rsRes = await fetch(rsUrl, {
+          headers: { "Authorization": `Bearer ${accessToken}` }
+        });
+        const rsData = await rsRes.json();
+        return {
+          id: spaceName,
+          displayName: s.displayName || "",
+          type: s.spaceType,
+          createTime: s.createTime || null,
+          lastActiveTime: lastActive,
           serverLastReadTime: rsData.lastReadTime || s.createTime
         };
       } catch (e) {

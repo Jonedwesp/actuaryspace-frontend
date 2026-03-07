@@ -174,6 +174,11 @@ export const CALENDAR_SOUND_DATA = "data:audio/mpeg;base64,SUQzAwAAAAABAVRYWFgAA
 // import trelloIcon from "./assets/Trello Pic.png";
 // 👇 NEW: Pure SVG Data URI guarantees 0ms render time for notifications
 const trelloIcon = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='4' fill='%230079bf'/%3E%3Crect x='5' y='5' width='6' height='14' rx='1.5' fill='%23ffffff'/%3E%3Crect x='13' y='5' width='6' height='9' rx='1.5' fill='%23ffffff'/%3E%3C/svg%3E";
+function getCalendarIcon(day) {
+  const d = day ?? new Date().getDate();
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" rx="3" fill="white" stroke="%23dadce0" stroke-width="1"/><rect x="0" y="0" width="24" height="8" rx="3" fill="%231a73e8"/><rect x="0" y="5" width="24" height="3" fill="%231a73e8"/><text x="12" y="19.5" text-anchor="middle" font-size="10" font-weight="700" fill="%23202124" font-family="Arial,sans-serif">${d}</text></svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
 import gmailIcon from "./assets/Gmail pic.png";
 import whatsappIcon from "./assets/WhatsApp.png";
 import gchatIcon from "./assets/Google Chat.png";
@@ -511,33 +516,34 @@ function formatDueLine(d) {
 // Vite-only: this is compile-time transformed (works in prod)
 const _AVATAR_MODULES = import.meta.glob(
   "./slack-profiles/*.{png,PNG,jpg,JPG,jpeg,JPEG,webp,WEBP,gif,GIF}",
-  { eager: true, import: "default" }
+  { eager: true }
 );
-
-console.log("avatar modules", _AVATAR_MODULES);
 
 const AVATARS = (() => {
   const map = {};
   for (const fullPath in _AVATAR_MODULES) {
+    const mod = _AVATAR_MODULES[fullPath];
+    // With { eager: true } (no import:"default"), Vite returns a module object; .default is the URL string.
+    // Guard: if mod is already a string (some Vite versions / configs), use it directly.
+    const url = typeof mod === "string" ? mod : (mod?.default ?? null);
+    if (!url) continue;
+
     const fileBase = fullPath.split("/").pop().replace(/\.[^.]+$/, ""); // e.g. "Albert"
     const keyFull  = fileBase.toLowerCase().trim();                     // "albert"
     const tokens   = keyFull.split(/\s+/);
-    const url      = _AVATAR_MODULES[fullPath];
 
-    // full filename ("albert", "alicio o")
+    // full filename ("albert", "alicia o")
     if (!map[keyFull]) map[keyFull] = url;
 
     // first word
     if (tokens[0] && !map[tokens[0]]) map[tokens[0]] = url;
 
-    // initials (e.g. "ao" from "Alicio O")
+    // initials (e.g. "ao" from "Alicia O")
     if (tokens.length >= 2) {
       const initials = (tokens[0][0] + tokens[1][0]).toLowerCase();
       if (!map[initials]) map[initials] = url;
     }
   }
-
-  console.log("AVATAR keys", Object.keys(map));  // 🔍 should now have lots of names
   return map;
 })();
 
@@ -603,39 +609,32 @@ function avatarFor(name) {
 
   // strip things like " (web)", " (bot)", etc.
   let key = String(name).toLowerCase().trim();
-  key = key.replace(/\([^)]*\)/g, "").trim(); 
-  key = key.replace(/\s+/g, " ");             
+  key = key.replace(/\([^)]*\)/g, "").trim();
+  key = key.replace(/\s+/g, " ");
 
-  // 1. Check Live Trello Avatars FIRST
-  if (LIVE_TRELLO_AVATARS[key]) return LIVE_TRELLO_AVATARS[key];
-  
   const parts = key.split(/\s+/);
   const firstWord = parts[0];
-  if (LIVE_TRELLO_AVATARS[firstWord]) return LIVE_TRELLO_AVATARS[firstWord];
 
-  // 2. ✨ THE FIX: Check aliases for the full name OR just the first name
+  // 1. Check aliases → local files FIRST (reliable, always available)
   const alias = AVATAR_ALIASES[key] || AVATAR_ALIASES[firstWord];
   if (alias) {
     const ak = alias.toLowerCase();
     const aliasParts = ak.split(/\s+/);
     const inits = aliasParts.map((p) => p[0]).join("");
-    return (
-      AVATARS[ak] || 
-      AVATARS[aliasParts[0]] || 
-      AVATARS[inits] || 
-      null
-    );
+    const localUrl = AVATARS[ak] || AVATARS[aliasParts[0]] || AVATARS[inits];
+    if (localUrl) return localUrl;
   }
 
-  // 3. Direct hits: full name / first token / initials
+  // 2. Direct hits in local files: full name / first token / initials
   const inits = parts.map((p) => p[0]).join("");
+  const directUrl = AVATARS[key] || AVATARS[firstWord] || AVATARS[inits];
+  if (directUrl) return directUrl;
 
-  return (
-    AVATARS[key] ||        
-    AVATARS[firstWord] ||  
-    AVATARS[inits] ||      
-    null
-  );
+  // 3. Fall back to Live Trello Avatars (only for people without a local photo)
+  if (LIVE_TRELLO_AVATARS[key]) return LIVE_TRELLO_AVATARS[key];
+  if (LIVE_TRELLO_AVATARS[firstWord]) return LIVE_TRELLO_AVATARS[firstWord];
+
+  return null;
 }
 
 /* Approved AC names */
@@ -1182,7 +1181,7 @@ const ALL_LABEL_OPTIONS = [
   { name: "Deceased Estate", bg: "#6e5dc6", color: "#ffffff" },
 
   // Teal/Cyan
-  { name: "RAF LOS", bg: "#2c7a8b", color: "#ffffff" },
+  { name: "RAF LOS", bg: "#579dff", color: "#09326c" },
 ];
 
 function getLabelStyle(name) {
@@ -1283,7 +1282,7 @@ function getLabelColor(text) {
   if (["non-raf los", "share valuation", "farm", "joint actuarial", "professional negligence", "wrongful", "divorce", "accrual", "commercial", "ip los", "general damages", "interest"].some(k => t.includes(k))) return "label-blue-norm";
 
   // --- TEAL/CYAN ---
-  if (["raf los"].some(k => t.includes(k))) return "label-teal-norm";
+  if (["raf los"].some(k => t.includes(k))) return "label-blue-norm";
 
   return "label-default";
 }
@@ -1507,8 +1506,13 @@ const RightPanel = React.memo(function RightPanel({
     } catch(e) { return []; }
   });
   const [clientFiles, setClientFiles] = useState([]);
+  const [freshCardIds, setFreshCardIds] = useState(new Set());
+  const [leavingCards, setLeavingCards] = useState([]); // [{card, listTitle}]
+  const prevBucketsRef = useRef([]);
 
   // ⚡ INSTANT REACTION: Listens to the main app and updates Right Pane in 0ms
+  useEffect(() => { prevBucketsRef.current = trelloBuckets; }, [trelloBuckets]);
+
   useEffect(() => {
     const handler = (e) => setTrelloBuckets(e.detail);
     window.addEventListener("optimisticRightPane", handler);
@@ -1738,11 +1742,12 @@ const RightPanel = React.memo(function RightPanel({
     }).catch(e => console.error("Move failed", e));
   };
   // 4. Style Helper
-  const getStyles = (grpI, itemI) => {
+  const getStyles = (grpI, itemI, cardId) => {
       // Only show placeholder if we are ACTIVELY dragging
       if (dragging && dragItem.current?.grpI === grpI && dragItem.current?.itemI === itemI) {
           return "tl-card dnd-placeholder"; 
       }
+      if (cardId && freshCardIds.has(cardId)) return "tl-card tl-card-fresh";
       return "tl-card";
   };
 
@@ -1866,7 +1871,11 @@ const RightPanel = React.memo(function RightPanel({
               })(),
               description: c.desc || c.description || "",
               cover: c.cover || null,
-              powerUpData: c.powerUpData || null
+              powerUpData: c.powerUpData || null,
+              commentCount: c.commentCount ?? c.badges?.comments ?? 0,
+              attachmentCount: c.attachmentCount ?? c.badges?.attachments ?? 0,
+              checkItemsTotal: c.checkItemsTotal ?? c.badges?.checkItems ?? 0,
+              checkItemsChecked: c.checkItemsChecked ?? c.badges?.checkItemsChecked ?? 0,
             })),
           };
         }); 
@@ -1913,6 +1922,7 @@ const RightPanel = React.memo(function RightPanel({
 
         // --- NOTIFICATION LOGIC ---
         // 1. If we have NO memory yet, we are just booting up. Memorize silently.
+        const newlyFreshIds = new Set();
         if (!hasSnapshotRef.current && (!knownTrelloCardsRef.current || knownTrelloCardsRef.current.size === 0)) {
             const map = new Map();
             mapped.forEach(list => list.cards.forEach(c => map.set(c.id, list.title)));
@@ -1943,6 +1953,7 @@ const RightPanel = React.memo(function RightPanel({
                         // Scenario A: Brand new card
                         if (!oldListTitle && knownTrelloCardsRef.current) {
                             console.log(`🔔 [Trello Notify] New Card Detected: "${c.title}" in ${list.title}`);
+                            newlyFreshIds.add(c.id);
                             window.dispatchEvent(new CustomEvent("notify", {
                                 detail: {
                                     text: `New card in ${list.title}: ${c.title}`,
@@ -1960,6 +1971,7 @@ const RightPanel = React.memo(function RightPanel({
                             if (Date.now() - immunityTime < 60000) return;
 
                             console.log(`🔔 [Trello Notify] Move Detected! "${c.title}" moved from [${oldListTitle}] to [${list.title}]`);
+                            newlyFreshIds.add(c.id);
                             window.dispatchEvent(new CustomEvent("notify", {
                                 detail: {
                                     text: `Card moved to ${list.title}: ${c.title}`,
@@ -1979,10 +1991,29 @@ const RightPanel = React.memo(function RightPanel({
         // --- END USER LOGIC ---
 
         // Only update if data changed (Simple check)
+        // Detect cards that are leaving the board before updating state
+        const removedCards = [];
+        prevBucketsRef.current.forEach(bucket => {
+            bucket.cards?.forEach(card => {
+                const newBucket = mapped.find(b => b.title === bucket.title);
+                if (!newBucket?.cards?.find(c => c.id === card.id)) {
+                    removedCards.push({ card, listTitle: bucket.title });
+                }
+            });
+        });
+        if (removedCards.length > 0) {
+            setLeavingCards(prev => [...prev, ...removedCards]);
+            const ids = new Set(removedCards.map(r => r.card.id));
+            setTimeout(() => setLeavingCards(prev => prev.filter(r => !ids.has(r.card.id))), 500);
+        }
         setTrelloBuckets(prev => {
             if (JSON.stringify(prev) === JSON.stringify(mapped)) return prev;
             return mapped;
         });
+        if (newlyFreshIds && newlyFreshIds.size > 0) {
+            setFreshCardIds(new Set(newlyFreshIds));
+            setTimeout(() => setFreshCardIds(new Set()), 1200);
+        }
 
         // Broadcast + cache OUTSIDE the setter (React 19 disallows side-effects inside setters)
         window.dispatchEvent(new CustomEvent("trelloPolled", { detail: mapped }));
@@ -2072,12 +2103,12 @@ const RightPanel = React.memo(function RightPanel({
 
   return (
     <div className="right-panel">
-      <div className="panel-title" style={{ textAlign: 'center' }}>Trello Cards</div>
+      <div className="panel-title" style={{ textAlign: 'center', paddingTop: '10px' }}>Trello Cards</div>
 
       {/* ARCHIVE MODAL OVERLAY */}
       {showArchiveModal && (
         <div style={{ position: 'fixed', top:0, left:0, width:'100vw', height:'100vh', background:'rgba(0,0,0,0.6)', zIndex: 9999, display:'grid', placeItems:'center' }} onClick={() => setShowArchiveModal(false)}>
-          <div className="popup-anim-in" style={{ background: '#f4f5f7', width: '400px', maxHeight: '80vh', borderRadius: '3px', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 16px rgba(0,0,0,0.4)', transformOrigin: 'center' }} onClick={e => e.stopPropagation()}>
+          <div className="popup-anim-in" style={{ background: '#f4f5f7', width: '400px', maxHeight: '80vh', borderRadius: '3px', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 16px rgba(0,0,0,0.4)', transformOrigin: 'center', overflowX: 'hidden' }} onClick={e => e.stopPropagation()}>
              
              {/* HEADER */}
              <div style={{ padding: '16px 16px 8px 16px', display: 'flex', justifyContent: 'space-between', color: '#172b4d', fontWeight: 600 }}>
@@ -2097,9 +2128,12 @@ const RightPanel = React.memo(function RightPanel({
              </div>
 
              <div style={{ padding: '16px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {archivedLoading ? <div style={{ color: '#5e6c84', textAlign:'center', padding: '20px' }}>Loading archive...</div> :
-                  archivedCards.filter(c => c.title.toLowerCase().includes(debouncedArchiveSearch.toLowerCase())).length === 0 ? <div style={{ color: '#5e6c84', textAlign:'center', padding: '20px' }}>No archived cards found.</div> :
-                  archivedCards.filter(c => c.title.toLowerCase().includes(debouncedArchiveSearch.toLowerCase())).map(c => (
+                {archivedLoading ? <div style={{ fontStyle: "italic", color: "#9aa0a6", fontSize: "15px", fontFamily: "'Inter', sans-serif", textAlign: "center", padding: "16px" }}>Loading archive...</div> :
+                  (() => {
+                    const q = debouncedArchiveSearch.toLowerCase();
+                    const filtered = q ? archivedCards.filter(c => c.title.toLowerCase().includes(q)) : archivedCards;
+                    if (filtered.length === 0) return <div style={{ color: '#5e6c84', textAlign:'center', padding: '20px' }}>No archived cards found.</div>;
+                    return filtered.map(c => (
                     <div 
                       key={c.id} 
                       style={{ background: '#ffffff', borderRadius: '3px', padding: '12px', marginBottom: '8px', cursor: 'pointer', position: 'relative', boxShadow: '0 1px 1px rgba(9,30,66,0.25)', display: 'flex', flexDirection: 'column', gap: '8px', border: '1px solid transparent' }}
@@ -2110,7 +2144,7 @@ const RightPanel = React.memo(function RightPanel({
                         setShowArchiveModal(false);
                       }}
                     >
-                       <div style={{ color: '#172b4d', fontWeight: 500, fontSize: '14px', paddingRight: '30px', lineHeight: '1.4' }}>
+                       <div style={{ color: '#172b4d', fontWeight: 500, fontSize: '14px', paddingRight: '30px', lineHeight: '1.4', wordBreak: 'break-word' }}>
                           {c.title}
                        </div>
                        
@@ -2131,7 +2165,7 @@ const RightPanel = React.memo(function RightPanel({
                           <div className="tl-people" style={{ margin: 0 }}>
                             {c.people?.map((p, idx) => {
                               const img = avatarFor(p);
-                              return img ? <img key={idx} className="av-img" src={img} alt={p} style={{ width: 24, height: 24 }} /> : <div key={idx} className="av" style={{ width: 24, height: 24 }}>{p.slice(0,1)}</div>;
+                              return img ? <img key={idx} className="av-img" src={img} alt={p} style={{ width: 24, height: 24 }} onError={(e) => { e.currentTarget.style.display = "none"; }} /> : <div key={idx} className="av" style={{ width: 24, height: 24 }}>{p.slice(0,1)}</div>;
                             })}
                           </div>
                        </div>
@@ -2200,8 +2234,8 @@ const RightPanel = React.memo(function RightPanel({
   </button>
 </div>
                     </div>
-                  ))
-                }
+                  ));
+                  })()}
              </div>
           </div>
         </div>
@@ -2259,7 +2293,7 @@ const RightPanel = React.memo(function RightPanel({
                     onDragEnter={dragging ? (e) => handleDragEnter(e, { grpI: i, itemI: j }) : null}
                     onDragOver={(e) => e.preventDefault()}
                     onDragEnd={handleDragEnd}
-                    className={getStyles(i, j)}
+                    className={getStyles(i, j, card.id)}
                     style={activeTrelloCardId === card.id ? { backgroundColor: "#f1f3f4" } : undefined}
                     onClick={() => {
                       if (activeTrelloCardId === card.id) {
@@ -2303,7 +2337,7 @@ const RightPanel = React.memo(function RightPanel({
 
                           {(card.description || card.due || card.attachmentCount > 0 || card.commentCount > 0 || card.checkItemsTotal > 0) && (
                             <div className="tl-counters">
-                              {card.description && <span className="tl-cnt">&#8801;</span>}
+                              {card.description && <span className="tl-cnt"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></span>}
                               {card.due && <span className="tl-cnt">&#128336;</span>}
                               {card.attachmentCount > 0 && <span className="tl-cnt"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>{card.attachmentCount}</span>}
                               {card.commentCount > 0 && <span className="tl-cnt"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>{card.commentCount}</span>}
@@ -2322,7 +2356,7 @@ const RightPanel = React.memo(function RightPanel({
                               <div className="tl-people">
                                 {card.people?.map((p, idx) => {
                                   const img = avatarFor(p);
-                                  return img ? <img key={idx} className="av-img" src={img} alt={p} /> : <div key={idx} className="av">{p.slice(0,1)}</div>;
+                                  return img ? <img key={idx} className="av-img" src={img} alt={p} onError={(e) => { e.currentTarget.style.display = "none"; }} /> : <div key={idx} className="av">{p.slice(0,1)}</div>;
                                 })}
                               </div>
                             </div>
@@ -2330,6 +2364,14 @@ const RightPanel = React.memo(function RightPanel({
                         </>
                       );
                     })()}
+                  </div>
+                ))}
+                {/* Leaving cards — play exit animation before DOM removal */}
+                {leavingCards.filter(lc => lc.listTitle === bucket.title).map(lc => (
+                  <div key={`leaving-${lc.card.id}`} className="tl-card-leaving-wrap">
+                    <div className="tl-card tl-card-leaving">
+                      <div className="tl-card-title">{lc.card.title}</div>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -2591,7 +2633,7 @@ const PopupSpring = ({ show, children, style = {}, className = '', origin = 'top
       setPhase('in');
     } else {
       setPhase('out');
-      timerRef.current = setTimeout(() => setPhase('hidden'), 160);
+      timerRef.current = setTimeout(() => setPhase('hidden'), 150);
     }
     return () => clearTimeout(timerRef.current);
   }, [show]);
@@ -2625,7 +2667,7 @@ const MiddleAppSpring = ({ appKey, children }) => {
       setPhase('in');
     } else {
       setPhase('out');
-      timerRef.current = setTimeout(() => setPhase('hidden'), 190);
+      timerRef.current = setTimeout(() => setPhase('hidden'), 160);
     }
     return () => clearTimeout(timerRef.current);
   }, [appKey]); // eslint-disable-line
@@ -2776,17 +2818,20 @@ const CalendarIcon = () => {
 
 function GChatEditBox({ initialText, onSave, onCancel }) {
   const [text, setText] = useState(initialText);
+  const hasChanged = text.trim() !== initialText.trim();
   return (
-    <div style={{ width: '100%', background: '#f1f3f4', padding: '8px', borderRadius: '12px', border: '1px solid #dadce0', minWidth: '300px' }}>
-      <textarea 
+    <div style={{ width: '100%', background: '#f1f3f4', padding: '10px 12px', borderRadius: '12px', border: '1px solid #dadce0', minWidth: '420px' }}>
+      <textarea
         autoFocus
-        value={text} 
+        value={text}
         onChange={e => setText(e.target.value)}
-        style={{ width: '100%', border: '1px solid #dadce0', borderRadius: '4px', padding: '10px', fontSize: '14px', outline: 'none', minHeight: '60px', fontFamily: 'inherit' }}
+        style={{ width: '100%', border: '1px solid #dadce0', borderRadius: '4px', padding: '12px 14px', fontSize: '14px', outline: 'none', minHeight: '90px', fontFamily: 'inherit', resize: 'none' }}
       />
       <div style={{ display: 'flex', gap: '8px', marginTop: '8px', justifyContent: 'flex-end' }}>
         <button onClick={onCancel} style={{ background: 'transparent', border: 'none', color: '#5f6368', cursor: 'pointer', fontSize: '13px', fontWeight: 500 }}>Cancel</button>
-        <button onClick={() => onSave(text)} style={{ background: '#0b57d0', border: 'none', color: 'white', cursor: 'pointer', fontSize: '13px', fontWeight: 500, padding: '4px 16px', borderRadius: '16px' }}>Save</button>
+        {hasChanged && (
+          <button onClick={() => onSave(text)} style={{ background: '#0b57d0', border: 'none', color: 'white', cursor: 'pointer', fontSize: '13px', fontWeight: 500, padding: '4px 16px', borderRadius: '16px' }}>Update</button>
+        )}
       </div>
     </div>
   );
@@ -2871,18 +2916,36 @@ function CustomDropdown({ field, value, options, onChange }) {
 // 🟢 NEW: Productivity Dashboard Component
 const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
   const [selectedUser, setSelectedUser] = useState(null);
+  const [prodAnimClass, setProdAnimClass] = useState("");
+  const transitionTo = (user) => {
+    setProdAnimClass("prod-exit");
+    setTimeout(() => {
+      setSelectedUser(user);
+      setProdAnimClass("prod-enter");
+      setTimeout(() => setProdAnimClass(""), 460);
+    }, 220);
+  };
+  React.useEffect(() => {
+    const handler = (e) => transitionTo(e.detail || null);
+    window.addEventListener("prodBackToSummary", handler);
+    return () => window.removeEventListener("prodBackToSummary", handler);
+  }, []);
   const [prodStats, setProdStats] = useState({ "Siya": 0, "Enock": 0, "Songeziwe": 0, "Bonisa": 0 });
   const [isLoadingStats, setIsLoadingStats] = useState(true);
 
   // Helper to dynamically pull avatars from live Trello state or local fallback
   const getMemberAvatar = (userName) => {
+    // Local slack-profiles photos are always reliable — try them first
+    const local = avatarFor(userName);
+    if (local) return local;
+    // Fall back to Trello S3 only when there is no local photo
     if (trelloMembers && trelloMembers.length > 0) {
       const match = trelloMembers.find(m => m.fullName.toLowerCase().includes(userName.toLowerCase()));
       if (match && match.avatarUrl) {
         return match.avatarUrl.endsWith('.png') ? match.avatarUrl : match.avatarUrl + '/50.png';
       }
     }
-    return avatarFor(userName); // Fallback to local files if Trello fails
+    return null;
   };
 
   // Helper to extract due date from title
@@ -3047,10 +3110,18 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
       return `${hours}h ${mins}m`;
     };
 
-    return (
-      <div className="prod-dashboard">
+    return { status, currentTask, reviewCount, cardCount: activeCards.length, timeLogged: calculateTimeLogged(), activeTimer: calculateActiveTimer(), allUserCards: allAssignedCards };
+  };
+
+  const metrics = selectedUser ? getUserMetrics(selectedUser) : null;
+  const allUserCards = metrics?.allUserCards || [];
+
+  return (
+    <div className="prod-dashboard">
+      <div className={`prod-content ${prodAnimClass}`} style={{ width: "100%" }}>
+      {selectedUser ? (
         <div className="prod-detail">
-          <button className="prod-back-btn" onClick={() => setSelectedUser(null)}>
+          <button className="prod-back-btn" onClick={() => transitionTo(null)}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
             Back to Dashboard
           </button>
@@ -3074,7 +3145,7 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
           <h3 style={{ fontSize: "16px", color: "#5f6368", borderBottom: "2px solid #f1f3f4", paddingBottom: "8px", margin: "0 0 16px 0" }}>
             Card Activity
           </h3>
-          
+
           <div style={{ overflowY: "auto", flex: 1 }}>
             <table className="prod-table">
               <thead>
@@ -3093,7 +3164,7 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
                   </tr>
                 ) : (
                   allUserCards.map(c => (
-                    <tr key={c.id} style={{ cursor: "pointer" }} onClick={() => window.dispatchEvent(new CustomEvent("openTrelloCard", { detail: c }))}>
+                    <tr key={c.id} style={{ cursor: "pointer" }} onClick={() => window.dispatchEvent(new CustomEvent("openTrelloCard", { detail: { ...c, fromProductivity: selectedUser } }))}>
                       <td style={{ fontWeight: 500 }}>{c.title}</td>
                       <td>
                         <span style={{ background: c.list === "Siya - Review" ? "#e6f4ea" : "#f1f3f4", color: c.list === "Siya - Review" ? "#137333" : "#3c4043", padding: "4px 8px", borderRadius: "4px", fontSize: "12px", fontWeight: 600 }}>
@@ -3110,60 +3181,47 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
             </table>
           </div>
         </div>
-      </div>
-    );
-  }
-
-  // MASTER VIEW (Vertical List of Horizontal Cards)
-  return (
-    <div className="prod-dashboard">
-      <div style={{ textAlign: "center", marginBottom: "32px" }}>
-        <h1 style={{ fontSize: "28px", color: "#1f1f1f", margin: "0 0 8px 0" }}>Team Productivity</h1>
-        <p style={{ color: "#5f6368", margin: 0, fontSize: "15px" }}>Live metrics synced from active Trello board movements.</p>
-      </div>
+      ) : (
+        <>
 
       <div className="prod-grid">
         {TARGET_USERS.map(user => {
           const m = getUserMetrics(user);
           return (
-            <div key={user} className="prod-card" onClick={() => setSelectedUser(user)}>
-              
-              {/* 1. Identity (Left) */}
-              <div className="prod-card-header" style={{ width: "20%", flexShrink: 0 }}>
+            <div key={user} className="prod-card" style={{ flexDirection: "column", alignItems: "stretch", gap: "14px" }} onClick={() => transitionTo(user)}>
+
+              {/* 1. Identity (Top) */}
+              <div className="prod-card-header">
                 <div style={{ width: "40px", height: "40px", borderRadius: "50%", background: "#e8f0fe", color: "#1a73e8", display: "grid", placeItems: "center", fontWeight: "bold", fontSize: "16px", overflow: "hidden", flexShrink: 0 }}>
-                  {getMemberAvatar(user) ? (
-                    <img src={getMemberAvatar(user)} alt={user} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                  ) : (
-                    user.charAt(0)
-                  )}
+                  {(() => { const av = getMemberAvatar(user); return av
+                    ? <img key={av} src={av} alt={user} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} onError={(e) => { e.currentTarget.style.display = "none"; }}/>
+                    : user.charAt(0); })()}
                 </div>
                 <div className="prod-card-title">
                   <span className="prod-status-dot">{m.status}</span>
                   {user}
                 </div>
               </div>
-              
-              {/* 2. Task Info (Middle) */}
-              <div className="prod-metric" style={{ flex: 1, paddingRight: "16px", overflow: "hidden" }}>
-                <span className="prod-metric-label">Current Task</span>
-                <span className="prod-metric-value">{m.currentTask}</span>
-              </div>
 
-              {/* 3. Metrics (Right) */}
-              <div style={{ display: "flex", gap: "24px", width: "50%", justifyContent: "flex-end", alignItems: "center" }}>
-                <div className="prod-metric" style={{ alignItems: "flex-start" }}>
+              {/* 2. All metrics (Below) */}
+              <div style={{ display: "flex", gap: "24px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                <div className="prod-metric" style={{ flex: 1, minWidth: "120px", overflow: "hidden" }}>
+                  <span className="prod-metric-label">Current Task</span>
+                  <span className="prod-metric-value">{m.currentTask}</span>
+                </div>
+                <div className="prod-metric" style={{ minWidth: "90px" }}>
                   <span className="prod-metric-label">Card Count</span>
                   <span className="prod-metric-value highlight" style={{ color: "#1f1f1f" }}>{m.cardCount}</span>
                 </div>
-                <div className="prod-metric" style={{ alignItems: "flex-start" }}>
+                <div className="prod-metric" style={{ minWidth: "110px" }}>
                   <span className="prod-metric-label">Time Logged</span>
                   <span className="prod-metric-value highlight">{m.timeLogged}</span>
                 </div>
-                <div className="prod-metric" style={{ alignItems: "flex-start" }}>
+                <div className="prod-metric" style={{ minWidth: "110px" }}>
                   <span className="prod-metric-label">Active Timer</span>
                   <span className="prod-metric-value highlight" style={{ color: "#0b57d0" }}>{m.activeTimer}</span>
                 </div>
-                <div className="prod-metric" style={{ alignItems: "flex-end" }}>
+                <div className="prod-metric" style={{ minWidth: "130px" }}>
                   <span className="prod-metric-label">
                     {user === "Siya - Review" ? "Sent to Yolandie" : "Sent to Review"}
                   </span>
@@ -3174,6 +3232,9 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
             </div>
           );
         })}
+        </div>
+        </>
+      )}
       </div>
     </div>
   );
@@ -3383,6 +3444,7 @@ const [inputValue, setInputValue] = useState("");
 const [searchQuery, setSearchQuery] = useState("");
 const [notifications, setNotifications] = useState([]);
 const [notifLoading, setNotifLoading] = useState(true);
+const [exitingNotifIds, setExitingNotifIds] = useState(new Set());
 const [isMuted, setIsMuted] = useState(() => {
   try { return localStorage.getItem("NOTIF_MUTED") === "true"; }
   catch { return false; }
@@ -3460,6 +3522,7 @@ const chatTextareaRef = useRef(null);
 
  /* Google Chat */
   const gchatBodyRef = useRef(null);
+  const pendingScrollAnchorRef = useRef(null); // scroll anchor when prepending older messages
   const [showNewChatModal, setShowNewChatModal] = useState(false);
   const [newChatPopupPos, setNewChatPopupPos] = useState({ top: 0, left: 0 });
   const newChatBtnRef = useRef(null);
@@ -3527,7 +3590,7 @@ const [gchatDmNames, setGchatDmNames] = useState(() => {
 const [gchatAutoScroll, setGchatAutoScroll] = useState(true);
   const isProgrammaticScrollRef = useRef(false);
   const messagesEndRef = useRef(null);
-  const isInitialSpaceLoadRef = useRef(true);
+  const pendingInitialScrollSpaceRef = useRef(null);
   const [gchatSearchQuery, setGchatSearchQuery] = useState("");
   const [isChatSearchOpen, setIsChatSearchOpen] = useState(false);
 const [chatSearchText, setChatSearchText] = useState("");
@@ -3729,61 +3792,37 @@ useEffect(() => {
     return () => document.removeEventListener("click", close);
   }, []);
 
-// ⚡ ZERO-LATENCY SCROLLING: Reset states immediately when switching chats
+  // On space switch: mark that we need an initial scroll to the bottom.
   React.useLayoutEffect(() => {
     if (gchatSelectedSpace?.id) {
+      pendingInitialScrollSpaceRef.current = gchatSelectedSpace.id;
       setGchatAutoScroll(true);
       setShowJumpToBottom(false);
-      if (gchatBodyRef.current) {
-        isProgrammaticScrollRef.current = true;
-        gchatBodyRef.current.style.scrollBehavior = 'auto';
-        // Immediately force scroll to bottom on mount/switch
-        gchatBodyRef.current.scrollTop = gchatBodyRef.current.scrollHeight;
-      }
     }
   }, [gchatSelectedSpace?.id]);
 
-/// ZERO-LATENCY SCROLLING: Absolute bottom lock
+  // After messages commit to DOM (before paint): do initial scroll or maintain auto-scroll.
   React.useLayoutEffect(() => {
     const el = gchatBodyRef.current;
-    if (!el || !gchatAutoScroll) return;
-
-    const snapToBottom = () => {
+    if (!el || gchatMessages.length === 0) return;
+    // Scroll anchor: when older messages are prepended, keep viewport on same content
+    if (pendingScrollAnchorRef.current !== null) {
+      el.scrollTop += el.scrollHeight - pendingScrollAnchorRef.current;
+      pendingScrollAnchorRef.current = null;
+      return;
+    }
+    if (pendingInitialScrollSpaceRef.current === gchatSelectedSpace?.id) {
+      pendingInitialScrollSpaceRef.current = null;
       isProgrammaticScrollRef.current = true;
       el.style.scrollBehavior = 'auto';
-      
-      // ⚡ REFINED SNAP: Force scroll using the end ref to clear the sticky input bar
-      if (messagesEndRef.current) {
-        messagesEndRef.current.scrollIntoView({ behavior: "auto", block: "end" });
-      } else {
-        el.scrollTop = el.scrollHeight;
-      }
-    };
-
-    snapToBottom();
-
-    const resizeObserver = new ResizeObserver(() => {
-      if (gchatAutoScroll) snapToBottom();
-    });
-    resizeObserver.observe(el);
-    // Observe the list container to react to height changes from new messages or images
-    const listEl = el.querySelector(".gchat-msg-list");
-    if (listEl) {
-      resizeObserver.observe(listEl);
+      el.scrollTop = el.scrollHeight;
+      return;
     }
-
-    const t1 = requestAnimationFrame(snapToBottom);
-    const t2 = setTimeout(snapToBottom, 10);
-    const t3 = setTimeout(snapToBottom, 50);
-    const t4 = setTimeout(snapToBottom, 150); // Extra tick for slow image loading
-
-    return () => {
-      resizeObserver.disconnect();
-      cancelAnimationFrame(t1);
-      clearTimeout(t2);
-      clearTimeout(t3);
-      clearTimeout(t4);
-    };
+    if (gchatAutoScroll) {
+      isProgrammaticScrollRef.current = true;
+      el.style.scrollBehavior = 'auto';
+      el.scrollTop = el.scrollHeight;
+    }
   }, [gchatMessages, gchatSelectedSpace?.id, gchatAutoScroll]);
   const seenDriveEmailIdsRef = useRef(new Set());
 
@@ -3957,6 +3996,7 @@ const [gmailRefreshTrigger, setGmailRefreshTrigger] = useState(0); // 👈 NEW: 
 const [gmailPage, setGmailPage] = useState(1);
 const [gmailTotal, setGmailTotal] = useState(0); // Tracks total exact emails
 const [gmailPageTokens, setGmailPageTokens] = useState({}); // 👈 NEW: Fast pagination tokens
+const [hoveredEmailId, setHoveredEmailId] = useState(null);
 
 // NEW: email draft helper state
  const [showDraftPicker, setShowDraftPicker] = useState(false);
@@ -4050,7 +4090,10 @@ const combinedContacts = useMemo(() => {
     const existingName = Object.keys(merged).find(k => merged[k] === cleanEmail);
     
     if (existingName) {
-      if (name.includes(' ') && !existingName.includes(' ')) {
+      const newHasSpace = name.includes(' ');
+      const oldHasSpace = existingName.includes(' ');
+      // Prefer: full name (has space) over prefix, or longer full name over shorter
+      if ((newHasSpace && !oldHasSpace) || (newHasSpace && oldHasSpace && name.length > existingName.length)) {
         delete merged[existingName];
         merged[name] = cleanEmail;
       }
@@ -4072,6 +4115,11 @@ const combinedContacts = useMemo(() => {
   const [attachLink, setAttachLink] = useState(""); 
   const [attachName, setAttachName] = useState(""); 
   const [cardAttachments, setCardAttachments] = useState([]); // 👈 NEW: Holds the file data
+
+  // Clear selected card when navigating away from Trello so the grey highlight resets
+  useEffect(() => {
+    if (currentView.app !== "trello") setTrelloCard(null);
+  }, [currentView.app]);
 
   // Fetches checklists & attachments when the modal opens
   useEffect(() => {
@@ -4140,7 +4188,7 @@ useEffect(() => {
 
       if (emailData && emailData.ok && Array.isArray(emailData.emails)) {
         // ⚡ LIVE INBOX INJECTION (GMAIL)
-        if (currentViewRef.current.app === "gmail" && activeFolderRef.current === "INBOX" && !activeSearchRef.current) {
+        if (currentViewRef.current.app === "gmail" && activeFolderRef.current === "INBOX" && !activeSearchRef.current && gmailPageRef.current === 1) {
           setGmailEmails(prev => {
             const existingIds = new Set(prev.map(e => e.id));
             const newEmails = emailData.emails.filter(e => !existingIds.has(e.id));
@@ -4217,10 +4265,16 @@ useEffect(() => {
 
           // ⚡ LIVE REORDER: Bubble the space to the top of the sidebar
           setGchatSpaces(prev => {
-            const updated = prev.map(sp =>
+            const exists = prev.some(sp => (sp.id || sp.name) === sid);
+            const base = exists ? prev : [...prev, {
+              id: sid, name: sid,
+              displayName: n.senderName || n.title || "Direct Message",
+              type: n.spaceType || "DIRECT_MESSAGE",
+              lastActiveTime: ts, createTime: ts
+            }];
+            return base.map(sp =>
               (sp.id || sp.name) === sid ? { ...sp, lastActiveTime: ts } : sp
-            );
-            return updated.sort((a, b) =>
+            ).sort((a, b) =>
               new Date(b.lastActiveTime || b.createTime) - new Date(a.lastActiveTime || a.createTime)
             );
           });
@@ -4548,7 +4602,9 @@ useEffect(() => {
           const activeIds = new Set(loadedSpaces.map(s => s.id || s.name));
           setUnreadGchatSpaces(prev => {
             const next = { ...prev };
-            Object.keys(next).forEach(id => { if (!activeIds.has(id) || readSpaceIds.has(id)) delete next[id]; });
+            // Only remove spaces that no longer exist in Google — NOT ones Google considers read.
+            // This preserves manual "Mark as unread" across GChat reloads.
+            Object.keys(next).forEach(id => { if (!activeIds.has(id)) delete next[id]; });
             localStorage.setItem("GCHAT_UNREAD_SPACES", JSON.stringify(next));
             return next;
           });
@@ -4630,20 +4686,23 @@ useEffect(() => {
         
         // 🕵️ Check if the messages in memory actually match the current selection ref
         const firstMsg = gchatMessages[0];
-        const msgSpaceId = firstMsg?.space?.name || firstMsg?.name?.split('/messages/')[0];
+        const msgSpaceId = firstMsg?.space?.name || firstMsg?.id?.split('/messages/')[0] || firstMsg?.name?.split('/messages/')[0];
 
         // 🛑 HARD STOP: If the messages belong to a different ID than our Ref, exit.
         if (msgSpaceId !== gchatSelectedSpaceRef.current?.id) {
           return;
         }
-        if (gchatSelectedSpace.type !== "DIRECT_MESSAGE") return;
+        if (gchatSelectedSpace.type !== "DIRECT_MESSAGE" && gchatSelectedSpace.spaceType !== "DIRECT_MESSAGE") return;
         const currentListName = gchatDmNames[gchatSelectedSpace.id];
 
         // 1. Identify the OTHER person in this DM by checking the sender of any message
         const otherParticipant = gchatMessages.find(m => {
           const sId = m.sender?.name || "";
-          // Return the first participant who is NOT Siya
-          return (!!gchatMe && sId !== gchatMe) && !m.sender?.displayName?.toLowerCase().includes("siya");
+          const displayName = (m.sender?.displayName || "").toLowerCase();
+          if (!m.sender?.displayName) return false;
+          // If we know our own ID, use it to exclude ourselves; otherwise fall back to name check
+          if (gchatMe) return sId !== gchatMe && !displayName.includes("siya");
+          return !displayName.includes("siya");
         });
 
         if (!otherParticipant) return;
@@ -4844,20 +4903,7 @@ useEffect(() => {
     } catch (err) {
       if (!cancelled) setGchatMsgError(String(err?.message || err));
     } finally {
-      if (!cancelled) {
-        setGchatMsgLoading(false);
-        // Final scroll after fetch completes — clears the initial load flag
-        if (isInitialSpaceLoadRef.current) {
-          isInitialSpaceLoadRef.current = false;
-          requestAnimationFrame(() => {
-            const el = gchatBodyRef.current;
-            if (el) {
-              isProgrammaticScrollRef.current = true;
-              el.scrollTop = el.scrollHeight;
-            }
-          });
-        }
-      }
+      if (!cancelled) setGchatMsgLoading(false);
     }
   }
 
@@ -4913,8 +4959,10 @@ const triggerGChatNotification = (msg, targetSpaceId) => {
   // 🟢 FIX: Track active search and folder states so the background poller doesn't inject unrelated emails into search results
   const activeSearchRef = useRef("");
   const activeFolderRef = useRef("INBOX");
+  const gmailPageRef = useRef(1);
   useEffect(() => { activeSearchRef.current = searchQuery; }, [searchQuery]);
   useEffect(() => { activeFolderRef.current = gmailFolder; }, [gmailFolder]);
+  useEffect(() => { gmailPageRef.current = gmailPage; }, [gmailPage]);
 
   // 🔔 Poll Data Centre (Google Drive) for new instruction emails
 // 📧 GMAIL BACKGROUND POLLER (Handles Sound + Inbox List Injection)
@@ -5029,7 +5077,7 @@ pollGmailBackground();
                 id: `cal-${ev.id}`,
                 text: `Meeting in ${Math.round(timeDiffMins)} mins: ${ev.summary || "Event"}`,
                 alt: "Calendar",
-                icon: 'data:image/svg+xml,' + encodeURIComponent('<svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" fill="#ffffff"/><rect width="26" height="100" fill="#4285F4"/><rect width="100" height="26" fill="#4285F4"/><rect x="74" width="26" height="74" fill="#FBBC05"/><rect y="74" width="74" height="26" fill="#34A853"/><polygon points="74,100 100,74 100,100" fill="#EA4335"/><rect x="26" y="26" width="48" height="48" fill="#ffffff"/><text x="50" y="66" font-size="44" font-weight="bold" font-family="sans-serif" fill="#4285F4" text-anchor="middle">' + new Date().getDate() + '</text></svg>'),
+                icon: getCalendarIcon(new Date(ev.start?.dateTime || ev.start?.date).getDate()),
                 calendarEventData: ev,
                 timestamp: new Date().toISOString()
               }
@@ -5069,8 +5117,8 @@ useEffect(() => {
           finalQ = `"${baseQ}"`;
       }
       
-      const qParam = finalQ ? `in:all ${finalQ}` : "";
-      const folderParam = finalQ ? "ALL" : gmailFolder;
+      const qParam = finalQ || "";
+      const folderParam = finalQ && gmailFolder !== "DRAFTS" ? "ALL" : gmailFolder;
 
       const res = await fetch(`/.netlify/functions/gmail-inbox?folder=${folderParam}&limit=50&pageToken=${currentToken}&q=${encodeURIComponent(qParam)}`);
       const json = await res.json().catch(() => ({}));
@@ -5204,7 +5252,8 @@ useEffect(() => {
       isArchived: e.detail.isArchived || false,
       
       // 🟢 NEW: Store the Power-Up data in the card state
-      powerUpData: e.detail.powerUpData || null 
+      powerUpData: e.detail.powerUpData || null,
+      fromProductivity: e.detail.fromProductivity || false
     });
   };
   window.addEventListener("openTrelloCard", handler);
@@ -5422,6 +5471,11 @@ const onNotificationClick = async (n) => {
       });
 
       const targetSpace = gchatSpaces.find((s) => s.id === sid || s.name === sid);
+      const targetId = targetSpace?.id || sid;
+      // Pre-load cache so messages and space change are batched in the same render
+      const cachedPillStr = localStorage.getItem(`GCHAT_MSGS_${targetId}`);
+      try { setGchatMessages(cachedPillStr ? JSON.parse(cachedPillStr) : []); }
+      catch(e) { setGchatMessages([]); }
       if (targetSpace) {
         setGchatSelectedSpace(targetSpace);
       } else {
@@ -5445,74 +5499,55 @@ const onNotificationClick = async (n) => {
     // UI Feedback: Mark read immediately
     setGmailEmails(prev => prev.map(e => e.id === msg.id ? { ...e, isUnread: false } : e));
     
-    const isHtml = /<(html|body|div|p|br|b|strong|i|em|a|span|table|style)[^>]*>/i.test(msg.body || "");
-    let rawBody = msg.body || msg.snippet || "";
-    
-    // Logic: Handle plain text newline preservation for instruction emails
-    if (!isHtml && rawBody.split('\n').length < 4) {
-      rawBody = rawBody
-        .replace(/(---------- Forwarded message ---------)/gi, '\n\n$1\n')
-        .replace(/(From:|Date:|Subject:|To:|Cc:)/g, '\n$1')
-        .replace(/(Dear\s+[A-Za-z]+|Hi\s+[A-Za-z]+|Good\s+day)/gi, '\n\n$1\n\n')
-        .replace(/(Kind\s+Regards|Regards|Sincerely|Thank\s+you)/gi, '\n\n$1\n')
-        .replace(/(On\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^:]+wrote:)/gi, '\n\n$1\n')
-        .trim();
-    }
-
-    // INTERCEPT DRAFTS: Open editor instead of viewer
+    // INTERCEPT DRAFTS: need full body — fetch on demand then open editor
     if (msg.labelIds?.includes("DRAFT") || gmailFolder === "DRAFTS") {
-      let toEmail = "";
-      if (msg.to) {
-        const toStr = Array.isArray(msg.to) ? msg.to[0] : msg.to;
-        const emailMatch = (typeof toStr === "string" ? toStr : "").match(/<([^>]+)>/);
-        toEmail = emailMatch ? emailMatch[1].trim() : (typeof toStr === "string" ? toStr.replace(/"/g, '').trim() : "");
+      const openDraft = (bodyStr, atts) => {
+        const isHtml = /<(html|body|div|p|br|b|strong|i|em|a|span|table|style)[^>]*>/i.test(bodyStr || "");
+        const rawBody = isHtml ? bodyStr.replace(/<[^>]+>/g, "") : (bodyStr || "");
+        let toEmail = "";
+        if (msg.to) {
+          const toStr = Array.isArray(msg.to) ? msg.to[0] : msg.to;
+          const emailMatch = (typeof toStr === "string" ? toStr : "").match(/<([^>]+)>/);
+          toEmail = emailMatch ? emailMatch[1].trim() : (typeof toStr === "string" ? toStr.replace(/"/g, '').trim() : "");
+        }
+        setSelectedDraftTemplate({ id: "existing_draft", draftId: msg.id, label: "Edit Draft", subject: msg.subject || "", body: rawBody + "\n\n", isForward: false });
+        setDraftTo(toEmail);
+        if (atts?.length > 0) {
+          Promise.all(atts.map(async (a) => { const res = await fetch(`/.netlify/functions/gmail-download?messageId=${msg.id}&attachmentId=${a.id}&filename=${encodeURIComponent(a.name)}&mimeType=${encodeURIComponent(a.mimeType)}`); const blob = await res.blob(); return new File([blob], a.name, { type: a.mimeType }); })).then(files => setDraftAttachments(files));
+        }
+        setEmail(null);
+        setCurrentView({ app: "gmail", contact: null });
+      };
+      if (msg.bodyLoaded) {
+        openDraft(msg.body, msg.attachments);
+      } else {
+        fetch(`/.netlify/functions/gmail-message?messageId=${msg.id}`).then(r => r.json()).then(json => {
+          if (json.ok) { setGmailEmails(prev => prev.map(e => e.id === msg.id ? { ...e, body: json.body, attachments: json.attachments, bodyLoaded: true } : e)); openDraft(json.body, json.attachments); }
+        }).catch(() => openDraft("", []));
       }
-
-      setSelectedDraftTemplate({
-        id: "existing_draft",
-        draftId: msg.id,
-        label: "Edit Draft",
-        subject: msg.subject || "",
-        body: (isHtml ? rawBody.replace(/<[^>]+>/g, "") : rawBody) + "\n\n",
-        isForward: false 
-      });
-      setDraftTo(toEmail);
-      
-      if (msg.attachments?.length > 0) {
-        Promise.all(msg.attachments.map(async (a) => {
-          const fileUrl = `/.netlify/functions/gmail-download?messageId=${msg.id}&attachmentId=${a.id}&filename=${encodeURIComponent(a.name)}&mimeType=${encodeURIComponent(a.mimeType)}`;
-          const res = await fetch(fileUrl);
-          const blob = await res.blob();
-          return new File([blob], a.name, { type: a.mimeType });
-        })).then(files => setDraftAttachments(files));
-      }
-
-      setEmail(null);
-      setCurrentView({ app: "gmail", contact: null });
       return;
     }
 
     const fromParts = msg.from ? msg.from.split("<") : ["Unknown", ""];
     const fromName = fromParts[0].replace(/"/g, '').trim();
     const fromEmail = fromParts[1] ? "<" + fromParts[1] : "";
-
-    setEmail({
-      id: msg.id, 
-      messageId: msg.messageId, 
-      subject: msg.subject, fromName, fromEmail,
-      to: msg.to,
-      date: msg.date,
-      isStarred: msg.isStarred,
-      time: new Date(msg.date).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
-      body: isHtml ? "" : rawBody,
-      bodyHtml: isHtml ? msg.body : "",
-      attachments: msg.attachments ? msg.attachments.map(a => ({
-        ...a,
-        type: a.mimeType.includes("pdf") ? "pdf" : a.mimeType.includes("image") ? "img" : a.mimeType.includes("spreadsheet") || a.mimeType.includes("excel") ? "xls" : "file",
-        url: `/.netlify/functions/gmail-download?messageId=${msg.id}&attachmentId=${a.id}&filename=${encodeURIComponent(a.name)}&mimeType=${encodeURIComponent(a.mimeType)}`
-      })) : [],
-      actions: [{ key: "submit_trello", label: "Submit to Trello" }, { key: "update_tracker", label: "Update AC Tracker" }]
-    });
+    const baseEmail = { id: msg.id, messageId: msg.messageId, subject: msg.subject, fromName, fromEmail, to: msg.to, date: msg.date, isStarred: msg.isStarred, snippet: msg.snippet || "", labelIds: msg.labelIds || [], time: new Date(msg.date).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }), actions: [{ key: "submit_trello", label: "Submit to Trello" }, { key: "update_tracker", label: "Update AC Tracker" }] };
+    const processBody = (bodyStr, atts) => {
+      const isHtml = /<(html|body|div|p|br|b|strong|i|em|a|span|table|style)[^>]*>/i.test(bodyStr || "");
+      let rawBody = bodyStr || msg.snippet || "";
+      if (!isHtml && rawBody.split('\n').length < 4) { rawBody = rawBody.replace(/(---------- Forwarded message ---------)/gi, '\n\n$1\n').replace(/(From:|Date:|Subject:|To:|Cc:)/g, '\n$1').replace(/(Dear\s+[A-Za-z]+|Hi\s+[A-Za-z]+|Good\s+day)/gi, '\n\n$1\n\n').replace(/(Kind\s+Regards|Regards|Sincerely|Thank\s+you)/gi, '\n\n$1\n').replace(/(On\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^:]+wrote:)/gi, '\n\n$1\n').trim(); }
+      return { body: isHtml ? "" : rawBody, bodyHtml: isHtml ? bodyStr : "", attachments: (atts || []).map(a => ({ ...a, type: a.mimeType.includes("pdf") ? "pdf" : a.mimeType.includes("image") ? "img" : a.mimeType.includes("spreadsheet") || a.mimeType.includes("excel") ? "xls" : "file", url: `/.netlify/functions/gmail-download?messageId=${msg.id}&attachmentId=${a.id}&filename=${encodeURIComponent(a.name)}&mimeType=${encodeURIComponent(a.mimeType)}` })) };
+    };
+    if (msg.bodyLoaded) {
+      setEmail({ ...baseEmail, ...processBody(msg.body, msg.attachments), bodyLoading: false });
+    } else {
+      setEmail({ ...baseEmail, body: "", bodyHtml: "", attachments: [], bodyLoading: true });
+      fetch(`/.netlify/functions/gmail-message?messageId=${msg.id}`).then(r => r.json()).then(json => {
+        if (!json.ok) return;
+        setGmailEmails(prev => prev.map(e => e.id === msg.id ? { ...e, body: json.body, attachments: json.attachments, bodyLoaded: true } : e));
+        setEmail(prev => { if (!prev || prev.id !== msg.id) return prev; return { ...prev, ...processBody(json.body, json.attachments), bodyLoading: false }; });
+      }).catch(() => setEmail(prev => prev?.id === msg.id ? { ...prev, body: msg.snippet || "", bodyLoading: false } : prev));
+    }
 
     setEmailPreview(null);
     setCurrentView({ app: "email", contact: null });
@@ -5562,7 +5597,12 @@ const onNotificationClick = async (n) => {
     dismissedNotifsRef.current.add(idToRemove);
     localStorage.setItem("DISMISSED_NOTIFS", JSON.stringify(Array.from(dismissedNotifsRef.current)));
 
-    setNotifications((prev) => prev.filter((x) => x.id !== idToRemove));
+    // Animate out, then remove
+    setExitingNotifIds(prev => new Set([...prev, idToRemove]));
+    setTimeout(() => {
+      setNotifications((prev) => prev.filter((x) => x.id !== idToRemove));
+      setExitingNotifIds(prev => { const next = new Set(prev); next.delete(idToRemove); return next; });
+    }, 220);
   };
 
   /* composer sizing */
@@ -5786,7 +5826,7 @@ const handleStartChat = async (forcedEmail = null) => {
       if (json.ok && json.space) {
         // 🛡️ RE-VERIFY SPACE NAME: Google returns 'name' as 'spaces/XXXX' or 'users/XXXX/spaces/XXXX'
         const spaceId = json.space.name || json.space.id;
-        const newSpace = { ...json.space, id: spaceId };
+        const newSpace = { ...json.space, id: spaceId, type: json.space.spaceType || "DIRECT_MESSAGE" };
 
         // 🧠 THE FIX: Force the displayName from the backend into our local identity system.
         // If the backend didn't return a displayName, we fallback to the Master ID Map, 
@@ -5818,7 +5858,7 @@ const handleStartChat = async (forcedEmail = null) => {
           if (exists) {
             return prev.map(s => (s.id === spaceId || s.name === spaceId) ? { ...s, displayName: resolvedName } : s);
           }
-          return [{ ...newSpace, displayName: resolvedName }, ...prev];
+          return [{ ...newSpace, displayName: resolvedName, _provisional: true }, ...prev];
         });
 
         setCurrentView({ app: "gchat", contact: null });
@@ -6125,8 +6165,9 @@ const handleUpdateGChatMessage = async (messageId, newText) => {
       const spaceKey = s.id || s.name;
       const isArchived = archivedGchatSpaces.includes(spaceKey);
       const isTrashed = trashedGchatSpaces.includes(spaceKey);
-      
+
       if (isTrashed) return false;
+      if (s._provisional && spaceKey !== (gchatSelectedSpace?.id || gchatSelectedSpace?.name)) return false;
       if (showArchivedChats && !isArchived) return false;
       if (!showArchivedChats && isArchived) return false;
 
@@ -6191,6 +6232,20 @@ if (currentView.app === "gchat") {
     return !isMe && sName && !sName.includes("users/");
   })?.sender?.displayName;
 
+  // 🔑 RELIABLE NAME: Scan messages using GCHAT_ID_MAP (covers sidebar+header)
+  const msgDerivedName = (() => {
+    const m = gchatMessages.find(msg => {
+      const mSId = msg.sender?.name || "";
+      const mSn = (msg.sender?.displayName || "").toLowerCase();
+      const isMeMsg = (!!gchatMe && mSId === gchatMe) || mSn.includes("siya") || mSn.includes("actuaryspace");
+      return !isMeMsg && (mSId || msg.sender?.displayName);
+    });
+    if (!m) return null;
+    const mSId = m.sender?.name || "";
+    const mName = GCHAT_ID_MAP[mSId] || m.sender?.displayName || "";
+    return (mName && !mName.includes("users/") && mName !== "Direct Message") ? mName : null;
+  })();
+
   if (gchatFilePreview) {
     const isImg = ["img", "png", "jpg", "jpeg", "gif", "webp"].includes(gchatFilePreview.type);
     const src = gchatFilePreview.url;
@@ -6247,7 +6302,7 @@ if (currentView.app === "gchat") {
 
     // 👇 Standard Chat UI (If no preview is active)
     return (
-      <div className="gchat-shell" style={{ display: "flex", height: "100%", position: "relative", background: "#fff", borderRadius: "12px", border: "1px solid #e6e6e6", overflow: "hidden" }}>
+      <div className="gchat-shell" style={{ display: "flex", height: "100%", position: "relative", background: "#fff", borderRadius: "12px", border: "1px solid #8993a4", boxShadow: "0 8px 16px -4px rgba(9,30,66,0.25), 0 0 0 1px rgba(9,30,66,0.08)", overflow: "hidden" }}>
 
 
 
@@ -6482,13 +6537,18 @@ if (currentView.app === "gchat") {
                   </div>
                 )}
 
-                {gchatLoading && gchatSpaces.length === 0 && <div className="gchat-muted">Loading…</div>}
+                {gchatLoading && gchatSpaces.length === 0 && <div style={{ fontStyle: "italic", color: "#9aa0a6", fontSize: "15px", fontFamily: "'Inter', sans-serif", textAlign: "center", padding: "16px" }}>Loading…</div>}
                 {gchatError && <div className="gchat-error">{gchatError}</div>}
 
           <div style={{ display: "flex", flexDirection: "column", gap: "3px", width: "100%", boxSizing: "border-box" }}>
             {(() => {
-              const dms = filteredGchatSpaces.filter(s => s && s.type === "DIRECT_MESSAGE");
-              const spaces = filteredGchatSpaces.filter(s => s && s.type !== "DIRECT_MESSAGE");
+              const sortArchived = (list) => {
+                const active = list.filter(s => !archivedGchatSpaces.includes(s.id || s.name));
+                const archived = list.filter(s => archivedGchatSpaces.includes(s.id || s.name));
+                return [...active, ...archived];
+              };
+              const dms = sortArchived(filteredGchatSpaces.filter(s => s && s.type === "DIRECT_MESSAGE"));
+              const spaces = sortArchived(filteredGchatSpaces.filter(s => s && s.type !== "DIRECT_MESSAGE"));
 
               const renderSpaceItem = (s) => {
                 if (!s) return null;
@@ -6501,6 +6561,7 @@ if (currentView.app === "gchat") {
                   title = GCHAT_ID_MAP[sKey] ||
                     GCHAT_ID_MAP[s.displayName] ||
                     (learnedName && !learnedName.includes("users/") && learnedName !== "Direct Message" ? learnedName : null) ||
+                    ((gchatSelectedSpace?.id === s.id) ? msgDerivedName : null) ||
                     (s.displayName && !s.displayName.includes("users/") ? s.displayName : "Direct Message");
                 }
 
@@ -6563,8 +6624,11 @@ if (currentView.app === "gchat") {
     onClick={async () => {
       const spaceId = s.id || s.name;
 
+      // Remove any provisional space that wasn't messaged (i.e. navigating away without sending)
+      setGchatSpaces(prev => prev.filter(sp => !sp._provisional || (sp.id || sp.name) === spaceId));
+
       const cachedStr = localStorage.getItem(`GCHAT_MSGS_${spaceId}`);
-      try { setGchatMessages(cachedStr ? JSON.parse(cachedStr) : []); } 
+      try { setGchatMessages(cachedStr ? JSON.parse(cachedStr) : []); }
       catch(e) { setGchatMessages([]); }
       setGchatAutoScroll(true);
       setShowJumpToBottom(false);
@@ -6756,17 +6820,20 @@ if (currentView.app === "gchat") {
               if (!gchatSelectedSpace) return null;
               const spaceKey = gchatSelectedSpace.id || gchatSelectedSpace.name;
               const cachedName = gchatDmNames[spaceKey] || "";
-              const resolvedTitle = gchatSelectedSpace.type !== "DIRECT_MESSAGE"
-                ? (gchatSelectedSpace.displayName || "Unnamed Space")
-                : (GCHAT_ID_MAP[spaceKey] ||
+              const isDM = gchatSelectedSpace.type === "DIRECT_MESSAGE" || gchatSelectedSpace.spaceType === "DIRECT_MESSAGE";
+              const resolvedTitle = (isDM || !gchatSelectedSpace.displayName || gchatSelectedSpace.displayName === "Direct Message" || gchatSelectedSpace.displayName.includes("users/"))
+                ? (GCHAT_ID_MAP[spaceKey] ||
+                   msgDerivedName ||
                    (cachedName && !cachedName.includes("users/") && cachedName !== "Direct Message" ? cachedName : null) ||
                    (otherPersonName && !otherPersonName.includes("users/") ? otherPersonName : null) ||
-                   (gchatSelectedSpace.displayName && !gchatSelectedSpace.displayName.includes("users/") ? gchatSelectedSpace.displayName : "Direct Message"));
+                   (gchatSelectedSpace.displayName && !gchatSelectedSpace.displayName.includes("users/") && gchatSelectedSpace.displayName !== "Direct Message" ? gchatSelectedSpace.displayName : (isDM ? "Direct Message" : "Unnamed Space")))
+                : gchatSelectedSpace.displayName;
               const headerAvatar = avatarFor(resolvedTitle);
               return (
                 <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <div className="gchat-avatar-circle" style={{ width: "36px", height: "36px", flexShrink: 0 }}>
-                    {headerAvatar ? <img src={headerAvatar} alt={resolvedTitle} /> : <span>{(resolvedTitle || "?").slice(0, 1).toUpperCase()}</span>}
+                  <div className="gchat-avatar-circle" style={{ width: "36px", height: "36px", flexShrink: 0, flexBasis: "36px" }}>
+                    {headerAvatar && <img key={headerAvatar} src={headerAvatar} alt={resolvedTitle} onError={(e) => { e.currentTarget.style.display = "none"; e.currentTarget.nextSibling.style.display = ""; }} />}
+                    <span style={{ display: headerAvatar ? "none" : "" }}>{(resolvedTitle || "?").slice(0, 1).toUpperCase()}</span>
                   </div>
                   <div className="gchat-top-title">{resolvedTitle}</div>
                 </div>
@@ -6775,7 +6842,8 @@ if (currentView.app === "gchat") {
           {gchatSelectedSpace && (() => {
             const spaceKey = gchatSelectedSpace.id || gchatSelectedSpace.name;
             const cachedName = gchatDmNames[spaceKey] || "";
-            const callName = GCHAT_ID_MAP[spaceKey] || 
+            const callName = GCHAT_ID_MAP[spaceKey] ||
+                   msgDerivedName ||
                    (cachedName && !cachedName.includes("users/") && cachedName !== "Direct Message" ? cachedName : null) ||
                    (otherPersonName && !otherPersonName.includes("users/") ? otherPersonName : null) ||
                    (gchatSelectedSpace.displayName && !gchatSelectedSpace.displayName.includes("users/") ? gchatSelectedSpace.displayName : "Chat");
@@ -6965,7 +7033,7 @@ if (currentView.app === "gchat") {
                 if (!el) return;
 
                 const atBottom =
-                  el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+                  el.scrollHeight - el.scrollTop - el.clientHeight < 300;
 
               setGchatAutoScroll(atBottom);
                 setShowJumpToBottom(!atBottom);
@@ -6974,7 +7042,7 @@ if (currentView.app === "gchat") {
                 flex: 1,
                 overflowY: "auto",
                 overflowAnchor: "none",
-                padding: "12px 24px 140px 12px",
+                padding: "28px 24px 140px 12px",
                 scrollBehavior: "auto"
               }}
             >
@@ -6986,7 +7054,7 @@ if (currentView.app === "gchat") {
 
           {gchatSelectedSpace && (
             <>
-              {gchatMsgLoading && <div className="gchat-muted">Loading messages…</div>}
+              {gchatMsgLoading && <div style={{ fontStyle: "italic", color: "#9aa0a6", fontSize: "15px", fontFamily: "'Inter', sans-serif", textAlign: "center", padding: "16px" }}>Loading messages…</div>}
               {gchatMsgError && <div className="gchat-error">{gchatMsgError}</div>}
 
               {!gchatMsgLoading && !gchatMsgError && (
@@ -7002,17 +7070,22 @@ if (currentView.app === "gchat") {
                           e.stopPropagation();
                           setGchatLoadingOlder(true); // 🕒 Start loading
                           try {
-                            // ⚡ MAX DEPTH: We set limit=500 to grab huge chunks of history at once.
-                            // This makes loading 1000+ messages consistent and fast.
-                            const res = await fetch(`/.netlify/functions/gchat-messages?space=${encodeURIComponent(gchatSelectedSpace.id)}&pageToken=${gchatNextPageToken}&limit=500`, { credentials: "include" });
+                            // Find oldest message in current state for timestamp-based pagination
+                            const sortedMsgs = [...gchatMessages].sort((a, b) => new Date(a.createTime) - new Date(b.createTime));
+                            const oldestTime = sortedMsgs[0]?.createTime;
+                            if (!oldestTime) { setGchatLoadingOlder(false); return; }
+                            // Use timestamp filter — reliable deep history, no token expiry issues
+                            const res = await fetch(`/.netlify/functions/gchat-messages?space=${encodeURIComponent(gchatSelectedSpace.id)}&before=${encodeURIComponent(oldestTime)}`, { credentials: "include" });
                             const json = await res.json();
                             if (json.ok) {
                               const older = (json.messages || []).map(normalizeGChatMessage);
-                              setGchatMessages(prev => dedupeMergeMessages(older, prev));
-                              
-                              // ✅ UPDATE BOOKMARK: We explicitly update the token here because 
-                              // this is a manual request to move the "history pointer" further back.
-                              setGchatNextPageToken(json.nextPageToken || null);
+                              if (older.length > 0) {
+                                if (gchatBodyRef.current) pendingScrollAnchorRef.current = gchatBodyRef.current.scrollHeight;
+                                setGchatMessages(prev => dedupeMergeMessages(older, prev));
+                              }
+                              // Hide button only when API returns nothing (reached beginning of chat)
+                              if (older.length < 1000) setGchatNextPageToken(null);
+                              else setGchatNextPageToken("has_more");
                             }
                           } catch (err) { console.error("Load older failed", err); }
                           setGchatLoadingOlder(false); // ✅ Stop loading
@@ -7035,7 +7108,7 @@ if (currentView.app === "gchat") {
                       {/* 👤 Large Avatar */}
                       <div style={{ width: '80px', height: '80px', borderRadius: '50%', marginBottom: '12px', overflow: 'hidden', background: '#f1f3f4', display: 'grid', placeItems: 'center' }}>
                         {(() => {
-                          const name = gchatDmNames[gchatSelectedSpace.id] || gchatSelectedSpace.displayName || "C";
+                          const name = gchatDmNames[gchatSelectedSpace.id] || msgDerivedName || gchatSelectedSpace.displayName || "C";
                           const img = avatarFor(name);
                           return img ? <img src={img} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontSize: '32px', fontWeight: '500', color: '#5f6368' }}>{name[0].toUpperCase()}</span>;
                         })()}
@@ -7043,7 +7116,7 @@ if (currentView.app === "gchat") {
 
                       {/* 📛 Name & Email Block */}
                       {(() => {
-                        const name = gchatDmNames[gchatSelectedSpace.id] || gchatSelectedSpace.displayName || "Direct Message";
+                        const name = gchatDmNames[gchatSelectedSpace.id] || msgDerivedName || gchatSelectedSpace.displayName || "Direct Message";
                         // ⚡ FIX: Use the combinedContacts lookup with the cleaned name
                         const emailAddress = combinedContacts[name] || AC_EMAIL_MAP[name]; 
                         return (
@@ -7230,7 +7303,8 @@ else {
                       >
                         {!isMine && (
                           <div className="gchat-avatar-circle" style={{ alignSelf: 'flex-start', flexShrink: 0 }}>
-                            {avatar ? <img src={avatar} alt={senderName} /> : <span>{senderName.slice(0, 1).toUpperCase()}</span>}
+                            {avatar && <img key={avatar} src={avatar} alt={senderName} onError={(e) => { e.currentTarget.style.display = "none"; e.currentTarget.nextSibling.style.display = ""; }} />}
+                            <span style={{ display: avatar ? "none" : "" }}>{senderName.slice(0, 1).toUpperCase()}</span>
                           </div>
                         )}
 
@@ -7483,11 +7557,11 @@ const isWord = ["doc", "docx"].includes(ext);
                                     <div style={{ marginTop: (!isCallBoilerplate && (msg?.text || msg?.formattedText || msg?.fallbackText)) ? "8px" : "0px" }}>
                                       <SmartLink
                                         url={incomingMeetUrl}
-                                        style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "8px 16px", background: "#1a73e8", color: "#fff", border: "none", borderRadius: "100px", fontSize: "13px", fontWeight: 500, textDecoration: "none", cursor: "pointer" }}
+                                        style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "8px 16px", background: isMine ? "#34a853" : "#1a73e8", color: "#fff", border: "none", borderRadius: "100px", fontSize: "13px", fontWeight: 500, textDecoration: "none", cursor: "pointer" }}
                                         setIsLiveCallActive={setIsLiveCallActive}
                                       >
                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4zM14 13h-3v3H9v-3H6v-2h3V8h2v3h3v2z"/></svg>
-                                        Join Video Call
+                                        {isMine ? "Rejoin Video Call" : "Join Video Call"}
                                       </SmartLink>
                                     </div>
                                   )}
@@ -7515,7 +7589,7 @@ const isWord = ["doc", "docx"].includes(ext);
                       </div>
                    );
                  })}
-                  <div ref={messagesEndRef} style={{ float: "left", clear: "both", height: "80px" }} />
+                  <div ref={messagesEndRef} style={{ height: "80px", flexShrink: 0 }} />
                 </div>
               )}
             </>
@@ -7604,13 +7678,7 @@ if (currentView.app === "gmail") {
             isPerm ? null : { type: "delete", ids: snapshotIds }
           );
           
-          window.dispatchEvent(new CustomEvent("notify", { 
-            detail: { 
-              text: isPerm ? `${countToRemove} item(s) permanently deleted` : `${countToRemove} item(s) moved to Trash`, 
-              alt: "Gmail", 
-              icon: gmailIcon 
-            } 
-          }));
+          // (snackbar above already provides user feedback — no extra sound notification needed)
         } else {
           // Revert count on error
           setGmailTotal(prev => prev + countToRemove);
@@ -7630,7 +7698,12 @@ if (currentView.app === "gmail") {
       if (snapshotIds.length === 0) return;
       setGmailLoading(true);
       try {
-        setGmailEmails(prev => prev.map(e => snapshotIds.includes(e.id) ? { ...e, isUnread: true } : e));
+        setGmailEmails(prev => {
+          const markedIds = new Set(snapshotIds);
+          const marked = prev.filter(e => markedIds.has(e.id)).map(e => ({ ...e, isUnread: true }));
+          const rest = prev.filter(e => !markedIds.has(e.id));
+          return [...marked, ...rest];
+        });
         const res = await fetch("/.netlify/functions/gmail-mark-unread-bulk", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -7646,7 +7719,7 @@ if (currentView.app === "gmail") {
       setGmailLoading(false);
     };
     return (
-            <div style={{ position: "relative", display: "flex", flexDirection: "column", height: "100%", background: "#fff", borderRadius: "12px", border: "1px solid #e6e6e6", overflow: "hidden" }}>
+            <div style={{ position: "relative", display: "flex", flexDirection: "column", height: "100%", background: "#fff", borderRadius: "12px", border: "1px solid #8993a4", boxShadow: "0 8px 16px -4px rgba(9,30,66,0.25), 0 0 0 1px rgba(9,30,66,0.08)", overflow: "hidden" }}>
               
               {/* 🟢 TOP ROW: COMPOSE + SEARCH BAR */}
               <div style={{ padding: "12px 16px", background: "#fff", borderBottom: "1px solid #eee", display: "flex", alignItems: "center", gap: "16px" }}>
@@ -7738,7 +7811,7 @@ if (currentView.app === "gmail") {
                       <button 
                         onClick={handleDeleteSelected} 
                         title={gmailFolder === "TRASH" ? "Delete permanently" : "Move to Trash"}
-                        style={{ background: "transparent", border: "none", cursor: "pointer", color: "#5f6368", padding: "6px", borderRadius: "50%", display: "grid", placeItems: "center" }}
+                        style={{ background: "transparent", border: "none", cursor: "pointer", color: "#5f6368", padding: "6px", aspectRatio: "1", borderRadius: "50%", display: "grid", placeItems: "center" }}
                         onMouseEnter={e => e.currentTarget.style.background = "#f1f3f4"}
                         onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                       >
@@ -7749,7 +7822,7 @@ if (currentView.app === "gmail") {
                       <button 
                         onClick={handleMarkUnreadSelected} 
                         title="Mark as unread"
-                        style={{ background: "transparent", border: "none", cursor: "pointer", color: "#5f6368", padding: "6px", borderRadius: "50%", display: "grid", placeItems: "center" }}
+                        style={{ background: "transparent", border: "none", cursor: "pointer", color: "#5f6368", padding: "6px", aspectRatio: "1", borderRadius: "50%", display: "grid", placeItems: "center" }}
                         onMouseEnter={e => e.currentTarget.style.background = "#f1f3f4"}
                         onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                       >
@@ -7782,7 +7855,7 @@ if (currentView.app === "gmail") {
                       setGmailLoading(false);
                     }}
                           title="Restore to Inbox"
-                          style={{ background: "transparent", border: "none", cursor: "pointer", color: "#5f6368", padding: "6px", borderRadius: "50%", display: "grid", placeItems: "center" }}
+                          style={{ background: "transparent", border: "none", cursor: "pointer", color: "#5f6368", padding: "6px", aspectRatio: "1", borderRadius: "50%", display: "grid", placeItems: "center" }}
                           onMouseEnter={e => e.currentTarget.style.background = "#f1f3f4"}
                           onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                         >
@@ -7806,13 +7879,14 @@ if (currentView.app === "gmail") {
                     >
                       {gmailFolder === "INBOX" ? <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5v-3h3.56c.69 1.19 1.97 2 3.44 2s2.75-.81 3.44-2H19v3zm0-5h-4.99c0 1.1-.9 2-2 2s-2-.9-2-2H5V5h14v9z"/></svg> : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 12h-6l-2 3h-4l-2-3H2"></path><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path></svg>}
                       <span>Inbox</span>
+                      {gmailFolder === "INBOX" && gmailTotal > 0 && <span style={{ fontSize: "11px", fontWeight: 600, color: "#0b57d0", background: "#d3e3fd", borderRadius: "999px", padding: "1px 7px" }}>{gmailTotal.toLocaleString()}</span>}
                     </button>
 
                     <button
-                      onClick={() => { 
-                        setGmailEmails([]); 
-                        setGmailRefreshTrigger(p => p + 1); 
-                        setGmailFolder("STARRED"); 
+                      onClick={() => {
+                        setGmailEmails([]);
+                        setGmailRefreshTrigger(p => p + 1);
+                        setGmailFolder("STARRED");
                         setGmailPage(1); 
                         setSelectedEmailIds(new Set()); 
                       }}
@@ -7820,6 +7894,7 @@ if (currentView.app === "gmail") {
                     >
                       {gmailFolder === "STARRED" ? <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg> : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>}
                       <span>Starred</span>
+                      {gmailFolder === "STARRED" && gmailTotal > 0 && <span style={{ fontSize: "11px", fontWeight: 600, color: "#0b57d0", background: "#d3e3fd", borderRadius: "999px", padding: "1px 7px" }}>{gmailTotal.toLocaleString()}</span>}
                     </button>
 
                     <button
@@ -7834,6 +7909,7 @@ if (currentView.app === "gmail") {
                     >
                       {gmailFolder === "SENT" ? <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg> : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>}
                       <span>Sent</span>
+                      {gmailFolder === "SENT" && gmailTotal > 0 && <span style={{ fontSize: "11px", fontWeight: 600, color: "#0b57d0", background: "#d3e3fd", borderRadius: "999px", padding: "1px 7px" }}>{gmailTotal.toLocaleString()}</span>}
                     </button>
 
                     <button
@@ -7848,6 +7924,7 @@ if (currentView.app === "gmail") {
                     >
                       {gmailFolder === "DRAFTS" ? <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg> : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>}
                       <span>Drafts</span>
+                      {gmailFolder === "DRAFTS" && gmailTotal > 0 && <span style={{ fontSize: "11px", fontWeight: 600, color: "#0b57d0", background: "#d3e3fd", borderRadius: "999px", padding: "1px 7px" }}>{gmailTotal.toLocaleString()}</span>}
                     </button>
 
                     <button
@@ -7862,6 +7939,7 @@ if (currentView.app === "gmail") {
                     >
                       {gmailFolder === "TRASH" ? <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg> : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>}
                       <span>Trash</span>
+                      {gmailFolder === "TRASH" && gmailTotal > 0 && <span style={{ fontSize: "11px", fontWeight: 600, color: "#0b57d0", background: "#d3e3fd", borderRadius: "999px", padding: "1px 7px" }}>{gmailTotal.toLocaleString()}</span>}
                     </button>
                   </div>
                 )}
@@ -7924,7 +8002,7 @@ if (currentView.app === "gmail") {
         // 🛡️ TRASH/FOLDER TOTAL FIX:
         // If gmailTotal is less than what we actually see (e.g., 16 vs 31), force the visible count.
         const safeTotal = Math.max(gmailTotal || 0, visibleCount);
-        displayTotal = safeTotal > 0 ? safeTotal.toLocaleString() : "...";
+        displayTotal = safeTotal > 0 ? safeTotal.toLocaleString() : (gmailLoading ? "..." : "0");
     }
 
     // Ensure endIndex does not exceed the actual number of loaded emails on the last page
@@ -7954,7 +8032,7 @@ if (currentView.app === "gmail") {
             }} 
             disabled={gmailPage === 1 || gmailLoading} 
             title="Newer"
-            style={{ background: "transparent", border: "none", cursor: (gmailPage === 1 || gmailLoading) ? "default" : "pointer", color: (gmailPage === 1 || gmailLoading) ? "#c1c7d0" : "#5f6368", padding: "4px", borderRadius: "50%" }}
+            style={{ background: "transparent", border: "none", cursor: (gmailPage === 1 || gmailLoading) ? "default" : "pointer", color: (gmailPage === 1 || gmailLoading) ? "#c1c7d0" : "#5f6368", padding: "4px", aspectRatio: "1", borderRadius: "50%" }}
           >
             <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
           </button>
@@ -7967,7 +8045,7 @@ if (currentView.app === "gmail") {
             }} 
             disabled={isNextDisabled || gmailLoading} 
             title="Older"
-            style={{ background: "transparent", border: "none", cursor: (isNextDisabled || gmailLoading) ? "default" : "pointer", color: (isNextDisabled || gmailLoading) ? "#c1c7d0" : "#5f6368", padding: "4px", borderRadius: "50%" }}
+            style={{ background: "transparent", border: "none", cursor: (isNextDisabled || gmailLoading) ? "default" : "pointer", color: (isNextDisabled || gmailLoading) ? "#c1c7d0" : "#5f6368", padding: "4px", aspectRatio: "1", borderRadius: "50%" }}
           >
             <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
           </button>
@@ -7980,7 +8058,7 @@ if (currentView.app === "gmail") {
 
      {/* Body */}
         <div style={{ flex: 1, overflowY: "auto", padding: "0" }}>
-          {gmailLoading && <div style={{ padding: "16px", color: "#5f6368" }}>Loading inbox...</div>}
+          {gmailLoading && <div style={{ fontStyle: "italic", color: "#9aa0a6", fontSize: "15px", fontFamily: "'Inter', sans-serif", textAlign: "center", padding: "16px" }}>Loading inbox...</div>}
           {gmailError && <div style={{ padding: "16px", color: "#ea4335" }}>Error: {gmailError}</div>}
           
           {!gmailLoading && !gmailError && filteredEmails.length === 0 && (
@@ -7991,8 +8069,8 @@ if (currentView.app === "gmail") {
             <div 
               key={msg.id || i}
               style={{ 
-                display: "flex", 
-                padding: "10px 16px", 
+                display: "flex",
+                padding: "10px 16px",
                 borderBottom: "1px solid #f1f3f4",
                 cursor: "pointer",
                 background: selectedEmailIds.has(msg.id) ? "#e8f0fe" : (msg.isUnread ? "#ffffff" : "#f2f6fc"),
@@ -8001,8 +8079,8 @@ if (currentView.app === "gmail") {
                 gap: "12px",
                 fontSize: "14px"
               }}
-              onMouseEnter={(e) => e.currentTarget.style.boxShadow = "inset 1px 0 0 #dadce0, inset -1px 0 0 #dadce0, 0 1px 2px 0 rgba(60,64,67,.3)"}
-              onMouseLeave={(e) => e.currentTarget.style.boxShadow = "none"}
+              onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "inset 1px 0 0 #dadce0, inset -1px 0 0 #dadce0, 0 1px 2px 0 rgba(60,64,67,.3)"; setHoveredEmailId(msg.id); }}
+              onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "none"; setHoveredEmailId(null); }}
               onClick={() => {
                 setGmailEmails(prev => prev.map(e => e.id === msg.id ? { ...e, isUnread: false } : e));
                 if (msg.isUnread) {
@@ -8015,46 +8093,70 @@ if (currentView.app === "gmail") {
                 const fromParts = msg.from ? msg.from.split("<") : ["Unknown", ""];
                 const fromName = fromParts[0].replace(/"/g, '').trim();
                 const fromEmail = fromParts[1] ? "<" + fromParts[1] : "";
-                
-                // Smarter HTML detection to prevent stripping plain text spacing
-                const isHtml = /<(html|body|div|p|br|b|strong|i|em|a|span|table|style)[^>]*>/i.test(msg.body || "");
-                
-                // Reconstruct newlines if the backend compressed the plain text into a blob
-                let rawBody = msg.body || msg.snippet || "";
-                if (!isHtml && rawBody.split('\n').length < 4) {
-                  rawBody = rawBody
-                    .replace(/(---------- Forwarded message ---------)/gi, '\n\n$1\n')
-                    .replace(/(From:|Date:|Subject:|To:|Cc:)/g, '\n$1')
-                    .replace(/(Dear\s+[A-Za-z]+|Hi\s+[A-Za-z]+|Good\s+day)/gi, '\n\n$1\n\n')
-                    .replace(/(Kind\s+Regards|Regards|Sincerely|Thank\s+you)/gi, '\n\n$1\n')
-                    .replace(/(On\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^:]+wrote:)/gi, '\n\n$1\n')
-                    .replace(/(>\s*>)/g, '>>')
-                    .replace(/(>\s+)/g, '\n$1')
-                    .replace(/(\s\d+\.)/g, '\n$1')
-                    .replace(/\n{3,}/g, '\n\n')
-                    .trim();
+                const baseEmail = {
+                  id: msg.id,
+                  messageId: msg.messageId,
+                  subject: msg.subject, fromName, fromEmail,
+                  to: msg.to, date: msg.date, isStarred: msg.isStarred,
+                  labelIds: msg.labelIds || [],
+                  snippet: msg.snippet || "",
+                  time: new Date(msg.date).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
+                  actions: [{ key: "submit_trello", label: "Submit to Trello" }, { key: "update_tracker", label: "Update AC Tracker" }]
+                };
+
+                const processBody = (rawBodyStr, atts) => {
+                  const isHtml = /<(html|body|div|p|br|b|strong|i|em|a|span|table|style)[^>]*>/i.test(rawBodyStr || "");
+                  let rawBody = rawBodyStr || msg.snippet || "";
+                  if (!isHtml && rawBody.split('\n').length < 4) {
+                    rawBody = rawBody
+                      .replace(/(---------- Forwarded message ---------)/gi, '\n\n$1\n')
+                      .replace(/(From:|Date:|Subject:|To:|Cc:)/g, '\n$1')
+                      .replace(/(Dear\s+[A-Za-z]+|Hi\s+[A-Za-z]+|Good\s+day)/gi, '\n\n$1\n\n')
+                      .replace(/(Kind\s+Regards|Regards|Sincerely|Thank\s+you)/gi, '\n\n$1\n')
+                      .replace(/(On\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^:]+wrote:)/gi, '\n\n$1\n')
+                      .replace(/(>\s*>)/g, '>>')
+                      .replace(/(>\s+)/g, '\n$1')
+                      .replace(/(\s\d+\.)/g, '\n$1')
+                      .replace(/\n{3,}/g, '\n\n')
+                      .trim();
+                  }
+                  return {
+                    body: isHtml ? "" : rawBody,
+                    bodyHtml: isHtml ? rawBodyStr : "",
+                    attachments: (atts || []).map(a => ({
+                      ...a,
+                      type: a.mimeType.includes("pdf") ? "pdf" : a.mimeType.includes("image") ? "img" : a.mimeType.includes("spreadsheet") || a.mimeType.includes("excel") ? "xls" : "file",
+                      url: `/.netlify/functions/gmail-download?messageId=${msg.id}&attachmentId=${a.id}&filename=${encodeURIComponent(a.name)}&mimeType=${encodeURIComponent(a.mimeType)}`
+                    }))
+                  };
+                };
+
+                if (msg.bodyLoaded) {
+                  // Already fetched — show immediately from cache
+                  setEmail({ ...baseEmail, ...processBody(msg.body, msg.attachments), bodyLoading: false });
+                } else {
+                  // Show instantly with snippet, fetch full body in background
+                  setEmail({ ...baseEmail, body: "", bodyHtml: "", attachments: [], bodyLoading: true });
+                  fetch(`/.netlify/functions/gmail-message?messageId=${msg.id}`)
+                    .then(r => r.json())
+                    .then(json => {
+                      if (!json.ok) return;
+                      // Cache body in list state so re-opening is instant
+                      setGmailEmails(prev => prev.map(e => e.id === msg.id ? { ...e, body: json.body, attachments: json.attachments, bodyLoaded: true } : e));
+                      // Update detail view only if still viewing this email
+                      setEmail(prev => {
+                        if (!prev || prev.id !== msg.id) return prev;
+                        return { ...prev, ...processBody(json.body, json.attachments), bodyLoading: false };
+                      });
+                    })
+                    .catch(err => {
+                      console.error("Body fetch failed:", err);
+                      setEmail(prev => prev?.id === msg.id ? { ...prev, body: msg.snippet || "", bodyLoading: false } : prev);
+                    });
                 }
 
-              setEmail({
-                  id: msg.id, 
-                  messageId: msg.messageId, 
-                  subject: msg.subject, fromName, fromEmail,
-                  to: msg.to,
-                  date: msg.date,
-                  isStarred: msg.isStarred,
-                  labelIds: msg.labelIds || [],
-                  time: new Date(msg.date).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }),
-                  body: isHtml ? "" : rawBody,
-                  bodyHtml: isHtml ? msg.body : "",
-                  attachments: msg.attachments ? msg.attachments.map(a => ({
-                    ...a,
-                    type: a.mimeType.includes("pdf") ? "pdf" : a.mimeType.includes("image") ? "img" : a.mimeType.includes("spreadsheet") || a.mimeType.includes("excel") ? "xls" : "file",
-                    url: `/.netlify/functions/gmail-download?messageId=${msg.id}&attachmentId=${a.id}&filename=${encodeURIComponent(a.name)}&mimeType=${encodeURIComponent(a.mimeType)}`
-                  })) : [],
-                  actions: [{ key: "submit_trello", label: "Submit to Trello" }, { key: "update_tracker", label: "Update AC Tracker" }]
-                });
                 setEmailPreview(null);
-                setShowEmailDetails(false); // 👈 Closes the dropdown for the next email
+                setShowEmailDetails(false);
                 setCurrentView({ app: "email", contact: null });
               }}
             >
@@ -8197,19 +8299,62 @@ if (currentView.app === "gmail") {
               </div>
 
               
-{/* Date */}
-              <div style={{ width: "80px", textAlign: "right", fontSize: "12px", color: msg.isUnread ? "#1a73e8" : "#5f6368" }}>
-                {msg.date ? (() => {
-                  const d = new Date(msg.date);
-                  const now = new Date();
-                  const isToday = d.getDate() === now.getDate() && 
-                                  d.getMonth() === now.getMonth() && 
-                                  d.getFullYear() === now.getFullYear();
-                  return isToday 
-                    ? d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
-                    : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-                })() : ""}
-              </div>
+{/* Date / Hover Actions */}
+              {hoveredEmailId === msg.id ? (
+                <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                  {/* Mark as unread */}
+                  <button
+                    title="Mark as unread"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      setGmailEmails(prev => {
+                        const target = prev.find(x => x.id === msg.id);
+                        if (!target) return prev;
+                        const rest = prev.filter(x => x.id !== msg.id);
+                        return [{ ...target, isUnread: true }, ...rest];
+                      });
+                      try {
+                        await fetch("/.netlify/functions/gmail-mark-unread", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ messageId: msg.id })
+                        });
+                      } catch (err) { console.error("Mark unread failed", err); }
+                    }}
+                    style={{ background: "transparent", border: "none", cursor: "pointer", color: "#5f6368", padding: "4px", borderRadius: "50%", display: "grid", placeItems: "center" }}
+                    onMouseEnter={e => e.currentTarget.style.background = "#e8eaed"}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8l8 5 8-5v10zm-8-7L4 6h16l-8 5z"/></svg>
+                  </button>
+                  {/* Delete */}
+                  <button
+                    title={gmailFolder === "TRASH" ? "Delete permanently" : "Move to Trash"}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      handleDeleteEmail(msg.id);
+                    }}
+                    style={{ background: "transparent", border: "none", cursor: "pointer", color: "#5f6368", padding: "4px", borderRadius: "50%", display: "grid", placeItems: "center" }}
+                    onMouseEnter={e => e.currentTarget.style.background = "#e8eaed"}
+                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                  </button>
+                </div>
+              ) : (
+                <div style={{ width: "80px", textAlign: "right", fontSize: "12px", color: msg.isUnread ? "#1a73e8" : "#5f6368", flexShrink: 0 }}>
+                  {msg.date ? (() => {
+                    const d = new Date(msg.date);
+                    const now = new Date();
+                    const isToday = d.getDate() === now.getDate() &&
+                                    d.getMonth() === now.getMonth() &&
+                                    d.getFullYear() === now.getFullYear();
+                    return isToday
+                      ? d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+                      : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+                  })() : ""}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -8499,7 +8644,7 @@ if (currentView.app === "gmail") {
                 <button 
                   onClick={() => draftFileInputRef.current?.click()} 
                   title="Attach files"
-                  style={{ background: "transparent", border: "none", cursor: "pointer", color: "#5f6368", display: "grid", placeItems: "center", padding: "8px", borderRadius: "50%" }}
+                  style={{ background: "transparent", border: "none", cursor: "pointer", color: "#5f6368", display: "grid", placeItems: "center", padding: "8px", aspectRatio: "1", borderRadius: "50%" }}
                   onMouseEnter={(ev) => ev.currentTarget.style.background = "#f1f3f4"}
                   onMouseLeave={(ev) => ev.currentTarget.style.background = "transparent"}
                 >
@@ -8540,7 +8685,7 @@ if (currentView.app === "gmail") {
                   setDraftAttachments([]); 
                   triggerSnackbar("Draft discarded");
                 }} 
-                style={{ border: "none", background: "transparent", cursor: "pointer", color: "#5f6368", padding: "8px", borderRadius: "50%" }}
+                style={{ border: "none", background: "transparent", cursor: "pointer", color: "#5f6368", padding: "8px", aspectRatio: "1", borderRadius: "50%" }}
                 onMouseEnter={e => e.currentTarget.style.background = "#f1f3f4"}
                 onMouseLeave={e => e.currentTarget.style.background = "transparent"}
               >
@@ -8638,7 +8783,12 @@ const emailPane = (
             <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
           </div>
           <div className="gmail-action-icon" title="Mark as unread" onClick={async () => {
-             setGmailEmails(prev => prev.map(e => e.id === email.id ? { ...e, isUnread: true } : e));
+             setGmailEmails(prev => {
+               const target = prev.find(e => e.id === email.id);
+               if (!target) return prev;
+               const rest = prev.filter(e => e.id !== email.id);
+               return [{ ...target, isUnread: true }, ...rest];
+             });
              setCurrentView({ app: "gmail", contact: null });
              try {
                await fetch("/.netlify/functions/gmail-mark-unread", {
@@ -8788,7 +8938,9 @@ const emailPane = (
               }} />
             </div>
 
-            {email.bodyHtml ? (
+            {email.bodyLoading ? (
+              <div style={{ color: "#9aa0a6", fontSize: "14px", padding: "8px 0" }}>Loading…</div>
+            ) : email.bodyHtml ? (
               <div
                 className="email-body-html"
                 style={{ fontFamily: "'Google Sans', Roboto, Arial, sans-serif", fontSize: "14px", color: "#202124", lineHeight: "1.6" }}
@@ -9481,6 +9633,15 @@ const emailPane = (
               flexShrink: 0,
               borderRadius: '12px 12px 0 0',
             }}>
+              {c.fromProductivity && (
+                <button
+                  onClick={() => { setCurrentView({ app: "productivity", contact: null }); setTrelloCard(null); window.dispatchEvent(new CustomEvent("prodBackToSummary", { detail: c.fromProductivity })); }}
+                  style={{ position: 'absolute', top: '50%', left: '12px', transform: 'translateY(-50%)', zIndex: 10, background: 'rgba(0,0,0,0.18)', border: 'none', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff' }}
+                  title="Back to Dashboard"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+                </button>
+              )}
               <div style={{ position: 'absolute', top: '50%', right: '20px', transform: 'translateY(-50%)', zIndex: 10 }}>
                 {/* ACTIONS: Kebab Menu & Close */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -10012,7 +10173,7 @@ const emailPane = (
                           </div>
                           <div style={{ padding: '0 12px 12px', maxHeight: '300px', overflowY: 'auto' }}>
                             <div style={{ fontWeight: 600, fontSize: '12px', color: '#5e6c84', marginBottom: '8px' }}>Board members</div>
-                            {trelloMembers.length === 0 && <div style={{ fontSize: '12px', color: '#5e6c84' }}>Loading members...</div>}
+                            {trelloMembers.length === 0 && <div style={{ fontStyle: "italic", color: "#9aa0a6", fontSize: "15px", fontFamily: "'Inter', sans-serif", textAlign: "center", padding: "16px" }}>Loading members...</div>}
                             
                             {/* DYNAMIC SORT */}
                             {(() => {
@@ -10051,8 +10212,8 @@ const emailPane = (
                                       }} 
                                       style={{ display: 'flex', alignItems: 'center', padding: '6px', cursor: 'pointer', borderRadius: '3px', background: isAssigned ? '#e6fcff' : 'transparent', marginBottom: '2px' }}
                                     >
-                                      {member.avatarUrl 
-                                        ? <img src={member.avatarUrl} alt="" style={{ width: 32, height: 32, borderRadius: '50%', marginRight: 12 }} /> 
+                                      {(avatarFor(member.fullName) || member.avatarUrl)
+                                        ? <img src={avatarFor(member.fullName) || member.avatarUrl} alt="" style={{ width: 32, height: 32, borderRadius: '50%', marginRight: 12 }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
                                         : <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#dfe1e6', color: '#172b4d', marginRight: 12, display: 'grid', placeItems: 'center', fontWeight: 600 }}>{member.fullName[0]}</div>
                                       }
                                       <span style={{ flex: 1, fontWeight: 500, fontSize: '14px' }}>{member.fullName}</span>
@@ -10117,7 +10278,7 @@ const emailPane = (
                                </div>
                                <div style={{ padding: '0 12px 12px', maxHeight: '300px', overflowY: 'auto' }}>
                                  <div style={{ fontWeight: 600, fontSize: '12px', color: '#5e6c84', marginBottom: '8px' }}>Board members</div>
-                                 {trelloMembers.length === 0 && <div style={{ fontSize: '12px', color: '#5e6c84' }}>Loading members...</div>}
+                                 {trelloMembers.length === 0 && <div style={{ fontStyle: "italic", color: "#9aa0a6", fontSize: "15px", fontFamily: "'Inter', sans-serif", textAlign: "center", padding: "16px" }}>Loading members...</div>}
                                  
                                  {(() => {
                                     const sortedMembers = [...trelloMembers].sort((a, b) => {
@@ -10155,8 +10316,8 @@ const emailPane = (
                                            }} 
                                            style={{ display: 'flex', alignItems: 'center', padding: '6px', cursor: 'pointer', borderRadius: '3px', background: isAssigned ? '#e6fcff' : 'transparent', marginBottom: '2px' }}
                                          >
-                                           {member.avatarUrl 
-                                       ? <img src={member.avatarUrl.endsWith('.png') ? member.avatarUrl : member.avatarUrl + '/50.png'} alt="" style={{ width: 32, height: 32, borderRadius: '50%', marginRight: 12, objectFit: 'cover' }} /> 
+                                           {(avatarFor(member.fullName) || member.avatarUrl)
+                                       ? <img src={avatarFor(member.fullName) || (member.avatarUrl.endsWith('.png') ? member.avatarUrl : member.avatarUrl + '/50.png')} alt="" style={{ width: 32, height: 32, borderRadius: '50%', marginRight: 12, objectFit: 'cover' }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
                                        : <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#dfe1e6', color: '#172b4d', marginRight: 12, display: 'grid', placeItems: 'center', fontWeight: 600 }}>
                                            {member.fullName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
                                          </div>
@@ -10295,7 +10456,7 @@ const emailPane = (
                  <div style={{ display:'flex', flexDirection:'column', gap: 8 }}>
                    <textarea 
                      className="trello-title-input"
-                     style={{ minHeight: 108, border: '2px solid #0079bf', background:'#fff', fontSize:14, fontWeight:400, padding: '8px 12px', resize:'vertical' }}
+                     style={{ minHeight: 108, border: '2px solid #0079bf', background:'#fff', fontSize:14, fontWeight:400, padding: '8px 12px', resize:'none' }}
                      value={descDraft}
                      onChange={e => setDescDraft(e.target.value)}
                      autoFocus
@@ -10935,6 +11096,7 @@ const emailPane = (
                             
                             // Optimistic Toggle Update
                             setChecklists(prev => prev.map(x => x.id === cl.id ? { ...x, checkItems: x.checkItems.map(i => i.id === item.id ? { ...i, state: newState } : i) } : x));
+                            setTrelloBuckets(prev => prev.map(b => ({ ...b, cards: b.cards.map(card => card.id === c.id ? { ...card, checkItemsChecked: Math.max(0, (card.checkItemsChecked || 0) + (newState === 'complete' ? 1 : -1)) } : card) })));
                             
                             await fetch("/.netlify/functions/trello-checklists", {
                                 method: "POST", body: JSON.stringify({ action: 'toggle_item', cardId: c.id, idCheckItem: item.id, state: newState })
@@ -10952,6 +11114,7 @@ const emailPane = (
                          const tempId = "item-" + Date.now();
                          // Optimistic Add Update
                          setChecklists(prev => prev.map(x => x.id === cl.id ? { ...x, checkItems: [...(x.checkItems||[]), { id: tempId, name, state: 'incomplete' }] } : x));
+                         setTrelloBuckets(prev => prev.map(b => ({ ...b, cards: b.cards.map(card => card.id === c.id ? { ...card, checkItemsTotal: (card.checkItemsTotal || 0) + 1 } : card) })));
                          
                          const res = await fetch("/.netlify/functions/trello-checklists", {
                              method: "POST", body: JSON.stringify({ action: 'add_item', checklistId: cl.id, name })
@@ -11183,7 +11346,7 @@ return (
         </div>
 
         {/* Status Indicators */}
-        {calendarLoading && <div style={{ color: "#5f6368", padding: "16px 0", fontSize: "14px", textAlign: "center" }}>Loading your schedule...</div>}
+        {calendarLoading && <div style={{ fontStyle: "italic", color: "#9aa0a6", fontSize: "15px", fontFamily: "'Inter', sans-serif", textAlign: "center", padding: "16px" }}>Loading your schedule...</div>}
         {calendarError && <div style={{ color: "#d93025", padding: "16px 0", fontSize: "14px", textAlign: "center" }}>Error: {calendarError}</div>}
 
         {/* Event List / Grid */}
@@ -11506,12 +11669,16 @@ return (
 {/* 🤖 AI IDENTITY STACK (Increased height to 110px) */}
 <div className="brand-stack" style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
        
-       <div 
-          className="brand-rect" 
-          title="Agent Donna" 
-          onClick={() => {
+       <div
+          className="brand-rect"
+          title="Agent Donna"
+          onClick={(e) => {
             if (!isDonnaActive) setIsDonnaLoading(true);
             setIsDonnaActive(!isDonnaActive);
+            const el = e.currentTarget;
+            el.style.animation = 'none';
+            void el.offsetWidth;
+            el.style.animation = 'press-bounce 0.25s ease';
           }}
           style={{ width: '100%', height: '120px', overflow: 'hidden', borderRadius: '12px', cursor: 'pointer', background: '#f1f3f4', position: 'relative' }}
         >
@@ -11596,7 +11763,7 @@ return (
     )}
   </button>
 </div>
-  <div className="notifications" style={{ marginTop: "0px" }}>
+  <div className="notifications" style={{ marginTop: "10px" }}>
           {notifLoading && notifications.length === 0 && (
             <div style={{ padding: "28px 12px 8px", fontStyle: "italic", color: "#9aa0a6", fontSize: "15px", fontFamily: "'Inter', sans-serif", textAlign: "center" }}>
               Loading notifications...
@@ -11604,7 +11771,7 @@ return (
           )}
           {notifications.map((n) => (
             <div
-              className={`notification ${n.alt.toLowerCase().replace(/\s/g, '-')}`}
+              className={`notification ${n.alt.toLowerCase().replace(/\s/g, '-')}${exitingNotifIds.has(n.id) ? ' exiting' : ''}`}
               key={n.id}
               onClick={() => onNotificationClick(n)}
               style={{ position: "relative" }}
@@ -11665,10 +11832,7 @@ return (
             </button>
           </div>
 
-          {/* 🎯 CENTER LOGO — no flex, just its natural width, always centred between two equal flex:1 sides */}
-          <div style={{ display: "flex", alignItems: "center", pointerEvents: "none" }}>
-            <img src={logo} alt="Actuary Consulting" style={{ height: "42px", width: "auto", objectFit: "contain" }} />
-          </div>
+          <img src={logo} alt="Actuary Consulting" style={{ height: "42px", width: "auto", objectFit: "contain" }} />
 
    {/* RIGHT SIDE: Productivity -> Status -> Reconnect -> Close — flex:1 + justify end */}
           <div style={{ flex: 1, display: "flex", alignItems: "center", gap: "8px", justifyContent: "flex-end" }}>
@@ -12101,7 +12265,7 @@ return (
                             }}>
                                {/* 👇 NEW: Render the profile picture if it exists, otherwise use initials */}
                                {avatarImg ? (
-                                 <img src={avatarImg} alt={displayName} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                                 <img src={avatarImg} alt={displayName} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
                                ) : (
                                  String(displayName).charAt(0).toUpperCase()
                                )}
@@ -12305,13 +12469,22 @@ return (
               <div className="cal-modal-icon-placeholder" style={{ width: '20px', display: 'flex', justifyContent: 'center', marginTop: '4px' }}>
                 <svg width="20" height="20" fill="#5f6368" viewBox="0 0 24 24"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/></svg>
               </div>
-              <textarea placeholder="Add description" value={newEventDraft.description} onChange={e => setNewEventDraft({ ...newEventDraft, description: e.target.value })} style={{ width: '100%', border: 'none', outline: 'none', fontSize: '14px', color: '#3c4043', resize: 'vertical', minHeight: '60px', fontFamily: 'inherit', background: '#f1f3f4', padding: '8px', borderRadius: '4px' }} />
+              <textarea placeholder="Add description" value={newEventDraft.description} onChange={e => setNewEventDraft({ ...newEventDraft, description: e.target.value })} style={{ width: '100%', border: 'none', outline: 'none', fontSize: '14px', color: '#3c4043', resize: 'none', minHeight: '60px', fontFamily: 'inherit', background: '#f1f3f4', padding: '8px', borderRadius: '4px' }} />
             </div>
 
             {/* Save Button */}
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
               <button 
                 onClick={async () => {
+                  // 0. Validate: block past events
+                  if (newEventDraft.date && newEventDraft.startTime) {
+                    const startDt = new Date(`${newEventDraft.date}T${newEventDraft.startTime}`);
+                    if (startDt < new Date()) {
+                      alert("Cannot schedule a meeting in the past. Please choose a future time.");
+                      return;
+                    }
+                  }
+
                   // 1. Format guests properly (Google rejects empty arrays)
                   const guestsList = newEventDraft.guests 
                     ? newEventDraft.guests.split(',').map(g => ({ email: g.trim() })).filter(g => g.email) 
@@ -12494,7 +12667,56 @@ return (
           </div>
         </>
       )}
-     
+
+      {/* 🗑️ Delete GChat Message Confirmation Modal */}
+      {msgToDelete && (
+        <>
+          <div
+            style={{ position: "fixed", top:0, left:0, width:"100vw", height:"100vh", zIndex: 10001, background: "rgba(0,0,0,0.5)" }}
+            onMouseDown={(e) => { e.stopPropagation(); setMsgToDelete(null); }}
+          />
+          <div
+            className="popup-anim-in"
+            style={{
+              position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: "380px",
+              background: "white", padding: "24px", borderRadius: "12px",
+              boxShadow: "0 12px 40px rgba(0,0,0,0.3)", zIndex: 10002, border: "1px solid #dadce0",
+              transformOrigin: "center"
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{fontWeight:500, marginBottom:12, fontSize:"1.2rem", color:"#202124"}}>
+              Delete message?
+            </div>
+            <div style={{fontSize:"0.9rem", color:"#5f6368", marginBottom:"24px", lineHeight: "1.5"}}>
+              This message will be deleted for everyone in the conversation. This cannot be undone.
+            </div>
+            <div style={{display:"flex", justifyContent:"flex-end", gap:10}}>
+              <button
+                style={{ borderRadius:4, padding: "8px 16px", color: "#5f6368", fontWeight: 500, cursor: "pointer", border: "1px solid #dadce0", background: "transparent", transition: "background 0.2s" }}
+                onMouseEnter={(e) => e.currentTarget.style.background = "#f1f3f4"}
+                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setMsgToDelete(null); }}
+              >
+                Cancel
+              </button>
+              <button
+                style={{ borderRadius:4, padding: "8px 16px", background: "#d93025", color: "#fff", fontWeight: 500, cursor: "pointer", border: "none", transition: "background 0.2s" }}
+                onMouseEnter={(e) => e.currentTarget.style.background = "#c5221f"}
+                onMouseLeave={(e) => e.currentTarget.style.background = "#d93025"}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  confirmDeleteGChatMessage();
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
     </div>
   </PasswordGate>
   );
@@ -12762,8 +12984,7 @@ const ActivityPane = React.memo(function ActivityPane({ cardId, currentUserAvata
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to save comment");
-       // Optionally replace optimistic item with real one here if needed, 
-       // but Trello API response varies slightly. For now, rely on refresh.
+      setTrelloBuckets(prev => prev.map(b => ({ ...b, cards: b.cards.map(card => card.id === cardId ? { ...card, commentCount: (card.commentCount || 0) + 1 } : card) })));
     } catch(err) {
       console.error("Comment save error:", err);
       alert("Failed to save comment to Trello.");
@@ -12891,7 +13112,7 @@ const ActivityPane = React.memo(function ActivityPane({ cardId, currentUserAvata
                      <div style={{ position: 'absolute', bottom: '100%', left: 0, background: '#fff', border: '1px solid #dfe1e6', borderRadius: '3px', boxShadow: '0 8px 16px -4px rgba(9,30,66,0.25)', width: '250px', maxHeight: '200px', overflowY: 'auto', zIndex: 1000, marginBottom: '4px' }}>
                          {filteredMembers.map(m => (
                              <div key={m.id} style={{ padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', color: '#172b4d', fontSize: '13px' }} onMouseEnter={e => e.currentTarget.style.background = '#091e420f'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'} onClick={() => insertMention(m.fullName)}>
-                                 {m.avatarUrl ? <img src={m.avatarUrl.endsWith('.png') ? m.avatarUrl : m.avatarUrl + '/50.png'} alt="" style={{width: 24, height: 24, borderRadius: '50%'}} /> : <div style={{width: 24, height: 24, borderRadius: '50%', background: '#dfe1e6', display: 'grid', placeItems: 'center', fontWeight: 600}}>{m.fullName[0]}</div>}
+                                 {(avatarFor(m.fullName) || m.avatarUrl) ? <img src={avatarFor(m.fullName) || (m.avatarUrl.endsWith('.png') ? m.avatarUrl : m.avatarUrl + '/50.png')} alt="" style={{width: 24, height: 24, borderRadius: '50%'}} onError={(e) => { e.currentTarget.style.display = "none"; }} /> : <div style={{width: 24, height: 24, borderRadius: '50%', background: '#dfe1e6', display: 'grid', placeItems: 'center', fontWeight: 600}}>{m.fullName[0]}</div>}
                                  <span style={{ fontWeight: 500 }}>{m.fullName}</span>
                              </div>
                          ))}
@@ -12911,7 +13132,7 @@ const ActivityPane = React.memo(function ActivityPane({ cardId, currentUserAvata
 
       {/* --- Activity List --- */}
       <div style={styles.activityList}>
-        {loading && <div style={{color: '#5e6c84', fontStyle: 'italic'}}>Loading activity...</div>}
+        {loading && <div style={{ fontStyle: "italic", color: "#9aa0a6", fontSize: "15px", fontFamily: "'Inter', sans-serif", textAlign: "center", padding: "16px" }}>Loading activity...</div>}
         {/* ⚡ FIX: Use the sliced 'displayedActions' array */}
         {!loading && displayedActions.map(act => {
           // Resolve Actor Name
@@ -13097,7 +13318,7 @@ const ChecklistItemInput = React.memo(({ onAdd }) => {
           borderRadius: '3px', 
           border: '2px solid #0079bf', 
           outline: 'none', 
-          resize: 'vertical', 
+          resize: 'none', 
           minHeight: '56px', 
           fontSize: '14px', 
           fontFamily: 'inherit', 

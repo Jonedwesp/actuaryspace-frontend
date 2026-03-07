@@ -90,11 +90,16 @@ const folder = event.queryStringParameters?.folder || "INBOX";
       labelId = "INBOX";
     }
 
-    // 2. ⚡ HISTORIC OVERRIDE: If a keyword is provided, search 'anywhere' to find old emails
+    // 2. ⚡ HISTORIC OVERRIDE: If a keyword is provided, search for emails
     if (q && q.trim()) {
-      // We clear queryParts and use 'anywhere' to find matches regardless of current folder
-      const keyword = q.trim();
-      queryParts = [`in:anywhere "${keyword}" -is:chat` ];
+      // Strip any leading in:xxx scope prefix added by the frontend before building query
+      const keyword = q.trim().replace(/^in:\S+\s+/, "");
+      if (folder === "DRAFTS") {
+        // Stay within drafts when user searches from the Drafts folder
+        queryParts = [`is:draft ${keyword} -is:chat`];
+      } else {
+        queryParts = [`in:anywhere ${keyword} -is:chat`];
+      }
     }
 
     const query = queryParts.join(" ");
@@ -178,110 +183,47 @@ const folder = event.queryStringParameters?.folder || "INBOX";
       };
     }
 
-    // 3. THE CONCURRENCY POOL (The Speed Fix)
-    // Ensures exactly 12 emails are downloaded at a time. No delays, no rate limits, maximum speed.
-    const fetchEmail = async (msg) => {
+    // 3. FAST METADATA FETCH: Only headers + snippet — full body loaded on demand when email is opened
+    const fetchEmailMetadata = async (msg) => {
       const msgRes = await request(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=full`,
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Date&metadataHeaders=Message-ID`,
         { headers: { Authorization: `Bearer ${token}` }, agent: keepAliveAgent }
       );
       const msgData = await msgRes.json();
 
-      if (!msgRes.ok || !msgData.payload) {
+      if (!msgRes.ok || !msgData.id) {
         return {
-          id: msg.id,
-          snippet: "Message could not be loaded. Please open to retry.",
-          body: "",
-          subject: "(Fetch Error)",
-          from: "System",
-          to: "",
-          date: new Date().toISOString(),
-          isUnread: false,
-          isStarred: false,
-          attachments: []
+          id: msg.id, snippet: "Could not load.", subject: "(Fetch Error)",
+          from: "System", to: "", cc: "", date: new Date().toISOString(),
+          messageId: "", labelIds: [], isUnread: false, isStarred: false,
+          attachments: [], body: ""
         };
       }
 
       const headers = msgData.payload?.headers || [];
       const getH = (n) => headers.find((h) => h.name.toLowerCase() === n.toLowerCase())?.value || "";
 
-      let typeMap = { html: "", plain: "", inlineImages: {}, attachments: [] };
-
-      const extractParts = (part) => {
-        if (!part) return;
-        if (part.mimeType === 'text/html' && !typeMap.html) typeMap.html = part.body?.data || "";
-        if (part.mimeType === 'text/plain' && !typeMap.plain) typeMap.plain = part.body?.data || "";
-
-        if (part.headers) {
-          const cidHeader = part.headers.find(h => h.name.toLowerCase() === 'content-id');
-          if (cidHeader) {
-            const cid = cidHeader.value.replace(/[<>]/g, '');
-            if (part.body?.data) {
-               typeMap.inlineImages[cid] = `data:${part.mimeType};base64,${part.body.data.replace(/-/g, '+').replace(/_/g, '/')}`;
-            } else if (part.body?.attachmentId) {
-               typeMap.inlineImages[cid] = `/.netlify/functions/gmail-image?messageId=${msg.id}&attachmentId=${part.body.attachmentId}&mimeType=${encodeURIComponent(part.mimeType)}`;
-            }
-          }
-        }
-
-        if (part.filename && part.filename.trim() !== "") {
-            typeMap.attachments.push({
-                id: part.body?.attachmentId || part.partId || `file-${Date.now()}`,
-                name: part.filename,
-                mimeType: part.mimeType,
-                size: part.body?.size || 0
-            });
-        }
-        if (part.parts) part.parts.forEach(extractParts);
-      };
-
-      if (msgData.payload) extractParts(msgData.payload);
-
-      let rawBody = typeMap.html || typeMap.plain || "";
-      let decodedBody = rawBody ? Buffer.from(rawBody.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8') : (msgData.snippet || "");
-
-      Object.keys(typeMap.inlineImages).forEach(cid => {
-         const imgSrc = typeMap.inlineImages[cid];
-         const regex = new RegExp(`cid:['"]?${cid}['"]?`, 'gi');
-         decodedBody = decodedBody.replace(regex, imgSrc);
-      });
-
-    return {
+      return {
         id: msg.id,
-        messageId: getH("Message-ID") || "", // 👈 NEW: Extract the universal Message-ID
+        messageId: getH("Message-ID"),
         snippet: msgData.snippet || "",
-        body: decodedBody || msgData.snippet || "", 
         subject: getH("Subject") || "(No Subject)",
         from: getH("From") || "(Unknown)",
         to: getH("To") || "",
-        cc: getH("Cc") || "", 
+        cc: getH("Cc") || "",
         date: getH("Date") || "",
         labelIds: msgData.labelIds || [],
         isUnread: msgData.labelIds?.includes("UNREAD") || false,
         isStarred: msgData.labelIds?.includes("STARRED") || false,
-        attachments: typeMap.attachments
+        attachments: [],
+        body: ""
       };
     };
 
-    const maxConcurrent = 12; 
-    const executing = new Set();
-    const results = [];
+    // All 50 metadata fetches fire simultaneously — each is tiny so no rate-limit risk
+    const unorderedEmails = await Promise.all(messages.map(fetchEmailMetadata));
 
-    // Feed the pool continuously
-    for (const msg of messages) {
-      const p = fetchEmail(msg);
-      results.push(p);
-      executing.add(p);
-      
-      p.catch(() => {}).finally(() => executing.delete(p));
-      if (executing.size >= maxConcurrent) {
-        await Promise.race(executing);
-      }
-    }
-
-    const unorderedEmails = await Promise.all(results);
-
-    // Re-sort the emails chronologically since the pool finishes them out of order
+    // Preserve original sort order from Gmail's list API
     const orderMap = new Map(messages.map((m, i) => [m.id, i]));
     const emails = unorderedEmails.sort((a, b) => orderMap.get(a.id) - orderMap.get(b.id));
 

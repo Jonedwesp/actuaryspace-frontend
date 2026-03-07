@@ -35,7 +35,7 @@ const EMOJI_MAP = {
 
 export async function handler(event) {
   try {
-    const { space, pageToken } = event.queryStringParameters || {};
+    const { space, pageToken, before } = event.queryStringParameters || {};
     if (!space) return json(400, { ok: false, error: "Missing ?space" });
 
     // 🛡️ SECURITY FIX: No longer strictly requiring cookies here.
@@ -43,10 +43,14 @@ export async function handler(event) {
     const accessToken = await getAccessToken(event);
     // 2) List messages
     const url = new URL(`https://chat.googleapis.com/v1/${space}/messages`);
-    url.searchParams.set("pageSize", "200"); // ⚡ OPTIMIZED: Faster loading while maintaining depth
+    // When loading older history via timestamp, use large page size; initial load stays small
+    url.searchParams.set("pageSize", before ? "1000" : "50");
     url.searchParams.set("orderBy", "createTime desc");
-    
-    if (pageToken) {
+
+    if (before) {
+      // Timestamp-based pagination — reliable deep history, no token expiry
+      url.searchParams.set("filter", `createTime < "${before}"`);
+    } else if (pageToken) {
       url.searchParams.set("pageToken", pageToken);
     }
 

@@ -89,6 +89,16 @@ html, body {
   mask-image: linear-gradient(to bottom, transparent 0px, black 24px, black calc(100% - 24px), transparent 100%);
 }
 
+@keyframes notif-in {
+  0%   { max-height: 0;     margin: 0;      padding: 0;               opacity: 0; transform: scale(0.88); }
+  55%  { max-height: 200px; margin: 4px 0;  padding: 0.6rem 0.5rem;   opacity: 0; transform: scale(0.88); }
+  100% { max-height: 200px; margin: 4px 0;  padding: 0.6rem 0.5rem;   opacity: 1; transform: scale(1);    }
+}
+@keyframes notif-out {
+  0%   { max-height: 200px; margin: 4px 0;  padding: 0.6rem 0.5rem;   opacity: 1; transform: scale(1);    }
+  45%  { max-height: 200px; margin: 4px 0;  padding: 0.6rem 0.5rem;   opacity: 0; transform: scale(0.88); }
+  100% { max-height: 0;     margin: 0;      padding: 0;               opacity: 0; transform: scale(0.88); }
+}
 .notification {
   display: flex;
   align-items: center;
@@ -100,7 +110,13 @@ html, body {
   border: none;
   border-radius: 8px;
   background: #fff;
+  overflow: hidden;
   transition: background-color .2s ease, box-shadow .2s ease, border-color .2s ease;
+  animation: notif-in 0.46s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+}
+.notification.exiting {
+  animation: notif-out 0.34s cubic-bezier(0.4, 0, 0.6, 1) forwards;
+  pointer-events: none;
 }
 .notification:hover {
   background-color: #f9f9f9;
@@ -164,7 +180,7 @@ html, body {
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  padding: 12px 24px 16px 12px !important;
+  padding: 28px 24px 16px 12px !important;
 }
 
 /* 1. Fix Chat Bar: Locked Under Messages, No Overlap */
@@ -272,7 +288,7 @@ html, body {
   overflow-y: auto; /* CHANGED: Allow panel itself to scroll vertically */
   overflow-x: hidden;
   background-color: #ffffff; /* CHANGED: Pure White Background */
-  padding: 12px;
+  padding: 0 12px;
   height: 100%;
   border-left: 1px solid #e6e6e6; /* Optional: Match other panels */
   position: relative;
@@ -392,6 +408,31 @@ html, body {
   padding: 7px 11px; /* Compensate for border width */
 }
 
+@keyframes tl-card-in {
+  0%   { opacity: 0; transform: scale(0.9) translateY(-8px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+.tl-card-fresh {
+  animation: tl-card-in 0.46s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+}
+/* Exit animation: card fades/shrinks first, then wrapper collapses height so cards below shift up */
+@keyframes tl-card-out {
+  0%   { opacity: 1; transform: scale(1); }
+  50%  { opacity: 0; transform: scale(0.88); }
+  100% { opacity: 0; transform: scale(0.88); }
+}
+@keyframes tl-leaving-collapse {
+  0%   { max-height: 120px; }
+  100% { max-height: 0; }
+}
+.tl-card-leaving-wrap {
+  overflow: hidden;
+  animation: tl-leaving-collapse 0.46s cubic-bezier(0.4, 0, 0.6, 1) 0s forwards;
+}
+.tl-card-leaving {
+  animation: tl-card-out 0.46s cubic-bezier(0.4, 0, 0.6, 1) both;
+  pointer-events: none;
+}
 .tl-card:active {
   animation: press-bounce 0.25s ease;
 }
@@ -514,17 +555,23 @@ html, body {
 /* Card counter row (description, attachments, comments, checklists) */
 .tl-counters {
   display: flex;
-  gap: 8px;
+  gap: 14px;
   align-items: center;
   margin-top: 6px;
   color: #626f86;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .tl-cnt {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 5px;
+}
+
+.tl-cnt svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
 }
 
 /* Timer row (WorkDuration, Activity Duration) */
@@ -862,6 +909,7 @@ html, body {
   cursor: pointer;
   padding: 8px;
   border-radius: 50%;
+  aspect-ratio: 1;
   transition: background 0.2s;
   display: flex;
   align-items: center;
@@ -1163,7 +1211,12 @@ html, body {
   border: none;
   font-size: 20px;
   cursor: pointer;
-  padding: 8px;
+  padding: 0;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
   margin-top: -4px;
   margin-right: -8px;
@@ -1609,7 +1662,7 @@ html, body {
   padding: 0.75rem;
   min-height: 250px;
   max-height: 600px;
-  resize: vertical;
+  resize: none;
   /* force Verdana for typing as well */
   font-family: Verdana, Geneva, sans-serif;
   font-size: 0.9rem;
@@ -1752,38 +1805,39 @@ html, body {
 }
 
 @keyframes popup-anim-in {
-  0%   { transform: scale(0.75); opacity: 0; }
+  0%   { transform: scale(0.85); opacity: 0; }
   100% { transform: scale(1);    opacity: 1; }
 }
 
 @keyframes popup-anim-out {
   0%   { transform: scale(1);    opacity: 1; }
-  100% { transform: scale(0.75); opacity: 0; }
+  100% { transform: scale(0.85); opacity: 0; }
 }
 
 .popup-anim-in {
-  animation: popup-anim-in 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  /* Spring overshoot — the 1.4 control point makes it feel alive like iOS */
+  animation: popup-anim-in 0.22s cubic-bezier(0.34, 1.4, 0.64, 1) forwards;
 }
 
 .popup-anim-out {
-  animation: popup-anim-out 0.15s ease-in forwards;
+  animation: popup-anim-out 0.14s cubic-bezier(0.4, 0, 1, 1) forwards;
   pointer-events: none;
 }
 
-/* Middle panel app open/close — no overshoot so overflow:hidden doesn't clip */
+/* Middle panel app open/close — subtle scale so overflow:hidden doesn't clip the spring */
 @keyframes middle-app-in {
-  from { transform: scale(0.88); opacity: 0; }
+  from { transform: scale(0.95); opacity: 0; }
   to   { transform: scale(1);    opacity: 1; }
 }
 @keyframes middle-app-out {
   from { transform: scale(1);    opacity: 1; }
-  to   { transform: scale(0.88); opacity: 0; }
+  to   { transform: scale(0.95); opacity: 0; }
 }
 .middle-app-in {
-  animation: middle-app-in 0.28s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+  animation: middle-app-in 0.22s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
 }
 .middle-app-out {
-  animation: middle-app-out 0.18s ease-in forwards;
+  animation: middle-app-out 0.15s cubic-bezier(0.4, 0, 1, 1) forwards;
   pointer-events: none;
 }
 
@@ -1893,11 +1947,11 @@ html, body {
 .gchat-avatar-circle {
   width: 32px;
   height: 32px;
-  border-radius: 999px;
+  border-radius: 50%;
   background: #e6e9ef;
   display: grid;
   place-items: center;
-  flex: 0 0 32px;
+  flex-shrink: 0;
   overflow: hidden;
 }
 
@@ -3138,6 +3192,29 @@ html, body {
 }
 
 /* Master View: Vertical Stack of Horizontal Cards */
+@keyframes prod-in {
+  0%   { opacity: 0; transform: scale(0.93); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes prod-out {
+  0%   { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.93); }
+}
+.prod-content {
+  width: 100%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.prod-enter {
+  animation: prod-in 0.46s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+}
+.prod-exit {
+  animation: prod-out 0.22s cubic-bezier(0.4, 0, 0.6, 1) both;
+  pointer-events: none;
+}
+
 .prod-grid {
   display: flex;
   flex-direction: column;
@@ -3145,6 +3222,7 @@ html, body {
   max-width: 1100px;
   margin: 0 auto;
   width: 100%;
+  flex: 1;
 }
 
 .prod-card {
@@ -3161,6 +3239,7 @@ html, body {
   justify-content: space-between;
   gap: 24px;
   width: 100%;
+  flex: 1;
 }
 
 .prod-card:hover {

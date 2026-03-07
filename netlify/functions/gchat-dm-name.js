@@ -19,6 +19,7 @@ const KNOWN_USERS = {
   "users/101954867987984084170": "Alicia Kotzé",
   "users/108929714281084389788": "Songeziwe Chiya",
   "users/110745530036003772233": "Bonisa Mqonqo",
+  "users/114414123510536881172": "Bonolo Mokatse",
   "users/100710383419487896813": "Cameron Curtis",
   "users/104310623309718505350": "Shamiso Hapaguti",
   "users/113565695109176296608": "Waldo Jenkins",
