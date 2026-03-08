@@ -107,7 +107,7 @@ html, body {
   padding: 0.6rem 0.5rem;
   margin: 4px 0;
   font-size: 0.8rem;
-  border: none;
+  border: 1px solid transparent;
   border-radius: 8px;
   background: #fff;
   overflow: hidden;
@@ -120,7 +120,7 @@ html, body {
 }
 .notification:hover {
   background-color: #f9f9f9;
-  border: 1px solid #888;
+  border-color: #888;
   box-shadow: 0 2px 8px rgba(0,0,0,.06);
   cursor: pointer;
 }
@@ -186,7 +186,7 @@ html, body {
 /* 1. Fix Chat Bar: Locked Under Messages, No Overlap */
 .chat-bar {
   position: absolute !important;
-  bottom: 24px !important;
+  bottom: 36px !important;
 
   left: calc(28% + 13px) !important;
   right: calc(1rem + 19px) !important;
@@ -728,62 +728,6 @@ html, body {
 }
 .doc-card.xls .doc-corner { border-right-color:#29a35a; border-bottom-color:#29a35a; }
 .doc-card.img .doc-corner { border-right-color:#666; border-bottom-color:#666; }
-
-/* ---- WhatsApp-like middle view ---- */
-.wa-chat { display:flex; flex-direction:column; height:100%; }
-
-.wa-header { display:flex; align-items:center; gap:.6rem; padding:.25rem 0 .5rem; border-bottom:1px solid #eee; }
-.wa-avatar { width:28px; height:28px; border-radius:50%; background:#d1f1d6; display:grid; place-items:center; font-weight:700; font-size:.8rem; color:#256c2f; }
-.wa-meta { line-height:1.1; }
-.wa-name { font-weight:600; font-size:.95rem; }
-.wa-status { font-size:.75rem; color:#4caf50; }
-
-/* Beige background like WhatsApp Web */
-.wa-body {
-  flex: 1;
-  padding: 1rem;
-  overflow-y: auto;
-  background-color: #efeae2;
-  background-repeat: repeat;
-  background-size: contain;
-}
-
-/* Message row + alignment */
-.wa-msg { display:flex; margin: 4px 0; }
-.wa-msg.them { justify-content:flex-start; }
-.wa-msg.me { justify-content:flex-end; }
-
-/* Bubble look */
-.wa-bubble {
-  max-width:70%;
-  padding:.45rem .55rem .3rem;
-  border-radius:10px;
-  position:relative;
-  background:#e6ffda;         /* me = green */
-  box-shadow: 0 1px 2px rgba(0,0,0,.06);
-}
-.wa-msg.them .wa-bubble {
-  background:#fff;            /* them = white */
-  border:1px solid #eee;
-}
-.wa-text { font-size:.9rem; }
-.wa-time { font-size:.7rem; color:#777; text-align:right; margin-top:.15rem; }
-
-.wa-time {
-  font-size: .7rem;
-  color: #777;
-  text-align: right;
-  margin-top: .15rem;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  justify-content: flex-end;
-}
-
-.wa-ticks {
-  font-size: 0.75rem;
-  color: #34b7f1;   /* WhatsApp blue for ticks */
-}
 
 /* ---- Slack chat view ---- */
 .slack-chat { display:flex; flex-direction:column; height:100%; background:#fff; }
@@ -3208,10 +3152,10 @@ html, body {
   min-height: 0;
 }
 .prod-enter {
-  animation: prod-in 0.46s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+  animation: prod-in 0.25s cubic-bezier(0.34, 1.4, 0.64, 1) both;
 }
 .prod-exit {
-  animation: prod-out 0.22s cubic-bezier(0.4, 0, 0.6, 1) both;
+  animation: prod-out 0.12s cubic-bezier(0.4, 0, 0.6, 1) both;
   pointer-events: none;
 }
 
