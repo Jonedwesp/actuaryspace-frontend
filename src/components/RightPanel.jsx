@@ -49,11 +49,23 @@ const RightPanel = React.memo(function RightPanel({
   const [addingToList, setAddingToList] = useState(null);
   const [newCardTitle, setNewCardTitle] = useState("");
 
-  const handleCreateCard = async (listId) => {
+  const handleCreateCard = async (listId, bucketTitle) => {
       if (!newCardTitle.trim()) return;
       
       const titleToCreate = newCardTitle.trim();
       const tempId = "temp-" + Date.now(); // Temporary ID for instant UI rendering
+
+      // ⚡ FIX THE FAKE ID BUG: Grab real ID from cache if this list is empty
+      let realTargetListId = listId;
+      if (realTargetListId.startsWith("list-")) {
+          try {
+              const cachedLists = JSON.parse(localStorage.getItem("TRELLO_LISTS_CACHE") || "[]");
+              const realListMatch = cachedLists.find(l => l.title.toLowerCase() === bucketTitle.toLowerCase());
+              if (realListMatch && realListMatch.id) {
+                  realTargetListId = realListMatch.id;
+              }
+          } catch(e) {}
+      }
 
       // 1. Reset input UI immediately
       setAddingToList(null);
@@ -71,7 +83,7 @@ const RightPanel = React.memo(function RightPanel({
                       badges: [],
                       people: [],
                       customFields: {},
-                      listId: listId,
+                      listId: realTargetListId,
                       list: b.title
                   }]
               };
@@ -84,7 +96,7 @@ const RightPanel = React.memo(function RightPanel({
           const res = await fetch("/.netlify/functions/trello-add-card", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ name: titleToCreate, idList: listId })
+              body: JSON.stringify({ name: titleToCreate, idList: realTargetListId })
           });
           const json = await res.json();
           
@@ -404,7 +416,19 @@ const RightPanel = React.memo(function RightPanel({
     const card = destList.cards[itemI];
     if (!card) return;
     
-    console.log(`Moving card to List: ${destList.title}, Index: ${itemI}`);
+    // ⚡ FIX THE FAKE ID BUG FOR MOVES
+    let realTargetListId = destList.id;
+    if (realTargetListId.startsWith("list-")) {
+        try {
+            const cachedLists = JSON.parse(localStorage.getItem("TRELLO_LISTS_CACHE") || "[]");
+            const realListMatch = cachedLists.find(l => l.title.toLowerCase() === destList.title.toLowerCase());
+            if (realListMatch && realListMatch.id) {
+                realTargetListId = realListMatch.id;
+            }
+        } catch(e) {}
+    }
+
+    console.log(`Moving card to List: ${destList.title}, Target ID: ${realTargetListId}, Index: ${itemI}`);
     
     const oldListTitle = knownTrelloCardsRef.current ? knownTrelloCardsRef.current.get(card.id) : null;
     if (oldListTitle && oldListTitle !== destList.title) {
@@ -426,7 +450,7 @@ const RightPanel = React.memo(function RightPanel({
     fetch("/.netlify/functions/trello-move", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cardId: card.id, targetListId: destList.id, newIndex: itemI }),
+        body: JSON.stringify({ cardId: card.id, targetListId: realTargetListId, newIndex: itemI }),
     }).catch(e => console.error("Move failed", e));
   };
   // 4. Style Helper
@@ -1075,7 +1099,7 @@ const RightPanel = React.memo(function RightPanel({
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
-                        handleCreateCard(bucket.id);
+                        handleCreateCard(bucket.id, bucket.title); // 👈 Added bucket.title
                       }
                       if (e.key === 'Escape') {
                         setAddingToList(null);
@@ -1084,9 +1108,9 @@ const RightPanel = React.memo(function RightPanel({
                     }}
                     style={{ width: '100%', border: 'none', resize: 'none', outline: 'none', fontSize: '14px', fontFamily: 'inherit', color: '#172b4d', minHeight: '54px' }}
                   />
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
                     <button 
-                      onClick={() => handleCreateCard(bucket.id)} 
+                      onClick={() => handleCreateCard(bucket.id, bucket.title)} // 👈 Added bucket.title
                       style={{ padding: '6px 12px', borderRadius: '3px', border: 'none', background: '#0b57d0', color: 'white', fontWeight: 500, cursor: 'pointer', fontSize: '13px' }}
                     >
                       Add card

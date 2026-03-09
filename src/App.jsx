@@ -82,124 +82,29 @@ export default function App() {
   const [donnaTranscription, setDonnaTranscription] = useState("");
   const [donnaPendingAction, setDonnaPendingAction] = useState(null);
 
-const playDonnaAudioRef = useRef(null);
-  const { isConnected: isDonnaConnected, connectDonna, disconnectDonna, client: donnaClient } = useDonna({
-    playDonnaAudio: (delta) => {
-      if (playDonnaAudioRef.current) playDonnaAudioRef.current(delta);
+  const { isConnected: isDonnaConnected, connectDonna, disconnectDonna } = useDonna({
+    instructions: "You are Agent Donna, a witty and professional actuarial assistant to Siyabonga (Siya). Be concise and use your tools whenever appropriate. Respond immediately once the user stops talking.",
+    tools: DONNA_TOOLS,
+    onSpeechStart: () => setDonnaTranscription("Hearing you speak..."),
+    onTranscription: (text) => setDonnaTranscription(`You: "${text}"`),
+    onResponseStart: () => setDonnaTranscription("Thinking..."),
+    onResponseDelta: (delta) => setDonnaTranscription(prev => {
+      if (prev === "Thinking..." || prev.startsWith("You:") || prev.startsWith("Donna suggests:")) return delta;
+      return prev + delta;
+    }),
+    onFunctionCall: ({ name, args, call_id }) => {
+      setDonnaPendingAction({ name, args, call_id });
+      setDonnaTranscription(`Donna suggests: ${name.replace(/_/g, " ")}`);
     },
-    onTranscription: (text) => setDonnaTranscription(text)
+    onError: (msg) => setDonnaTranscription(`Error: ${msg}`),
   });
 
-// 1. Connection Lifecycle
+  // Connect Donna on mount
   useEffect(() => {
     connectDonna();
     return () => disconnectDonna();
   }, [connectDonna, disconnectDonna]);
 
-  // 2. CONSOLIDATED DONNA SYNC & LISTENERS
-// 2. CONSOLIDATED DONNA SYNC & LISTENERS
-  useEffect(() => {
-    if (!donnaClient) return;
-
-    window.donnaClient = donnaClient;
-
-
-// We define these as refs or stable functions to prevent re-adding listeners on every isDonnaConnected toggle
-    const handleRealtimeEvent = (realtimeEvent) => {
-      const serverEvent = realtimeEvent.event || realtimeEvent;
-      if (!serverEvent || !serverEvent.type) return;
-
-      if (serverEvent.type !== 'input_audio_buffer.append') {
-        console.log("[OpenAI Server Event]:", serverEvent.type, serverEvent);
-      }
-
-      if (serverEvent.type === 'input_audio_buffer.speech_started') {
-        setDonnaTranscription("Hearing you speak...");
-      }
-
-      if (serverEvent.type === 'conversation.item.input_audio_transcription.completed') {
-        console.log('[Donna] Whisper transcript:', serverEvent.transcript);
-      }
-
-      if (serverEvent.type === 'response.created') {
-        setDonnaTranscription("Thinking...");
-        console.log('[Donna] Response created:', JSON.stringify(serverEvent.response));
-      }
-
-      if (serverEvent.type === 'response.audio_transcript.delta' || serverEvent.type === 'response.text.delta') {
-        setDonnaTranscription(prev => {
-          if (prev === "Thinking..." || prev.startsWith('You:') || prev.startsWith('Donna suggests:')) return serverEvent.delta;
-          return prev + serverEvent.delta;
-        });
-      }
-
-      if (serverEvent.type === 'conversation.item.input_audio_transcription.failed') {
-        console.warn('[Donna] Transcription failed:', serverEvent.error);
-      }
-
-      if (serverEvent.type === 'response.done') {
-        const r = serverEvent.response;
-        console.log('[Donna] Response done:', JSON.stringify({ status: r?.status, status_details: r?.status_details, output_count: r?.output?.length, usage: r?.usage }));
-        if (r && (r.status === 'failed' || r.status === 'cancelled' ||
-            (r.status === 'completed' && (!r.output || r.output.length === 0)))) {
-          setDonnaTranscription('');
-        }
-      }
-
-      if (serverEvent.type === 'error') {
-        setDonnaTranscription(`Error: ${serverEvent.error?.message}`);
-      }
-    };
-    const handleItemCreated = ({ item }) => {
-      if (item.type === 'function_call') {
-        try {
-          const args = JSON.parse(item.arguments || "{}");
-          
-          // Ruan Debug: Log exactly what Donna is sending back
-          console.log(`[Ruan Logic] Tool Discovery: ${item.name}`);
-          console.table(args);
-          
-          setDonnaPendingAction({ name: item.name, args, call_id: item.call_id });
-          setDonnaTranscription(`Donna suggests: ${item.name.replace(/_/g, ' ')}`);
-        } catch (e) {
-          console.error("[Donna] Failed to parse tool arguments:", e);
-        }
-      }
-    };
-
-
-    donnaClient.on('realtime.event', handleRealtimeEvent);
-    donnaClient.on('conversation.item.created', handleItemCreated);
-
-    if (isDonnaConnected) {
-      console.log("[Donna] Session Active. Configuring Voice & Transcription...");
-
-      const flattenedTools = DONNA_TOOLS.map(t => ({
-        type: 'function',
-        name: t.function.name,
-        description: t.function.description,
-        parameters: t.function.parameters
-      }));
-
-      donnaClient.updateSession({
-        instructions: "You are Agent Donna, a witty and professional actuarial assistant to Siyabonga (Siya). Be concise and use your tools whenever appropriate.",
-        modalities: ["text", "audio"],
-        voice: "alloy",
-        turn_detection: {
-          type: 'server_vad',
-          threshold: 0.6,
-          silence_duration_ms: 800
-        },
-        tools: flattenedTools,
-        tool_choice: 'auto',
-      });
-    }
-
-    return () => {
-      donnaClient.off('realtime.event', handleRealtimeEvent);
-      donnaClient.off('conversation.item.created', handleItemCreated);
-    };
-  }, [donnaClient, isDonnaConnected]);
 
   const reportSystemError = (source, message) => setSystemErrors(prev => ({ ...prev, [source]: message }));
   const clearSystemError = (source) => setSystemErrors(prev => { const next = { ...prev }; delete next[source]; return next; });
@@ -478,14 +383,7 @@ const [searchQuery, setSearchQuery] = useState("");
     inputValue, setInputValue,
   });
 
-  const { 
-    isRecording, startRecording, stopRecording,
-    initDonnaAudio, startDonnaMic, stopDonnaMic, playDonnaAudio
-  } = useRecording({ setPendingUpload });
-
-  useEffect(() => {
-    playDonnaAudioRef.current = playDonnaAudio;
-  }, [playDonnaAudio]);
+  const { isRecording, startRecording, stopRecording } = useRecording({ setPendingUpload });
 
 const chatTextareaRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -858,7 +756,6 @@ return (
         onClose={() => {
           setIsDonnaActive(false);
           setDonnaTranscription("");
-          stopDonnaMic();
         }}
       />
 
@@ -866,47 +763,14 @@ return (
       <div
           className="brand-rect"
           title="Agent Donna"
-          onClick={async (e) => {
+          onClick={(e) => {
             const el = e.currentTarget;
             el.style.animation = 'none';
             void el.offsetWidth;
             el.style.animation = 'press-bounce 0.25s ease';
-
-            if (!isDonnaActive) {
-              setIsDonnaLoading(true);
-              await initDonnaAudio();
-              
-  let audioChunkCount = 0;
-              startDonnaMic((audioData) => {
-                if (window.donnaClient) {
-                  audioChunkCount++;
-                  
-                  let pcmData;
-                  if (audioData instanceof Float32Array) {
-                    pcmData = new Int16Array(audioData.length);
-                    for (let i = 0; i < audioData.length; i++) {
-                      const s = Math.max(-1, Math.min(1, audioData[i]));
-                      pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-                    }
-                  } else {
-                    pcmData = new Int16Array(audioData.buffer || audioData);
-                  }
-
-                  if (audioChunkCount === 10) {
-                    let maxVol = 0;
-                    for (let i = 0; i < pcmData.length; i++) {
-                      if (Math.abs(pcmData[i]) > maxVol) maxVol = Math.abs(pcmData[i]);
-                    }
-                    console.log(`[Donna] Audio stream verified. Max volume in this chunk: ${maxVol} (If this is 0, your mic is dead/blocked)`);
-                  }
-                  window.donnaClient.appendInputAudio(pcmData);
-                }
-              });
-            } else {
-                 stopDonnaMic();
-            }
+            if (!isDonnaActive) setIsDonnaLoading(true);
             setIsDonnaActive(!isDonnaActive);
-          }}
+          }}
           style={{ width: '100%', height: '140px', overflow: 'hidden', borderRadius: '12px', cursor: 'pointer', background: '#f1f3f4', position: 'relative' }}
         >
           {isDonnaActive ? (
