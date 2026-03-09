@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import StorytellerMockup from "./StorytellerMockup";
 import BlueprintVideo from "./BlueprintVideo";
+import { useDonna } from "./hooks/useDonna.js";
 import { useDebounce } from "./hooks/useDebounce.js";
 import { useRecording } from "./hooks/useRecording.js";
 import { useCalendar } from "./hooks/useCalendar.js";
@@ -72,10 +73,18 @@ export const launchWorkstationWindow = (url) => {
 };
 
 export default function App() {
-  const [callBtnHovered, setCallBtnHovered] = useState(false);
-  const [systemErrors, setSystemErrors] = useState({});
-  const [showSystemPopup, setShowSystemPopup] = useState(false);
-  const reportSystemError = (source, message) => setSystemErrors(prev => ({ ...prev, [source]: message }));
+  const [callBtnHovered, setCallBtnHovered] = useState(false);
+  const [systemErrors, setSystemErrors] = useState({});
+  const [showSystemPopup, setShowSystemPopup] = useState(false);
+
+  const { isConnected: isDonnaConnected, connectDonna, disconnectDonna, client: donnaClient } = useDonna();
+
+  useEffect(() => {
+    connectDonna();
+    return () => disconnectDonna();
+  }, [connectDonna, disconnectDonna]);
+
+  const reportSystemError = (source, message) => setSystemErrors(prev => ({ ...prev, [source]: message }));
   const clearSystemError = (source) => setSystemErrors(prev => { const next = { ...prev }; delete next[source]; return next; });
   useEffect(() => {
     const onReport = (e) => setSystemErrors(prev => ({ ...prev, [e.detail.source]: e.detail.message }));
