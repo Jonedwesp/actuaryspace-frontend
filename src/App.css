@@ -3003,17 +3003,12 @@ html, body {
 }
 
 .brand-rect {
-  height: 130px; /* 🎯 Updated to your latest preferred height */
+  height: 130px;
   background-color: #f1f3f4;
   border-radius: 12px;
-  
-  /* 🎯 NEW: Thin light grey border for definition */
-  border: 1px solid #e2e2e2; 
-  
-  /* 🎯 NEW: Light shadow focused on the bottom and right for "breadth" */
-  box-shadow: 4px 4px 10px rgba(0, 0, 0, 0.1); 
-  
-  overflow: hidden;    
+  border: 1px solid #8993a4;
+  box-shadow: 0 1px 1px rgba(9, 30, 66, 0.25), 0 0 1px rgba(9, 30, 66, 0.31);
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;

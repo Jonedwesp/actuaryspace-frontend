@@ -1,6 +1,30 @@
 // src/utils/donnaTools.js
 
 export const DONNA_TOOLS = [
+  // navigate_to_app — auto-executed without approval
+  {
+    "type": "function",
+    "function": {
+      "name": "navigate_to_app",
+      "description": "Open or close a specific app or screen. Use this when the user asks to open or close Gmail, Google Chat, Calendar, Trello, the Productivity dashboard, or a specific Trello card by name. Use 'none' to close the current app and return to the home screen.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "string",
+            "enum": ["gmail", "gchat", "calendar", "trello", "productivity", "none"],
+            "description": "The app to navigate to. Use 'none' to close the current app."
+          },
+          "trello_card_name": {
+            "type": "string",
+            "description": "Optional. Part of the name of a specific Trello card to open. Only used when app is 'trello'."
+          }
+        },
+        "required": ["app"]
+      }
+    }
+  },
+
   // calendar-create.js
   {
     "type": "function",

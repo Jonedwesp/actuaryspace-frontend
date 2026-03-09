@@ -3,10 +3,9 @@ import { useState, useCallback, useRef, useEffect } from "react";
 export function useDonna({
   instructions,
   tools,
-  onSpeechStart,
   onTranscription,
-  onResponseStart,
   onResponseDelta,
+  onResponseEnd,
   onFunctionCall,
   onError,
 }) {
@@ -18,8 +17,8 @@ export function useDonna({
   // Keep callbacks and config current without causing reconnects
   const callbacksRef = useRef({});
   useEffect(() => {
-    callbacksRef.current = { onSpeechStart, onTranscription, onResponseStart, onResponseDelta, onFunctionCall, onError };
-  }, [onSpeechStart, onTranscription, onResponseStart, onResponseDelta, onFunctionCall, onError]);
+    callbacksRef.current = { onTranscription, onResponseDelta, onResponseEnd, onFunctionCall, onError };
+  }, [onTranscription, onResponseDelta, onResponseEnd, onFunctionCall, onError]);
 
   const configRef = useRef({ instructions, tools });
   useEffect(() => {
@@ -83,12 +82,17 @@ export function useDonna({
           session: {
             instructions: inst || "You are Agent Donna, a professional actuarial assistant.",
             modalities: ["text", "audio"],
-            voice: "alloy",
+            voice: "marin",
+            //- shimmer — soft, clear                                                                                                                                                                                 
+            //- coral — warm, natural                                                                                                                                                                                 
+            //- sage — calm, measured                                                                                                                                                                                 
+            //- marin — (new, likely female) 
+            speed: 1.4,
             input_audio_transcription: { model: "gpt-4o-mini-transcribe" },
             turn_detection: {
               type: "server_vad",
-              threshold: 0.4,
-              silence_duration_ms: 600,
+              threshold: 0.7,
+              silence_duration_ms: 800,
             },
             tools: flatTools,
             tool_choice: "auto",
@@ -107,18 +111,16 @@ export function useDonna({
           console.log("[Donna Event]:", t, event);
         }
 
-        if (t === "input_audio_buffer.speech_started") {
-          cb.onSpeechStart?.();
-        } else if (t === "conversation.item.input_audio_transcription.completed") {
+        if (t === "conversation.item.input_audio_transcription.completed") {
           cb.onTranscription?.(event.transcript);
-        } else if (t === "response.created") {
-          cb.onResponseStart?.();
         } else if (t === "response.audio_transcript.delta" || t === "response.text.delta") {
           cb.onResponseDelta?.(event.delta);
         } else if (t === "response.function_call_arguments.done") {
           let args = {};
           try { args = JSON.parse(event.arguments); } catch {}
           cb.onFunctionCall?.({ name: event.name, args, call_id: event.call_id });
+        } else if (t === "output_audio_buffer.stopped") {
+          cb.onResponseEnd?.();
         } else if (t === "error") {
           cb.onError?.(event.error?.message || "Unknown error");
         }
@@ -172,5 +174,11 @@ export function useDonna({
     }
   }, [disconnectDonna]);
 
-  return { isConnected, connectDonna, disconnectDonna };
+  const sendSessionUpdate = useCallback((updates) => {
+    if (dcRef.current?.readyState === "open") {
+      dcRef.current.send(JSON.stringify({ type: "session.update", session: updates }));
+    }
+  }, []);
+
+  return { isConnected, connectDonna, disconnectDonna, sendSessionUpdate };
 }

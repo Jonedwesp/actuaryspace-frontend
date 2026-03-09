@@ -53,7 +53,7 @@ export function LeftPanel({
             style={{ position: "relative" }}
           >
             <img src={n.icon} alt={n.alt} className="icon" />
-            <span style={{ flex: 1, paddingRight: "8px", lineHeight: "1.4" }}>
+            <span style={{ flex: 1, paddingRight: "8px", lineHeight: "1.4", display: "-webkit-box", WebkitLineClamp: 5, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
               [{n.time}]{" "}
               {(() => {
                 const colonIdx = n.text.indexOf(":");

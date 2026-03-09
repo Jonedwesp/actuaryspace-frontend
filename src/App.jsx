@@ -82,19 +82,44 @@ export default function App() {
   const [donnaTranscription, setDonnaTranscription] = useState("");
   const [donnaPendingAction, setDonnaPendingAction] = useState(null);
 
-  const { isConnected: isDonnaConnected, connectDonna, disconnectDonna } = useDonna({
-    instructions: "You are Agent Donna, a witty and professional actuarial assistant to Siyabonga (Siya). Be concise and use your tools whenever appropriate. Respond immediately once the user stops talking.",
+  const donnaRespondingRef = useRef(false);
+  const [donnaKey, setDonnaKey] = useState(0);
+
+  const { isConnected: isDonnaConnected, connectDonna, disconnectDonna, sendSessionUpdate } = useDonna({
+    instructions: "You are Agent Donna, a witty and professional actuarial assistant to Siyabonga (Siya). Be concise and use your tools whenever appropriate. Respond immediately once the user stops talking. IMPORTANT: Always respond in English only, regardless of what language the user speaks in.",
     tools: DONNA_TOOLS,
-    onSpeechStart: () => setDonnaTranscription("Hearing you speak..."),
-    onTranscription: (text) => setDonnaTranscription(`You: "${text}"`),
-    onResponseStart: () => setDonnaTranscription("Thinking..."),
-    onResponseDelta: (delta) => setDonnaTranscription(prev => {
-      if (prev === "Thinking..." || prev.startsWith("You:") || prev.startsWith("Donna suggests:")) return delta;
-      return prev + delta;
-    }),
+    onTranscription: (text) => {
+      if (!donnaRespondingRef.current) setDonnaTranscription("");
+    },
+    onResponseDelta: (delta) => {
+      const isFirst = !donnaRespondingRef.current;
+      donnaRespondingRef.current = true;
+      if (isFirst) setDonnaKey(k => k + 1);
+      setIsDonnaSpeaking(true);
+      setDonnaTranscription(prev => isFirst ? delta : prev + delta);
+    },
+    onResponseEnd: () => {
+      donnaRespondingRef.current = false;
+      setIsDonnaSpeaking(false);
+    },
     onFunctionCall: ({ name, args, call_id }) => {
+      // Auto-execute navigation — no approval needed
+      if (name === "navigate_to_app") {
+        setCurrentView({ app: args.app, contact: null });
+        if (args.app === "trello" && args.trello_card_name) {
+          const query = (args.trello_card_name || "").toLowerCase();
+          let found = null;
+          for (const cards of Object.values(trelloBuckets || {})) {
+            const match = (cards || []).find(c => (c.title || c.name || "").toLowerCase().includes(query));
+            if (match) { found = match; break; }
+          }
+          if (found) window.dispatchEvent(new CustomEvent("openTrelloCard", { detail: found }));
+        }
+        return;
+      }
+      // All other tools require approval
       setDonnaPendingAction({ name, args, call_id });
-      setDonnaTranscription(`Donna suggests: ${name.replace(/_/g, " ")}`);
+      setDonnaTranscription(`Donna wants to: ${name.replace(/_/g, " ")}`);
     },
     onError: (msg) => setDonnaTranscription(`Error: ${msg}`),
   });
@@ -104,6 +129,7 @@ export default function App() {
     connectDonna();
     return () => disconnectDonna();
   }, [connectDonna, disconnectDonna]);
+
 
 
   const reportSystemError = (source, message) => setSystemErrors(prev => ({ ...prev, [source]: message }));
@@ -131,6 +157,7 @@ export default function App() {
   }, []);
 
   const [isDonnaActive, setIsDonnaActive] = useState(false);
+  const [isDonnaSpeaking, setIsDonnaSpeaking] = useState(false);
   const [isDonnaLoading, setIsDonnaLoading] = useState(false);
   const [isBlueprintActive, setIsBlueprintActive] = useState(false);
 
@@ -143,6 +170,8 @@ export default function App() {
 
  const [currentView, setCurrentView] = useState({ app: "none", contact: null });
   const [showWelcome, setShowWelcome] = useState(true);
+
+
 
  const handleApproveDonna = () => {
     if (!donnaPendingAction) return;
@@ -384,6 +413,64 @@ const [searchQuery, setSearchQuery] = useState("");
   });
 
   const { isRecording, startRecording, stopRecording } = useRecording({ setPendingUpload });
+
+  // Update Donna's session instructions with current screen context
+  useEffect(() => {
+    if (!isDonnaConnected) return;
+    const app = currentView.app;
+    let ctx = "You are Agent Donna, a witty and professional actuarial assistant to Siyabonga (Siya, pronounced See-yah). Be concise and use your tools whenever appropriate. Respond immediately once the user stops talking. IMPORTANT: Always respond in English only, regardless of what language the user speaks in.\n\n";
+    ctx += `Current screen: ${app === "none" ? "Home / welcome screen" : app}.\n`;
+
+    if (app === "gmail" || app === "email") {
+      if (email) {
+        ctx += `Selected email: "${email.subject}" from ${email.fromName || email.from || "unknown"}.\n`;
+        if (email.snippet) ctx += `Preview: ${email.snippet.slice(0, 300)}\n`;
+      } else if (gmailEmails?.length) {
+        ctx += `Inbox (${gmailFolder}): ${gmailEmails.slice(0, 8).map(e => `"${e.subject}" from ${(e.from || "").split("<")[0].trim() || "unknown"} — ${e.snippet ? e.snippet.slice(0, 60) : ""}`).join("; ")}.\n`;
+      }
+    } else if (app === "gchat") {
+      const spaceName = gchatSelectedSpace?.displayName || gchatDmNames?.[gchatSelectedSpace?.id] || "Unknown";
+      ctx += `Open conversation: "${spaceName}".\n`;
+      if (gchatMessages?.length) {
+        ctx += `Recent messages: ${gchatMessages.slice(-8).map(m => `${m.sender?.displayName || "Someone"}: "${(m.text || "").slice(0, 100)}"`).join("; ")}.\n`;
+      }
+    } else if (app === "trello") {
+      if (trelloCard) {
+        ctx += `Open Trello card: "${trelloCard.title || trelloCard.name}".\n`;
+        if (trelloCard.description) ctx += `Card description: ${trelloCard.description.slice(0, 300)}\n`;
+        if (trelloCard.labels?.length) ctx += `Labels: ${trelloCard.labels.join(", ")}.\n`;
+        if (trelloCard.customFields) {
+          const cf = trelloCard.customFields;
+          if (cf.Priority) ctx += `Priority: ${cf.Priority}.\n`;
+          if (cf.Status) ctx += `Status: ${cf.Status}.\n`;
+        }
+      } else if (trelloBuckets) {
+        ctx += `Trello board lists: ${Object.keys(trelloBuckets).join(", ")}.\n`;
+      }
+    } else if (app === "calendar") {
+      if (selectedEvent) {
+        ctx += `Selected event: "${selectedEvent.summary}" on ${(selectedEvent.start?.dateTime || selectedEvent.start?.date || "").split("T")[0]}.\n`;
+      }
+      if (calendarEvents?.length) {
+        const today = new Date().toISOString().split("T")[0];
+        const todayEvts = calendarEvents.filter(e => (e.start?.dateTime || e.start?.date || "").startsWith(today));
+        ctx += `Today's events: ${todayEvts.map(e => e.summary).join(", ") || "none"}.\n`;
+        ctx += `Upcoming: ${calendarEvents.slice(0, 8).map(e => `"${e.summary}" on ${(e.start?.dateTime || e.start?.date || "").split("T")[0]}`).join("; ")}.\n`;
+      }
+    } else if (app === "productivity") {
+      if (trelloBuckets) {
+        const lists = Object.entries(trelloBuckets);
+        ctx += `Productivity board overview:\n`;
+        lists.forEach(([listName, cards]) => {
+          if (cards?.length) ctx += `  ${listName} (${cards.length} cards): ${cards.slice(0, 3).map(c => c.title || c.name).join(", ")}.\n`;
+        });
+      }
+    }
+
+    console.log("[Donna Context]", ctx);
+    sendSessionUpdate({ instructions: ctx });
+  }, [isDonnaConnected, currentView.app, email, gchatSelectedSpace, gchatDmNames, trelloCard, gmailEmails, gchatMessages, calendarEvents, selectedEvent, gchatSpaces, trelloBuckets, gmailFolder, sendSessionUpdate]);
+
 
 const chatTextareaRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -748,14 +835,15 @@ return (
   <PasswordGate persona={PERSONA}>
     <div className="app">
       <DonnaBubble
+        key={donnaKey}
         transcription={donnaTranscription}
         isListening={isDonnaActive}
         showActions={donnaPendingAction !== null}
         onApprove={handleApproveDonna}
         onReject={handleRejectDonna}
         onClose={() => {
-          setIsDonnaActive(false);
           setDonnaTranscription("");
+          setIsDonnaActive(false);
         }}
       />
 
@@ -773,7 +861,7 @@ return (
           }}
           style={{ width: '100%', height: '140px', overflow: 'hidden', borderRadius: '12px', cursor: 'pointer', background: '#f1f3f4', position: 'relative' }}
         >
-          {isDonnaActive ? (
+          {isDonnaSpeaking ? (
             <video
               src={agentDonnaVideo}
               autoPlay

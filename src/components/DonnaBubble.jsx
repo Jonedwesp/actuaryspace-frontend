@@ -1,120 +1,118 @@
-import React from "react";
+import React, { useRef, useEffect, useState, useCallback } from "react";
 
 export default function DonnaBubble({ transcription, isListening, showActions, onApprove, onReject, onClose }) {
-  if (!transcription && !isListening) return null;
+  const containerRef = useRef(null);
+  const [isExiting, setIsExiting] = useState(false);
+  const [animDone, setAnimDone] = useState(false);
+  const exitTimerRef = useRef(null);
 
-  return (
-    <div style={styles.container}>
-      <style>
-        {`
-          @keyframes donnaPulse {
-            0% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0.4); }
-            70% { box-shadow: 0 0 0 10px rgba(234, 67, 53, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(234, 67, 53, 0); }
-          }
-        `}
-      </style>
-      
-      <button onClick={onClose} style={styles.closeButton} title="Close">×</button>
+  const shouldShow = !!(transcription || isListening);
 
-      <div style={styles.header}>
-        <div style={{
-          ...styles.indicator,
-          ...(isListening ? styles.pulsing : styles.idle)
-        }}></div>
-        <span style={styles.title}>Agent Donna</span>
-      </div>
-      
-   <div style={styles.transcription}>
-        {isListening && !transcription ? "Listening..." : transcription}
-      </div>
+  const dismiss = useCallback(() => {
+    if (isExiting) return;
+    setIsExiting(true);
+    setAnimDone(false);
+    exitTimerRef.current = setTimeout(() => {
+      setIsExiting(false);
+      onClose();
+    }, 320);
+  }, [isExiting, onClose]);
 
-      {showActions && (
-        <div style={styles.actionContainer}>
-          <button onClick={onReject} style={{...styles.button, ...styles.rejectButton}}>Reject</button>
-          <button onClick={onApprove} style={{...styles.button, ...styles.approveButton}}>Approve</button>
-        </div>
-      )}
-    </div>
-  );
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        dismiss();
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      clearTimeout(exitTimerRef.current);
+    };
+  }, [dismiss]);
+
+  if (!shouldShow && !isExiting) return null;
+
+  return (
+    <div
+      ref={containerRef}
+      onAnimationEnd={() => { if (!isExiting) setAnimDone(true); }}
+      style={{
+        ...styles.container,
+        transformOrigin: "top left",
+        animation: isExiting
+          ? "donnaCollapse 0.25s cubic-bezier(0.4, 0, 1, 1) forwards"
+          : animDone
+            ? "none"
+            : "donnaExpand 0.45s cubic-bezier(0.34, 1.5, 0.64, 1) forwards",
+      }}
+    >
+      <style>{`
+        @keyframes donnaExpand {
+          from { transform: scale(0); opacity: 0; }
+          to   { transform: scale(1); opacity: 1; }
+        }
+        @keyframes donnaCollapse {
+          from { transform: scale(1); opacity: 1; }
+          to   { transform: scale(0); opacity: 0; }
+        }
+      `}</style>
+
+      <div style={styles.transcription}>
+        {isListening && !transcription ? "Listening..." : transcription}
+      </div>
+
+      {showActions && (
+        <div style={styles.actionContainer}>
+          <button onClick={onReject} style={{ ...styles.button, ...styles.rejectButton }}>Reject</button>
+          <button onClick={onApprove} style={{ ...styles.button, ...styles.approveButton }}>Approve</button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 const styles = {
-  container: {
-    position: "fixed",      // 👈 CHANGE THIS from absolute to fixed
-    bottom: "100px",        // 👈 Move it up a bit so it's not behind the chat bar
-    right: "40px",          // 👈 Move it to the right side of the screen
-    width: "320px",
-    backgroundColor: "#ffffff",
-    border: "1px solid #dadce0",
-    borderRadius: "12px",
-    padding: "16px",
-    boxShadow: "0 8px 24px rgba(0,0,0,0.2)", // Make the shadow stronger
-    zIndex: 9999,           // 👈 CRITICAL: Force it to the very front
-    fontFamily: "'Google Sans', Roboto, sans-serif"
-  },
-  closeButton: {
-    position: "absolute",
-    top: "8px",
-    right: "12px",
-    background: "transparent",
-    border: "none",
-    fontSize: "18px",
-    color: "#5f6368",
-    cursor: "pointer",
-    padding: "4px"
+  container: {
+    position: "fixed",
+    top: "16px",
+    left: "calc(20% - 12px)",
+    width: "420px",
+    backgroundColor: "#ffffff",
+    border: "1px solid #8993a4",
+    borderRadius: "12px",
+    padding: "20px 24px",
+    boxShadow: "0 1px 1px rgba(9,30,66,0.25), 0 0 1px rgba(9,30,66,0.31)",
+    zIndex: 9999,
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', sans-serif",
   },
-  header: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    marginBottom: "12px"
-  },
-  indicator: {
-    width: "12px",
-    height: "12px",
-    borderRadius: "50%",
-  },
-  pulsing: {
-    backgroundColor: "#ea4335",
-    animation: "donnaPulse 1.5s infinite"
-  },
-  idle: {
-    backgroundColor: "#dadce0"
-  },
-  title: {
-    fontWeight: "600",
-    fontSize: "14px",
-    color: "#3c4043"
-  },
-  transcription: {
-    fontSize: "14px",
-    color: "#5f6368",
-    marginBottom: "16px",
-    minHeight: "20px",
-    fontStyle: "italic",
+  transcription: {
+    fontSize: "16px",
+    color: "#202124",
+    minHeight: "20px",
     whiteSpace: "pre-wrap",
-    wordBreak: "break-word"
-  },
-  actionContainer: {
-    display: "flex",
-    justifyContent: "flex-end",
-    gap: "8px"
-  },
-  button: {
-    padding: "6px 16px",
-    border: "none",
-    borderRadius: "4px",
-    cursor: "pointer",
-    fontSize: "14px",
-    fontWeight: "500"
-  },
-  approveButton: {
-    backgroundColor: "#34a853",
-    color: "white"
-  },
-  rejectButton: {
-    backgroundColor: "#ea4335",
-    color: "white"
-  }
+    wordBreak: "break-word",
+  },
+  actionContainer: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: "8px",
+    marginTop: "16px",
+  },
+  button: {
+    padding: "6px 16px",
+    border: "none",
+    borderRadius: "4px",
+    cursor: "pointer",
+    fontSize: "14px",
+    fontWeight: "500",
+  },
+  approveButton: {
+    backgroundColor: "#34a853",
+    color: "white",
+  },
+  rejectButton: {
+    backgroundColor: "#ea4335",
+    color: "white",
+  },
 };
