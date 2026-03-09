@@ -6,6 +6,7 @@ import {
   ensureBadgeTypes, getTrelloCoverColor, getLabelColor, getCFColorClass, priorityTypeFromText
 } from "../utils/trelloUtils.js";
 import PopupSpring from "./PopupSpring.jsx";
+import SmartLink from "./SmartLink.jsx";
 
 const trelloIcon = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='4' fill='%230079bf'/%3E%3Crect x='5' y='5' width='6' height='14' rx='1.5' fill='%23ffffff'/%3E%3Crect x='13' y='5' width='6' height='9' rx='1.5' fill='%23ffffff'/%3E%3C/svg%3E";
 
