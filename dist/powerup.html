@@ -7,23 +7,19 @@
   </head>
   <body>
     <script>
-      // Initialize the Power-Up
       window.TrelloPowerUp.initialize({
-        
-        // THE NEW MIDDLE SECTION (Embeds the timer natively on the face of the card)
         'card-back-section': function(t, options) {
           return {
             title: 'WorkFlow Timer',
-            // Pro-tip: Swap this to a .png or .svg if the .ico looks blurry on Mac/Retina screens!
             icon: 'https://siya.actuaryspace.co.za/favicon.ico', 
             content: {
               type: 'iframe',
-              url: t.signUrl('./timer-ui.html'), 
-              height: 110 // 👈 Lowered height so there isn't massive white space below the button
+              // 👇 THE FIX: Added "?v=newjson" to force Trello to clear its cache
+              url: t.signUrl('./timer-ui.html?v=newjson'), 
+              height: 110
             }
           };
         }
-
       });
     </script>
   </body>

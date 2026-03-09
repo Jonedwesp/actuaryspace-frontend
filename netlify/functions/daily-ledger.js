@@ -22,7 +22,7 @@ async function captureSnapshot(event) {
     const base = "https://api.trello.com/1";
     const auth = `key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`;
     
-    // 1. Fetch live Trello data (Lists, Cards, Members, and Custom Fields)
+    // 1. Fetch live Trello data
     const [listsRes, cardsRes, membersRes, customFieldsRes] = await Promise.all([
       fetch(`${base}/boards/${TRELLO_BOARD_ID}/lists?${auth}`),
       fetch(`${base}/boards/${TRELLO_BOARD_ID}/cards?customFieldItems=true&fields=name,idList,idMembers&${auth}`),
@@ -39,7 +39,6 @@ async function captureSnapshot(event) {
     const reviewListId = lists.find(l => l.name === "Siya - Review")?.id;
     const yolandieListId = lists.find(l => l.name === "Yolandie to Send")?.id;
     
-    // 🟢 UPDATED to look for the WorkFlow fields with the [SYSTEM] tag
     const durationFieldId = customFields.find(f => f.name === "[SYSTEM]WorkDuration")?.id;
     const timerStartFieldId = customFields.find(f => f.name === "[SYSTEM]WorkTimerStart")?.id;
 
@@ -52,34 +51,45 @@ async function captureSnapshot(event) {
     targetUsers.forEach(user => {
       let completedCards = [];
       let totalMinutes = 0;
+      
+      // Safely grab the member ID (e.g. mapping "Siya - Review" to "Siya")
+      const memberId = members.find(m => m.fullName.toLowerCase().includes(user.split(' ')[0].toLowerCase()))?.id;
 
-      if (user === "Siya - Review") {
-        // Siya's Score: Cards currently in Yolandie to Send
-        completedCards = cards.filter(c => c.idList === yolandieListId && !c.name.toLowerCase().includes("out of office"));
-        
-        // Siya's Time: Sum time across ALL cards assigned to the person Siya
-        const siyaMemberId = members.find(m => m.fullName.toLowerCase().includes("siya"))?.id;
-        const allSiyaCards = cards.filter(c => c.idMembers.includes(siyaMemberId));
-        totalMinutes = calculateTime(allSiyaCards, durationFieldId, timerStartFieldId, nowMs);
+      cards.forEach(c => {
+        if (c.name.toLowerCase().includes("out of office")) return;
 
-      } else {
-        // Data Capturers
-        const memberId = members.find(m => m.fullName.toLowerCase().includes(user.toLowerCase()))?.id;
-        const assignedCards = cards.filter(c => c.idMembers.includes(memberId) && !c.name.toLowerCase().includes("out of office"));
-        
-        // Data Capturer Score: Cards they worked on that are in Review OR Yolandie to Send
-        completedCards = assignedCards.filter(c => c.idList === reviewListId || c.idList === yolandieListId);
-        
-        // Data Capturer Time
-        totalMinutes = calculateTime(assignedCards, durationFieldId, timerStartFieldId, nowMs);
-      }
+        // 🟢 NEW: Use the JSON-aware time calculator to pull EXACTLY this user's time
+        const { minutes, workedOnIt } = getCardTimeForUser(c, durationFieldId, timerStartFieldId, user, nowMs, lists);
+        totalMinutes += minutes;
 
-      // Format Time beautifully (e.g., 4h 15m)
+        // Completed Logic
+        if (user === "Siya - Review") {
+          // Siya's Score: All cards currently sitting in Yolandie to Send
+          if (c.idList === yolandieListId) {
+             completedCards.push(c);
+          }
+        } else {
+          // Data Capturers Score: Cards in Review or Yolandie to Send
+          const isCompleted = (c.idList === reviewListId || c.idList === yolandieListId);
+          
+          // 🟢 NEW: Give credit if they explicitly tracked time on it OR are assigned to it
+          const belongsToUser = workedOnIt || (memberId && c.idMembers.includes(memberId));
+          
+          if (isCompleted && belongsToUser) {
+             completedCards.push(c);
+          }
+        }
+      });
+
+      // Deduplicate cards just to be safe
+      completedCards = [...new Map(completedCards.map(item => [item.id, item])).values()];
+
+      // Format Time beautifully
       const h = Math.floor(totalMinutes / 60);
       const m = Math.floor(totalMinutes % 60);
       const timeStr = `${h}h ${m}m`;
 
-      // Extract specific card names and join them with a separator
+      // Extract specific card names and join them
       const cardNamesStr = completedCards.map(c => c.name).join("  |  ");
 
       // Push all 5 columns to the row
@@ -99,7 +109,7 @@ async function captureSnapshot(event) {
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: DAILY_LEDGER_SHEET_ID,
-      range: 'Daily Ledger!A:E', // 🟢 Changed to A:E to include the 5th column
+      range: 'Daily Ledger!A:E',
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: snapshotRows },
     });
@@ -113,28 +123,60 @@ async function captureSnapshot(event) {
   }
 }
 
-// Helper function to extract and sum time from Trello Custom Fields
-function calculateTime(cardArray, durationId, timerStartId, nowMs) {
+// 🟢 NEW HELPER: Extracts JSON time and determines fair ownership
+function getCardTimeForUser(c, durationId, timerStartId, targetListName, nowMs, lists) {
   let minutes = 0;
-  cardArray.forEach(c => {
-    const cfItems = c.customFieldItems || [];
-    
-    // Add saved duration
-    const durItem = cfItems.find(item => item.idCustomField === durationId);
-    if (durItem && durItem.value?.text) {
-      minutes += parseFloat(durItem.value.text);
+  let workedOnIt = false;
+  const cfItems = c.customFieldItems || [];
+  const targetListId = lists.find(l => l.name === targetListName)?.id;
+  
+  // 1. Extract Saved Duration JSON
+  const durItem = cfItems.find(item => item.idCustomField === durationId);
+  if (durItem && durItem.value?.text) {
+    const rawDur = String(durItem.value.text);
+    if (rawDur.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(rawDur);
+        if (parsed[targetListName]) {
+          minutes += parseFloat(parsed[targetListName]);
+          workedOnIt = true;
+        }
+      } catch(e) {}
+    } else if (c.idList === targetListId) {
+       // Legacy fallback: if it's a raw number, count it if it's currently in their list
+       minutes += parseFloat(rawDur) || 0;
+       workedOnIt = true;
     }
-    
-    // Add currently ticking timer
-    const startItem = cfItems.find(item => item.idCustomField === timerStartId);
-    if (startItem && startItem.value?.text) {
-      const startVal = parseFloat(startItem.value.text);
-      if (startVal > 1000000000000) { 
-        minutes += (nowMs - startVal) / 1000 / 60;
+  }
+  
+  // 2. Extract Active Ticking Timer (timestamp|listName)
+  const startItem = cfItems.find(item => item.idCustomField === timerStartId);
+  if (startItem && startItem.value?.text) {
+    const rawStart = String(startItem.value.text);
+    if (rawStart.includes("|")) {
+      const parts = rawStart.split("|");
+      const startTsStr = parts[0];
+      const listName = parts[1];
+      
+      if (listName === targetListName) {
+        const startVal = parseFloat(startTsStr);
+        if (startVal > 1000000000000) {
+          minutes += (nowMs - startVal) / 1000 / 60;
+          workedOnIt = true;
+        }
       }
+    } else if (c.idList === targetListId) {
+       // Legacy fallback
+       const startVal = parseFloat(rawStart);
+       if (startVal > 1000000000000) {
+          minutes += (nowMs - startVal) / 1000 / 60;
+          workedOnIt = true;
+       }
     }
-  });
-  return minutes;
+  }
+  
+  if (isNaN(minutes) || minutes < 0) minutes = 0;
+  return { minutes, workedOnIt };
 }
 
 export const handler = schedule(cronExpression, captureSnapshot);

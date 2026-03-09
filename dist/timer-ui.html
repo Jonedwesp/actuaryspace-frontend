@@ -43,10 +43,12 @@
   </div>
 
   <script>
-    // 1. Initialize Trello Context
     const t = window.TrelloPowerUp.iframe();
     let cardId = null;
-    let workDuration = 0;
+    
+    let workDurationTotal = 0; 
+    let workDurationObj = {};
+    let currentBucketName = "Inbox";
     let workTimerStart = null;
     let liveInterval = null;
 
@@ -56,8 +58,8 @@
     const startBtn = document.getElementById('start-btn');
     const stopBtn = document.getElementById('stop-btn');
 
-    // --- Time Formatting Helper ---
     function formatTime(totalMins) {
+      if (isNaN(totalMins) || totalMins < 0) totalMins = 0;
       const m = Math.floor(totalMins);
       if (m < 60) return `${m}m`;
       
@@ -66,12 +68,21 @@
       return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`; 
     }
 
-    // 2. Fetch Initial Data
+    function extractVal(v) {
+      if (v === null || v === undefined) return "";
+      if (typeof v === "object") return v.text || v.number || v.value?.text || v.value?.number || "";
+      return String(v);
+    }
+
     async function init() {
       const card = await t.card('id');
       cardId = card.id;
 
       try {
+        // ALWAYS grab the live Trello column name (e.g. "Siya - Review")
+        const listData = await t.list('name');
+        currentBucketName = listData.name || "Inbox";
+
         const res = await fetch('/.netlify/functions/trello');
         const data = await res.json();
 
@@ -84,42 +95,65 @@
         }
 
         if (foundCard && foundCard.customFields) {
-          const startKey = Object.keys(foundCard.customFields).find(k => k.includes("TimerStart")) || "WorkTimerStart";
-          const durKey = Object.keys(foundCard.customFields).find(k => k.includes("Duration")) || "WorkDuration";
+          // TARGET STRICTLY THE NEW FIELDS
+          const rawDur = extractVal(foundCard.customFields["[SYSTEM]WorkDuration"] || foundCard.customFields["WorkDuration"]);
+          const rawStart = extractVal(foundCard.customFields["[SYSTEM]WorkTimerStart"] || foundCard.customFields["WorkTimerStart"]);
 
-          let storedDur = parseFloat(foundCard.customFields[durKey] || "0");
-          if (storedDur > 1000000) storedDur = 0; 
-          workDuration = storedDur;
+          // PARSE JSON SAFELY
+          if (rawDur.startsWith("{")) {
+              try {
+                  workDurationObj = JSON.parse(rawDur);
+                  let sum = 0;
+                  for (let key in workDurationObj) {
+                     sum += parseFloat(workDurationObj[key]) || 0;
+                  }
+                  workDurationTotal = sum;
+              } catch(e) {
+                  workDurationTotal = 0;
+                  workDurationObj = {};
+              }
+          } else {
+              workDurationTotal = parseFloat(rawDur) || 0;
+              workDurationObj = { [currentBucketName]: workDurationTotal };
+          }
+          if (isNaN(workDurationTotal) || workDurationTotal > 1000000) workDurationTotal = 0;
 
-          let storedStart = parseFloat(foundCard.customFields[startKey] || "0");
-          if (storedStart > 1000000000000) { 
-            workTimerStart = storedStart;
+          // EXTRACT TICKING TIMESTAMP (Handles new 'timestamp|name' and old 'timestamp' format)
+          if (rawStart.includes("|")) {
+              const parts = rawStart.split("|");
+              const startTs = parseFloat(parts[0]);
+              currentBucketName = parts[1] || currentBucketName; // Lock context to where timer started
+              if (startTs > 1000000000000) workTimerStart = startTs;
+          } else {
+              const startTs = parseFloat(rawStart);
+              if (startTs > 1000000000000) workTimerStart = startTs;
           }
 
-          // 🛡️ THE OFFLINE CATCH-UP SYSTEM 🛡️
+          // OFFLINE CATCHUP
           const offlineStr = localStorage.getItem(`offline_stop_${cardId}`);
           if (offlineStr && workTimerStart) {
-            // We found a saved stop time locally, but the database still thinks it's running!
             loader.style.display = 'block';
             loader.innerText = "Syncing offline time...";
             ui.style.display = 'none';
             
             const offlineData = JSON.parse(offlineStr);
             const sessionMins = Math.max(0, offlineData.stopTime - workTimerStart) / 1000 / 60;
-            const recoveredTotal = (workDuration + sessionMins).toFixed(2);
-            
-            try {
-               await setField('[SYSTEM]WorkDuration', recoveredTotal, parseFloat(recoveredTotal));
-               await setField('[SYSTEM]WorkTimerStart', "", null);
+            
+            workDurationObj[currentBucketName] = (parseFloat(workDurationObj[currentBucketName]) || 0) + sessionMins;
+            workDurationObj[currentBucketName] = parseFloat(workDurationObj[currentBucketName].toFixed(2));
+            const recoveredTotalStr = JSON.stringify(workDurationObj);
+            
+            try {
+               await setField('[SYSTEM]WorkDuration', recoveredTotalStr, null);
+               await setField('[SYSTEM]WorkTimerStart', "", null);
                
-               workDuration = parseFloat(recoveredTotal);
+               workDurationTotal += sessionMins;
                workTimerStart = null;
-               localStorage.removeItem(`offline_stop_${cardId}`); // Success! Clear the offline memory.
+               localStorage.removeItem(`offline_stop_${cardId}`);
             } catch(syncErr) {
                console.warn("Still offline. Keeping local memory active.");
             }
           } else if (offlineStr && !workTimerStart) {
-             // Edge case: Server already successfully stopped, clear obsolete local memory.
              localStorage.removeItem(`offline_stop_${cardId}`);
           }
         }
@@ -130,7 +164,6 @@
       }
     }
 
-    // 3. Update the Screen
     function render() {
       loader.style.display = 'none';
       ui.style.display = 'block';
@@ -145,81 +178,79 @@
       } else {
         startBtn.style.display = 'block';
         stopBtn.style.display = 'none';
-        display.innerText = `⏱ ${formatTime(workDuration)} logged`;
+        display.innerText = `⏱ ${formatTime(workDurationTotal)} logged`;
       }
       
       t.sizeTo('body');
     }
 
-    // 4. Live Clock Math
     function updateLiveClock() {
       if (!workTimerStart) return;
       const diffMs = Math.max(0, Date.now() - workTimerStart);
       const liveMins = diffMs / 1000 / 60;
-      const total = workDuration + liveMins;
+      const total = workDurationTotal + liveMins;
       display.innerText = `⏱ ${formatTime(total)} (Recording)`;
     }
 
-    // 5. Backend Write Helper
-    async function setField(fieldName, valueText, valueNumber = null) {
-      const res = await fetch('/.netlify/functions/trello-set-custom-field', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cardId, fieldName, valueText: String(valueText), valueNumber })
-      });
-      if (!res.ok) throw new Error("Network failed");
-      return res;
-    }
+    async function setField(fieldName, valueText, valueNumber = null) {
+      const res = await fetch('/.netlify/functions/trello-set-custom-field', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cardId, fieldName, valueText: String(valueText), valueNumber })
+      });
+      if (!res.ok) throw new Error("Network failed");
+      return res;
+    }
 
-    // 6. Button Clicks
-    startBtn.onclick = async () => {
-      setLoadingState(true);
-      const now = Date.now();
-      try {
-        // ⚡ FIX: Use [SYSTEM] tag and pass the number
-        await setField('[SYSTEM]WorkTimerStart', now, now);
-        workTimerStart = now;
-        render();
-      } catch (e) {
-        alert('Network Offline: Could not start timer. Please check your connection.');
-      }
-      setLoadingState(false);
-    }
+    startBtn.onclick = async () => {
+      setLoadingState(true);
+      const now = Date.now();
+      // Locks the name of the column it is currently in
+      const nowStr = `${now}|${currentBucketName}`; 
 
-    stopBtn.onclick = async () => {
-      setLoadingState(true);
-      const stopTime = Date.now();
-      const sessionMins = (stopTime - workTimerStart) / 1000 / 60;
-      const newTotal = (workDuration + sessionMins).toFixed(2);
+      try {
+        await setField('[SYSTEM]WorkTimerStart', nowStr, null);
+        workTimerStart = now;
+        render();
+      } catch (e) {
+        alert('Network Offline: Could not start timer. Please check your connection.');
+      }
+      setLoadingState(false);
+    }
 
-      try {
-        // ⚡ FIX: Use [SYSTEM] tags and pass the parsed numbers
-        await setField('[SYSTEM]WorkDuration', newTotal, parseFloat(newTotal));
-        await setField('[SYSTEM]WorkTimerStart', "", null);
-        workDuration = parseFloat(newTotal);
+    stopBtn.onclick = async () => {
+      setLoadingState(true);
+      const stopTime = Date.now();
+      const sessionMins = (stopTime - workTimerStart) / 1000 / 60;
+      
+      // Saves the time to the specific list the card was in
+      workDurationObj[currentBucketName] = (parseFloat(workDurationObj[currentBucketName]) || 0) + sessionMins;
+      workDurationObj[currentBucketName] = parseFloat(workDurationObj[currentBucketName].toFixed(2));
+      const newTotalStr = JSON.stringify(workDurationObj);
+
+      try {
+        await setField('[SYSTEM]WorkDuration', newTotalStr, null);
+        await setField('[SYSTEM]WorkTimerStart', "", null);
+        
+        workDurationTotal += sessionMins;
         workTimerStart = null;
         render();
       } catch (e) {
-        // ⚠️ THE OFFLINE TRAP TRIGGER ⚠️
         console.warn("Network failed, saving to local memory.");
         
-        // 1. Save the exact stop time locally
         localStorage.setItem(`offline_stop_${cardId}`, JSON.stringify({ stopTime: stopTime }));
         
-        // 2. Visually update the UI so the user isn't panicked
-        workDuration = parseFloat(newTotal);
+        workDurationTotal += sessionMins;
         workTimerStart = null;
         if (liveInterval) clearInterval(liveInterval);
         
         startBtn.style.display = 'block';
         stopBtn.style.display = 'none';
         
-        display.innerText = `⏱ ${formatTime(workDuration)}`;
-        
-        // Give them a visual warning that it is waiting to sync
+        display.innerText = `⏱ ${formatTime(workDurationTotal)}`;
         display.style.color = "#eb5a46";
         setTimeout(() => { 
-            display.innerText = `⏱ ${formatTime(workDuration)} (Saved Offline)`; 
+            display.innerText = `⏱ ${formatTime(workDurationTotal)} (Saved Offline)`; 
         }, 100);
       }
       setLoadingState(false);
@@ -232,7 +263,6 @@
       stopBtn.innerText = isLoading ? "Saving..." : "Stop WorkFlow";
     }
 
-    // Start!
     init();
   </script>
 </body>

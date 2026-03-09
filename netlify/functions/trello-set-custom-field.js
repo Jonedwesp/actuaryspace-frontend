@@ -17,14 +17,19 @@ export const handler = async (event) => {
 
     // 3. 🚨 THE TRANSLATOR: Map React's internal names to your exact Trello Power-Up names
     let targetTrelloName = fieldName;
-    if (fieldName === "WorkTimerStart" || fieldName === "WorkStartTime") {
-        targetTrelloName = "[SYSTEM] WorkStartTime";
-    } else if (fieldName === "WorkDuration") {
-        targetTrelloName = "[SYSTEM] WorkDuration";
+    
+    if (fieldName.includes("WorkTimerStart") || fieldName.includes("WorkStartTime")) {
+        targetTrelloName = "[SYSTEM]WorkTimerStart";
+    } else if (fieldName.includes("WorkDuration")) {
+        targetTrelloName = "[SYSTEM]WorkDuration";
     }
 
-    // Find the field on Trello
-    const field = cfData.find(f => f.name === targetTrelloName || f.name === fieldName);
+    // Find the field on Trello (with fuzzy matching to ignore accidental spaces)
+    const field = cfData.find(f => 
+        f.name === targetTrelloName || 
+        f.name === fieldName ||
+        f.name.replace(/\s+/g, '').toLowerCase() === targetTrelloName.replace(/\s+/g, '').toLowerCase()
+    );
 
     if (!field) {
         console.error(`Trello error: Field '${targetTrelloName}' not found on board.`);

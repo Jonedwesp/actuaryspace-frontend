@@ -3293,3 +3293,18 @@ html, body {
 .prod-table tr:hover td {
   background: #f8f9fa;
 }
+
+/* Brute force fix for Donna Bubble Visibility */
+.donna-bubble-container, .donna-bubble {
+  position: fixed !important;
+  top: 20px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  z-index: 99999 !important; /* Forces it to the very front */
+  display: block !important;
+  background: white;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  border-radius: 12px;
+  padding: 15px;
+  min-width: 300px;
+}

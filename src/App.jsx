@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import StorytellerMockup from "./StorytellerMockup";
 import BlueprintVideo from "./BlueprintVideo";
+import { DONNA_TOOLS } from "./utils/donnaTools.js";
 import { useDonna } from "./hooks/useDonna.js";
 import { useDebounce } from "./hooks/useDebounce.js";
 import { useRecording } from "./hooks/useRecording.js";
@@ -62,6 +63,7 @@ import { LeftPanel } from "./components/LeftPanel.jsx";
 import { ChatBar } from "./components/ChatBar.jsx";
 import TopBar from "./components/TopBar.jsx";
 import AppModals from "./components/AppModals.jsx";
+import DonnaBubble from "./components/DonnaBubble.jsx";
 
 export const launchWorkstationWindow = (url) => {
 
@@ -77,7 +79,107 @@ export default function App() {
   const [systemErrors, setSystemErrors] = useState({});
   const [showSystemPopup, setShowSystemPopup] = useState(false);
 
-  const { isConnected: isDonnaConnected, connectDonna, disconnectDonna, client: donnaClient } = useDonna();
+  const [donnaTranscription, setDonnaTranscription] = useState("");
+  const [donnaPendingAction, setDonnaPendingAction] = useState(null);
+
+const playDonnaAudioRef = useRef(null);
+  const { isConnected: isDonnaConnected, connectDonna, disconnectDonna, client: donnaClient } = useDonna({
+    playDonnaAudio: (delta) => {
+      if (playDonnaAudioRef.current) playDonnaAudioRef.current(delta);
+    },
+    onTranscription: (text) => setDonnaTranscription(text)
+  });
+
+useEffect(() => {
+    if (donnaClient) {
+      // 👈 CRITICAL: This must run every time donnaClient is available
+      console.log("Ruan Logic: Pinning Donna to Window for testing...");
+      window.donnaClient = donnaClient;
+      // 👈 ADD THIS: The listener that catches Donna's function calls
+      donnaClient.on('conversation.item.created', ({ item }) => {
+  if (item.type === 'function_call') {
+    const args = JSON.parse(item.arguments || "{}");
+    
+    // 👈 LOG THIS: If you see this in the console, the logic is working
+    console.log("!!! RUAN DEBUG: BUBBLE SHOULD APPEAR NOW !!!", item.name);
+
+    setDonnaPendingAction({ name: item.name, args, call_id: item.call_id });
+    setDonnaTranscription(`Donna suggests: ${item.name}`);
+  }
+});
+    // 1. MONITORING LISTENERS (Confirmed for Dual-Sided Chat)
+      donnaClient.on('realtime.event', (realtimeEvent) => {
+        const serverEvent = realtimeEvent.event;
+        if (!serverEvent) return;
+
+        // Show what YOU just said (User transcription)
+        if (serverEvent.type === 'conversation.item.input_audio_transcription.completed') {
+          setDonnaTranscription(`You: "${serverEvent.transcript}"`);
+        }
+
+        // Stream what DONNA is saying (Assistant transcription)
+        if (serverEvent.type === 'response.audio_transcript.delta') {
+          setDonnaTranscription(prev => {
+            // If the bubble is currently showing "You: ...", clear it to show her live response
+            if (prev.startsWith('You:')) return serverEvent.delta;
+            return prev + serverEvent.delta;
+          });
+        }
+
+       // Clear bubble after a delay when the conversation pause happens
+        if (serverEvent.type === 'response.audio_transcript.done') {
+          setTimeout(() => setDonnaTranscription(""), 10000);
+        }
+      });
+
+      donnaClient.on('error', (event) => {
+        console.error('[Donna WebSocket Error]', event);
+      });
+
+// ---------------------------------------------------------
+      // 2. THE INTERCEPTION SWITCH (TUESDAY TASK)
+      // ---------------------------------------------------------
+      donnaClient.on('conversation.item.created', ({ item }) => {
+        if (item.type === 'function_call') {
+          const args = JSON.parse(item.arguments || "{}");
+          console.log(`[Ruan Logic] Donna wants to execute: ${item.name}`, args);
+          setDonnaPendingAction({ name: item.name, args, call_id: item.call_id });
+          setDonnaTranscription(`Donna suggests: ${item.name}`);
+        }
+      });
+    }
+
+    // ---------------------------------------------------------
+    // 3. TOOL REGISTRATION (TUESDAY TASK)
+    // MODIFY your connectDonna call to update the session first
+    // ---------------------------------------------------------
+const startSession = async () => {
+  if (donnaClient && donnaClient.isConnected()) {
+    donnaClient.updateSession({
+      instructions: "You are Agent Donna, a witty and high-level actuarial assistant to Siyabonga (Siya).", 
+      
+      // Server VAD: Detects stop-speaking to trigger transcription
+      turn_detection: {
+        type: 'server_vad',
+        threshold: 0.5,
+        prefix_padding_ms: 300,
+        silence_duration_ms: 500 
+      },
+
+      // Enable Transcription: Whisper-1 will now transcribe Siya's voice
+      input_audio_transcription: { model: 'whisper-1' },
+
+      // Register the full ActuarySpace toolset
+      tools: DONNA_TOOLS.map(t => ({ type: 'function', ...t.function })),
+      tool_choice: 'auto',
+    });
+  }
+};
+
+    // Wait for connection to settle before starting session
+    setTimeout(startSession, 1000); 
+
+  }, [donnaClient]);
 
   useEffect(() => {
     connectDonna();
@@ -105,10 +207,42 @@ export default function App() {
     }
   }, [isDonnaLoading]);
 
-  const [currentView, setCurrentView] = useState({ app: "none", contact: null });
-  const [showWelcome, setShowWelcome] = useState(true);
+ const [currentView, setCurrentView] = useState({ app: "none", contact: null });
+  const [showWelcome, setShowWelcome] = useState(true);
 
-  const isInitialGmailSyncRef = useRef(true);
+ const handleApproveDonna = () => {
+    if (!donnaPendingAction) return;
+    const { name, args } = donnaPendingAction;
+
+    switch (name) {
+      case 'open_gmail_draft':
+        setCurrentView({ app: 'gmail' }); 
+        if (args.draftId) {
+          setEmailPreview(args.draftId); 
+        }
+        break;
+
+      case 'move_trello_card':
+        setCurrentView({ app: 'trello' });
+        console.log("Moving Trello card via Donna...", args);
+        break;
+
+      default:
+        console.warn("Unmapped tool execution:", name);
+    }
+
+    setDonnaPendingAction(null);
+    setDonnaTranscription("Action approved.");
+    setTimeout(() => setDonnaTranscription(""), 3000);
+  };
+
+  const handleRejectDonna = () => {
+    setDonnaPendingAction(null);
+    setDonnaTranscription("Action rejected.");
+    setTimeout(() => setDonnaTranscription(""), 3000);
+  };
+
+  const isInitialGmailSyncRef = useRef(true);
   const isInitialGchatSyncRef = useRef(true);
 
   const sessionStartTime = useRef(new Date());
@@ -282,22 +416,29 @@ const [searchQuery, setSearchQuery] = useState("");
     gchatFilePreview, setGchatFilePreview,
     toggleReaction,
     triggerGChatNotification,
-    handleStartChat,
-    handleDeleteGChatMessage,
-    confirmDeleteGChatMessage,
-    confirmDeleteChat,
-    handleUpdateGChatMessage,
-    handleSend,
-    pendingUpload, setPendingUpload,
-  } = useGchatSync({
-    currentView, setCurrentView,
-    triggerSnackbar,
-    setNotifications,
-    reportSystemError, clearSystemError,
-    inputValue, setInputValue,
-  });
+   handleStartChat,
+    handleDeleteGChatMessage,
+    confirmDeleteGChatMessage,
+    confirmDeleteChat,
+    handleUpdateGChatMessage,
+    handleSend,
+    pendingUpload, setPendingUpload,
+  } = useGchatSync({
+    currentView, setCurrentView,
+    triggerSnackbar,
+    setNotifications,
+    reportSystemError, clearSystemError,
+    inputValue, setInputValue,
+  });
 
-  const { isRecording, startRecording, stopRecording } = useRecording({ setPendingUpload });
+  const { 
+    isRecording, startRecording, stopRecording,
+    initDonnaAudio, startDonnaMic, stopDonnaMic, playDonnaAudio
+  } = useRecording({ setPendingUpload });
+
+  useEffect(() => {
+    playDonnaAudioRef.current = playDonnaAudio;
+  }, [playDonnaAudio]);
 
 const chatTextareaRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -659,24 +800,41 @@ if (currentView.app === "gmail" || currentView.app === "email") {
       ]);
 
 return (
-  <PasswordGate persona={PERSONA}>
-    <div className="app">
+  <PasswordGate persona={PERSONA}>
+    <div className="app">
+      <DonnaBubble
+        transcription={donnaTranscription}
+        isListening={isDonnaActive}
+        showActions={donnaPendingAction !== null}
+        onApprove={handleApproveDonna}
+        onReject={handleRejectDonna}
+      />
 
 <div className="brand-stack" style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
+      <div
+          className="brand-rect"
+          title="Agent Donna"
+          onClick={async (e) => {
+            const el = e.currentTarget;
+            el.style.animation = 'none';
+            void el.offsetWidth;
+            el.style.animation = 'press-bounce 0.25s ease';
 
-      <div
-          className="brand-rect"
-          title="Agent Donna"
-          onClick={(e) => {
-            if (!isDonnaActive) setIsDonnaLoading(true);
-            setIsDonnaActive(!isDonnaActive);
-            const el = e.currentTarget;
-            el.style.animation = 'none';
-            void el.offsetWidth;
-            el.style.animation = 'press-bounce 0.25s ease';
-          }}
-          style={{ width: '100%', height: '120px', overflow: 'hidden', borderRadius: '12px', cursor: 'pointer', background: '#f1f3f4', position: 'relative' }}
-        >
+            if (!isDonnaActive) {
+              setIsDonnaLoading(true);
+              await initDonnaAudio();
+              startDonnaMic((audioData) => {
+                if (donnaClient && donnaClient.isConnected()) {
+                  donnaClient.appendInputAudio(new Int16Array(audioData));
+                }
+              });
+            } else {
+              stopDonnaMic();
+            }
+            setIsDonnaActive(!isDonnaActive);
+          }}
+          style={{ width: '100%', height: '120px', overflow: 'hidden', borderRadius: '12px', cursor: 'pointer', background: '#f1f3f4', position: 'relative' }}
+        >
           {isDonnaActive ? (
             <video
               src={agentDonnaVideo}
