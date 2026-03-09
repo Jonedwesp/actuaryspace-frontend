@@ -82,7 +82,7 @@ const styles = {
     border: "1px solid #8993a4",
     borderRadius: "12px",
     padding: "20px 24px",
-    boxShadow: "0 1px 1px rgba(9,30,66,0.25), 0 0 1px rgba(9,30,66,0.31)",
+    boxShadow: "0 8px 24px rgba(9,30,66,0.20), 0 2px 8px rgba(9,30,66,0.12), 0 0 1px rgba(9,30,66,0.31)",
     zIndex: 9999,
     fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', sans-serif",
   },

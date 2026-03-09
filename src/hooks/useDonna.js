@@ -13,6 +13,7 @@ export function useDonna({
   const pcRef = useRef(null);
   const dcRef = useRef(null);
   const isConnectingRef = useRef(false);
+  const lastResponseIdRef = useRef(null);
 
   // Keep callbacks and config current without causing reconnects
   const callbacksRef = useRef({});
@@ -53,10 +54,18 @@ export function useDonna({
       // 3. Play Donna's audio response via a hidden audio element
       const audioEl = document.createElement("audio");
       audioEl.autoplay = true;
+      audioEl.style.display = "none";
+      document.body.appendChild(audioEl);
       pc.ontrack = (e) => { audioEl.srcObject = e.streams[0]; };
 
-      // 4. Add mic track so Donna can hear you
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // 4. Add mic track — explicit echo cancellation to prevent Donna's audio feeding back
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
       stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
       // 5. Data channel for events (transcriptions, function calls, etc.)
@@ -83,16 +92,12 @@ export function useDonna({
             instructions: inst || "You are Agent Donna, a professional actuarial assistant.",
             modalities: ["text", "audio"],
             voice: "marin",
-            //- shimmer — soft, clear                                                                                                                                                                                 
-            //- coral — warm, natural                                                                                                                                                                                 
-            //- sage — calm, measured                                                                                                                                                                                 
-            //- marin — (new, likely female) 
             speed: 1.4,
             input_audio_transcription: { model: "gpt-4o-mini-transcribe" },
             turn_detection: {
               type: "server_vad",
-              threshold: 0.7,
-              silence_duration_ms: 800,
+              threshold: 0.96,
+              silence_duration_ms: 1000,
             },
             tools: flatTools,
             tool_choice: "auto",
@@ -114,12 +119,21 @@ export function useDonna({
         if (t === "conversation.item.input_audio_transcription.completed") {
           cb.onTranscription?.(event.transcript);
         } else if (t === "response.audio_transcript.delta" || t === "response.text.delta") {
-          cb.onResponseDelta?.(event.delta);
+          // Use response_id to detect when a genuinely new response starts
+          const isNew = event.response_id !== lastResponseIdRef.current;
+          lastResponseIdRef.current = event.response_id;
+          cb.onResponseDelta?.(event.delta, isNew);
         } else if (t === "response.function_call_arguments.done") {
           let args = {};
           try { args = JSON.parse(event.arguments); } catch {}
           cb.onFunctionCall?.({ name: event.name, args, call_id: event.call_id });
         } else if (t === "output_audio_buffer.stopped") {
+          // Clear any audio that leaked into the buffer during playback
+          setTimeout(() => {
+            if (dcRef.current?.readyState === "open") {
+              dcRef.current.send(JSON.stringify({ type: "input_audio_buffer.clear" }));
+            }
+          }, 300);
           cb.onResponseEnd?.();
         } else if (t === "error") {
           cb.onError?.(event.error?.message || "Unknown error");

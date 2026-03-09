@@ -91,12 +91,12 @@ export default function App() {
     onTranscription: (text) => {
       if (!donnaRespondingRef.current) setDonnaTranscription("");
     },
-    onResponseDelta: (delta) => {
-      const isFirst = !donnaRespondingRef.current;
+
+    onResponseDelta: (delta, isNew) => {
+      if (isNew) { setDonnaKey(k => k + 1); setDonnaPendingAction(null); }
       donnaRespondingRef.current = true;
-      if (isFirst) setDonnaKey(k => k + 1);
       setIsDonnaSpeaking(true);
-      setDonnaTranscription(prev => isFirst ? delta : prev + delta);
+      setDonnaTranscription(prev => isNew ? delta : prev + delta);
     },
     onResponseEnd: () => {
       donnaRespondingRef.current = false;
@@ -419,6 +419,8 @@ const [searchQuery, setSearchQuery] = useState("");
     if (!isDonnaConnected) return;
     const app = currentView.app;
     let ctx = "You are Agent Donna, a witty and professional actuarial assistant to Siyabonga (Siya, pronounced See-yah). Be concise and use your tools whenever appropriate. Respond immediately once the user stops talking. IMPORTANT: Always respond in English only, regardless of what language the user speaks in.\n\n";
+    const now = new Date();
+    ctx += `Current date and time: ${now.toLocaleDateString("en-ZA", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}, ${now.toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit", hour12: true })}.\n`;
     ctx += `Current screen: ${app === "none" ? "Home / welcome screen" : app}.\n`;
 
     if (app === "gmail" || app === "email") {
