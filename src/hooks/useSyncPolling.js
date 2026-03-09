@@ -31,8 +31,8 @@ export function useSyncPolling({
           fetch("/.netlify/functions/gchat-sync")
         ]);
 
-        const emailData = await emailRes.json();
-        const chatData = await chatRes.json();
+        const emailData = emailRes.ok ? await emailRes.json().catch(() => null) : null;
+        const chatData = chatRes.ok ? await chatRes.json().catch(() => null) : null;
 
         let combined = [];
 

@@ -1091,7 +1091,8 @@ export function TrelloApp({
                         return String(v);
                      };
                      const currentStart = extractVal(c.customFields?.WorkTimerStart);
-                     const isRunning = currentStart && currentStart.includes("|");
+                     // Running if WorkTimerStart is a valid 13-digit unix timestamp (plain number, no pipe)
+                     const isRunning = currentStart && /^\d{12,14}/.test(String(currentStart).trim());
 
                      if (isRunning) {
                         return (
@@ -1099,30 +1100,16 @@ export function TrelloApp({
                              className="btn-red" 
                              style={{ backgroundColor: '#eb5a46', color: '#fff', border: 'none', borderRadius: 3, padding: '6px 12px', fontWeight: 600, cursor: 'pointer', width: '105px', textAlign: 'center' }}
                              onClick={async () => {
-                                const stopTime = Date.now();
-                                const [startTsStr, startList] = currentStart.split("|");
-                                const startTime = parseFloat(startTsStr);
-                                const bucketName = startList || c.boardList; 
-
+                                const stopTime  = Date.now();
+                                const startTime = parseFloat(String(currentStart));
                                 const sessionMins = (stopTime - startTime) / 1000 / 60;
-                                
-                                let savedDurations = {};
-                                const rawDur = extractVal(c.customFields?.WorkDuration) || "{}";
-                                try {
-                                    if (!rawDur.startsWith("{")) {
-                                        savedDurations = { [bucketName]: parseFloat(rawDur) || 0 };
-                                    } else {
-                                        savedDurations = JSON.parse(rawDur);
-                                    }
-                                } catch(e) {
-                                    console.error("Failed to parse duration JSON", e);
-                                    savedDurations = { [bucketName]: 0 };
-                                }
 
-                                savedDurations[bucketName] = (savedDurations[bucketName] || 0) + sessionMins;
-                                savedDurations[bucketName] = parseFloat(savedDurations[bucketName].toFixed(2));
-                                const newTotalStr = JSON.stringify(savedDurations);
-                                
+                                // WorkDuration is now a plain running total (minutes).
+                                // The webhook (trello-webhook.js) handles per-person WorkLog attribution.
+                                const currentTotal = parseFloat(extractVal(c.customFields?.WorkDuration)) || 0;
+                                const newTotal     = parseFloat((currentTotal + sessionMins).toFixed(2));
+                                const newTotalStr  = String(newTotal);
+
                                 window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "WorkDuration", ttlMs: 30000 } }));
                                 window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "WorkTimerStart", ttlMs: 30000 } }));
 
@@ -1131,8 +1118,8 @@ export function TrelloApp({
                                 }));
 
                                 window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
-                                   detail: { cardId: c.id, updater: old => ({ 
-                                      ...old, customFields: { ...old.customFields, WorkTimerStart: null, WorkDuration: newTotalStr } 
+                                   detail: { cardId: c.id, updater: old => ({
+                                      ...old, customFields: { ...old.customFields, WorkTimerStart: null, WorkDuration: newTotalStr }
                                    }) }
                                 }));
 
@@ -1155,8 +1142,9 @@ export function TrelloApp({
                              className="btn-yellow"
                              style={{ backgroundColor: '#f2d600', color: '#172b4d', border: 'none', borderRadius: 3, padding: '6px 12px', fontWeight: 600, cursor: 'pointer', width: '105px', textAlign: 'center' }}
                              onClick={async () => {
-                                const nowStr = `${Date.now()}|${c.boardList}`;
-                                
+                                // Plain timestamp — same format as the WorkFlow Timer power-up
+                                const nowStr = Date.now().toString();
+
                                 window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "WorkTimerStart", ttlMs: 30000 } }));
 
                                 setTrelloCard(prev => ({
@@ -1164,11 +1152,11 @@ export function TrelloApp({
                                 }));
 
                                 window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
-                                   detail: { cardId: c.id, updater: old => ({ 
-                                      ...old, customFields: { ...old.customFields, WorkTimerStart: nowStr } 
+                                   detail: { cardId: c.id, updater: old => ({
+                                      ...old, customFields: { ...old.customFields, WorkTimerStart: nowStr }
                                    }) }
                                 }));
-                                
+
                                 try {
                                    await fetch("/.netlify/functions/trello-set-custom-field", {
                                       method: "POST", body: JSON.stringify({ cardId: c.id, fieldName: "WorkTimerStart", valueText: nowStr })

@@ -194,7 +194,8 @@ export const handler = async (event) => {
             let canonName = name;
             if (name.includes("WorkDuration")) canonName = "WorkDuration";
             else if (name.includes("WorkStartTime") || name.includes("WorkTimerStart")) canonName = "WorkTimerStart";
-            if (canonName === "TimerStart" || canonName === "Duration" || canonName === "WorkTimerStart" || canonName === "WorkDuration") {
+            else if (name.includes("WorkLog")) canonName = "WorkLog";
+            if (canonName === "TimerStart" || canonName === "Duration" || canonName === "WorkTimerStart" || canonName === "WorkDuration" || canonName === "WorkLog") {
               const val = item.value?.number ?? item.value?.text ?? "";
               if (val !== "" && val !== null && val !== undefined) customFields[canonName] = String(val);
               return;

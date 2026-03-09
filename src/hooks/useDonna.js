@@ -15,7 +15,7 @@ export function useDonna({ playDonnaAudio, onTranscription }) {
     onTranscriptionRef.current = onTranscription;
   }, [playDonnaAudio, onTranscription]);
 
-  const connectDonna = useCallback(async () => {
+const connectDonna = useCallback(async () => {
     if (isConnectingRef.current || clientRef.current) {
       return; // Already connecting or connected, ignore.
     }
@@ -23,34 +23,36 @@ export function useDonna({ playDonnaAudio, onTranscription }) {
     isConnectingRef.current = true;
     
     try {
+      const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+      
+      if (!apiKey) {
+        console.error("🚨 CRITICAL: VITE_OPENAI_API_KEY is undefined! Check your .env file and restart the Vite server.");
+      }
+
       const newClient = new RealtimeClient({
-        apiKey: import.meta.env.VITE_OPENAI_API_KEY,
+        apiKey: apiKey,
         dangerouslyAllowAPIKeyInBrowser: true,
+        url: 'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview',
       });
 
-      newClient.on("realtime.event", (realtimeEvent) => {
-        const serverEvent = realtimeEvent.event;
-        if (!serverEvent) return;
+  newClient.on("realtime.event", (realtimeEvent) => {
+      const serverEvent = realtimeEvent.event;
+      if (!serverEvent) return;
 
-        if (serverEvent.type === "session.created") {
-          console.log("Donna Session Created / CONNECTED");
-          setIsConnected(true);
+      // Handle Connection State
+      if (serverEvent.type === "session.created" || serverEvent.type === "session.updated") {
+        console.log("[useDonna] Session Sync:", serverEvent.type);
+        setIsConnected(true);
+      }
+      
+      // Handle Incoming Audio
+      if (serverEvent.type === "response.audio.delta") {
+        if (playAudioRef.current) {
+          playAudioRef.current(serverEvent.delta);
         }
-        
-        if (serverEvent.type === "response.audio.delta") {
-          if (playAudioRef.current) {
-            playAudioRef.current(serverEvent.delta);
-          }
-        }
+      }
 
-        // Capture transcription from the server when a turn is finished
-        if (serverEvent.type === 'conversation.item.input_audio_transcription.completed') {
-          if (onTranscriptionRef.current) {
-            onTranscriptionRef.current(`You: "${serverEvent.transcript}"`);
-          }
-        }
-      });
-
+    });
       newClient.on("close", () => {
         console.log("Donna Disconnected");
         setIsConnected(false);

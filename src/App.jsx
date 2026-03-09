@@ -90,111 +90,140 @@ const playDonnaAudioRef = useRef(null);
     onTranscription: (text) => setDonnaTranscription(text)
   });
 
-useEffect(() => {
-    if (donnaClient) {
-      // 👈 CRITICAL: This must run every time donnaClient is available
-      console.log("Ruan Logic: Pinning Donna to Window for testing...");
-      window.donnaClient = donnaClient;
-      // 👈 ADD THIS: The listener that catches Donna's function calls
-      donnaClient.on('conversation.item.created', ({ item }) => {
-  if (item.type === 'function_call') {
-    const args = JSON.parse(item.arguments || "{}");
-    
-    // 👈 LOG THIS: If you see this in the console, the logic is working
-    console.log("!!! RUAN DEBUG: BUBBLE SHOULD APPEAR NOW !!!", item.name);
+// 1. Connection Lifecycle
+  useEffect(() => {
+    connectDonna();
+    return () => disconnectDonna();
+  }, [connectDonna, disconnectDonna]);
 
-    setDonnaPendingAction({ name: item.name, args, call_id: item.call_id });
-    setDonnaTranscription(`Donna suggests: ${item.name}`);
-  }
-});
-    // 1. MONITORING LISTENERS (Confirmed for Dual-Sided Chat)
-      donnaClient.on('realtime.event', (realtimeEvent) => {
-        const serverEvent = realtimeEvent.event;
-        if (!serverEvent) return;
+  // 2. CONSOLIDATED DONNA SYNC & LISTENERS
+// 2. CONSOLIDATED DONNA SYNC & LISTENERS
+  useEffect(() => {
+    if (!donnaClient) return;
 
-        // Show what YOU just said (User transcription)
-        if (serverEvent.type === 'conversation.item.input_audio_transcription.completed') {
-          setDonnaTranscription(`You: "${serverEvent.transcript}"`);
+    window.donnaClient = donnaClient;
+
+
+// We define these as refs or stable functions to prevent re-adding listeners on every isDonnaConnected toggle
+    const handleRealtimeEvent = (realtimeEvent) => {
+      const serverEvent = realtimeEvent.event || realtimeEvent;
+      if (!serverEvent || !serverEvent.type) return;
+
+      if (serverEvent.type !== 'input_audio_buffer.append') {
+        console.log("[OpenAI Server Event]:", serverEvent.type, serverEvent);
+      }
+
+      if (serverEvent.type === 'input_audio_buffer.speech_started') {
+        setDonnaTranscription("Hearing you speak...");
+      }
+
+      if (serverEvent.type === 'conversation.item.input_audio_transcription.completed') {
+        console.log('[Donna] Whisper transcript:', serverEvent.transcript);
+      }
+
+      if (serverEvent.type === 'response.created') {
+        setDonnaTranscription("Thinking...");
+        console.log('[Donna] Response created:', JSON.stringify(serverEvent.response));
+      }
+
+      if (serverEvent.type === 'response.audio_transcript.delta' || serverEvent.type === 'response.text.delta') {
+        setDonnaTranscription(prev => {
+          if (prev === "Thinking..." || prev.startsWith('You:') || prev.startsWith('Donna suggests:')) return serverEvent.delta;
+          return prev + serverEvent.delta;
+        });
+      }
+
+      if (serverEvent.type === 'conversation.item.input_audio_transcription.failed') {
+        console.warn('[Donna] Transcription failed:', serverEvent.error);
+      }
+
+      if (serverEvent.type === 'response.done') {
+        const r = serverEvent.response;
+        console.log('[Donna] Response done:', JSON.stringify({ status: r?.status, status_details: r?.status_details, output_count: r?.output?.length, usage: r?.usage }));
+        if (r && (r.status === 'failed' || r.status === 'cancelled' ||
+            (r.status === 'completed' && (!r.output || r.output.length === 0)))) {
+          setDonnaTranscription('');
         }
+      }
 
-        // Stream what DONNA is saying (Assistant transcription)
-        if (serverEvent.type === 'response.audio_transcript.delta') {
-          setDonnaTranscription(prev => {
-            // If the bubble is currently showing "You: ...", clear it to show her live response
-            if (prev.startsWith('You:')) return serverEvent.delta;
-            return prev + serverEvent.delta;
-          });
+      if (serverEvent.type === 'error') {
+        setDonnaTranscription(`Error: ${serverEvent.error?.message}`);
+      }
+    };
+    const handleItemCreated = ({ item }) => {
+      if (item.type === 'function_call') {
+        try {
+          const args = JSON.parse(item.arguments || "{}");
+          
+          // Ruan Debug: Log exactly what Donna is sending back
+          console.log(`[Ruan Logic] Tool Discovery: ${item.name}`);
+          console.table(args);
+          
+          setDonnaPendingAction({ name: item.name, args, call_id: item.call_id });
+          setDonnaTranscription(`Donna suggests: ${item.name.replace(/_/g, ' ')}`);
+        } catch (e) {
+          console.error("[Donna] Failed to parse tool arguments:", e);
         }
+      }
+    };
 
-       // Clear bubble after a delay when the conversation pause happens
-        if (serverEvent.type === 'response.audio_transcript.done') {
-          setTimeout(() => setDonnaTranscription(""), 10000);
-        }
+
+    donnaClient.on('realtime.event', handleRealtimeEvent);
+    donnaClient.on('conversation.item.created', handleItemCreated);
+
+    if (isDonnaConnected) {
+      console.log("[Donna] Session Active. Configuring Voice & Transcription...");
+
+      const flattenedTools = DONNA_TOOLS.map(t => ({
+        type: 'function',
+        name: t.function.name,
+        description: t.function.description,
+        parameters: t.function.parameters
+      }));
+
+      donnaClient.updateSession({
+        instructions: "You are Agent Donna, a witty and professional actuarial assistant to Siyabonga (Siya). Be concise and use your tools whenever appropriate.",
+        modalities: ["text", "audio"],
+        voice: "alloy",
+        turn_detection: {
+          type: 'server_vad',
+          threshold: 0.6,
+          silence_duration_ms: 800
+        },
+        tools: flattenedTools,
+        tool_choice: 'auto',
       });
+    }
 
-      donnaClient.on('error', (event) => {
-        console.error('[Donna WebSocket Error]', event);
-      });
-
-// ---------------------------------------------------------
-      // 2. THE INTERCEPTION SWITCH (TUESDAY TASK)
-      // ---------------------------------------------------------
-      donnaClient.on('conversation.item.created', ({ item }) => {
-        if (item.type === 'function_call') {
-          const args = JSON.parse(item.arguments || "{}");
-          console.log(`[Ruan Logic] Donna wants to execute: ${item.name}`, args);
-          setDonnaPendingAction({ name: item.name, args, call_id: item.call_id });
-          setDonnaTranscription(`Donna suggests: ${item.name}`);
-        }
-      });
-    }
-
-    // ---------------------------------------------------------
-    // 3. TOOL REGISTRATION (TUESDAY TASK)
-    // MODIFY your connectDonna call to update the session first
-    // ---------------------------------------------------------
-const startSession = async () => {
-  if (donnaClient && donnaClient.isConnected()) {
-    donnaClient.updateSession({
-      instructions: "You are Agent Donna, a witty and high-level actuarial assistant to Siyabonga (Siya).", 
-      
-      // Server VAD: Detects stop-speaking to trigger transcription
-      turn_detection: {
-        type: 'server_vad',
-        threshold: 0.5,
-        prefix_padding_ms: 300,
-        silence_duration_ms: 500 
-      },
-
-      // Enable Transcription: Whisper-1 will now transcribe Siya's voice
-      input_audio_transcription: { model: 'whisper-1' },
-
-      // Register the full ActuarySpace toolset
-      tools: DONNA_TOOLS.map(t => ({ type: 'function', ...t.function })),
-      tool_choice: 'auto',
-    });
-  }
-};
-
-    // Wait for connection to settle before starting session
-    setTimeout(startSession, 1000); 
-
-  }, [donnaClient]);
-
-  useEffect(() => {
-    connectDonna();
-    return () => disconnectDonna();
-  }, [connectDonna, disconnectDonna]);
+    return () => {
+      donnaClient.off('realtime.event', handleRealtimeEvent);
+      donnaClient.off('conversation.item.created', handleItemCreated);
+    };
+  }, [donnaClient, isDonnaConnected]);
 
   const reportSystemError = (source, message) => setSystemErrors(prev => ({ ...prev, [source]: message }));
   const clearSystemError = (source) => setSystemErrors(prev => { const next = { ...prev }; delete next[source]; return next; });
   useEffect(() => {
-    const onReport = (e) => setSystemErrors(prev => ({ ...prev, [e.detail.source]: e.detail.message }));
-    const onClear = (e) => setSystemErrors(prev => { const next = { ...prev }; delete next[e.detail]; return next; });
-    window.addEventListener("systemReportError", onReport);
-    window.addEventListener("systemClearError", onClear);
-    return () => { window.removeEventListener("systemReportError", onReport); window.removeEventListener("systemClearError", onClear); };
-  }, []);
+    const onReport = (e) => setSystemErrors(prev => ({ ...prev, [e.detail.source]: e.detail.message }));
+    const onClear = (e) => setSystemErrors(prev => { const next = { ...prev }; delete next[e.detail]; return next; });
+    
+    // Ruan Logic: Listen for the simulated console command
+    const onSimulate = (e) => {
+      console.log("[Donna Test] Mock Action Received:", e.detail);
+      setDonnaPendingAction(e.detail);
+      setDonnaTranscription(`Donna suggests: ${e.detail.name.replace(/_/g, ' ')}`);
+    };
+
+    window.addEventListener("systemReportError", onReport);
+    window.addEventListener("systemClearError", onClear);
+    window.addEventListener("simulateDonna", onSimulate);
+
+    return () => { 
+      window.removeEventListener("systemReportError", onReport); 
+      window.removeEventListener("systemClearError", onClear); 
+      window.removeEventListener("simulateDonna", onSimulate);
+    };
+  }, []);
 
   const [isDonnaActive, setIsDonnaActive] = useState(false);
   const [isDonnaLoading, setIsDonnaLoading] = useState(false);
@@ -211,30 +240,48 @@ const startSession = async () => {
   const [showWelcome, setShowWelcome] = useState(true);
 
  const handleApproveDonna = () => {
-    if (!donnaPendingAction) return;
-    const { name, args } = donnaPendingAction;
+    if (!donnaPendingAction) return;
+    const { name, args } = donnaPendingAction;
 
-    switch (name) {
-      case 'open_gmail_draft':
-        setCurrentView({ app: 'gmail' }); 
-        if (args.draftId) {
-          setEmailPreview(args.draftId); 
-        }
-        break;
+    switch (name) {
+      case 'gmail_get_inbox':
+        setCurrentView({ app: 'gmail' }); 
+        if (args.draftId) {
+          setEmailPreview(args.draftId); 
+        }
+        break;
 
-      case 'move_trello_card':
-        setCurrentView({ app: 'trello' });
-        console.log("Moving Trello card via Donna...", args);
-        break;
+      case 'gmail_save_draft':
+        console.log("[Donna] Navigating to Gmail Drafts and saving draft...");
+        
+        // 1. Move UI to Drafts immediately (Optimistic UI)
+        setCurrentView({ app: 'gmail' });
+        setGmailFolder('DRAFTS');
+        
+        // 2. Call the real backend function
+        fetch("/.netlify/functions/gmail-save-draft", {
+          method: "POST",
+          body: JSON.stringify(args),
+          credentials: "include"
+        }).then(() => {
+          setGmailRefreshTrigger(prev => prev + 1);
+          triggerSnackbar("Draft created successfully.");
+        }).catch(err => reportSystemError("Gmail", "Failed to save draft."));
+        break;
 
-      default:
-        console.warn("Unmapped tool execution:", name);
-    }
+      case 'trello_move_card':
+        setCurrentView({ app: 'trello' });
+        console.log("Moving Trello card via Donna...", args);
+        break;
 
-    setDonnaPendingAction(null);
-    setDonnaTranscription("Action approved.");
-    setTimeout(() => setDonnaTranscription(""), 3000);
-  };
+      default:
+        console.warn("Unmapped tool execution:", name);
+    }
+
+    setDonnaPendingAction(null);
+    setDonnaTranscription("Action approved.");
+    setTimeout(() => setDonnaTranscription(""), 3000);
+  };
 
   const handleRejectDonna = () => {
     setDonnaPendingAction(null);
@@ -808,6 +855,11 @@ return (
         showActions={donnaPendingAction !== null}
         onApprove={handleApproveDonna}
         onReject={handleRejectDonna}
+        onClose={() => {
+          setIsDonnaActive(false);
+          setDonnaTranscription("");
+          stopDonnaMic();
+        }}
       />
 
 <div className="brand-stack" style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
@@ -823,17 +875,39 @@ return (
             if (!isDonnaActive) {
               setIsDonnaLoading(true);
               await initDonnaAudio();
+              
+  let audioChunkCount = 0;
               startDonnaMic((audioData) => {
-                if (donnaClient && donnaClient.isConnected()) {
-                  donnaClient.appendInputAudio(new Int16Array(audioData));
+                if (window.donnaClient) {
+                  audioChunkCount++;
+                  
+                  let pcmData;
+                  if (audioData instanceof Float32Array) {
+                    pcmData = new Int16Array(audioData.length);
+                    for (let i = 0; i < audioData.length; i++) {
+                      const s = Math.max(-1, Math.min(1, audioData[i]));
+                      pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                    }
+                  } else {
+                    pcmData = new Int16Array(audioData.buffer || audioData);
+                  }
+
+                  if (audioChunkCount === 10) {
+                    let maxVol = 0;
+                    for (let i = 0; i < pcmData.length; i++) {
+                      if (Math.abs(pcmData[i]) > maxVol) maxVol = Math.abs(pcmData[i]);
+                    }
+                    console.log(`[Donna] Audio stream verified. Max volume in this chunk: ${maxVol} (If this is 0, your mic is dead/blocked)`);
+                  }
+                  window.donnaClient.appendInputAudio(pcmData);
                 }
               });
             } else {
-              stopDonnaMic();
-            }
+                 stopDonnaMic();
+            }
             setIsDonnaActive(!isDonnaActive);
           }}
-          style={{ width: '100%', height: '120px', overflow: 'hidden', borderRadius: '12px', cursor: 'pointer', background: '#f1f3f4', position: 'relative' }}
+          style={{ width: '100%', height: '140px', overflow: 'hidden', borderRadius: '12px', cursor: 'pointer', background: '#f1f3f4', position: 'relative' }}
         >
           {isDonnaActive ? (
             <video
@@ -864,7 +938,7 @@ return (
           className="brand-rect"
           title={isLiveCallActive ? "Click to stop NotebookLM" : "NotebookLM / Storyteller"}
           onClick={() => { if (isLiveCallActive) setIsLiveCallActive(false); }}
-          style={{ width: '100%', height: '120px', overflow: 'hidden', borderRadius: '12px', background: '#f1f3f4', position: 'relative', cursor: isLiveCallActive ? 'pointer' : 'default' }}
+          style={{ width: '100%', height: '140px', overflow: 'hidden', borderRadius: '12px', background: '#f1f3f4', position: 'relative', cursor: isLiveCallActive ? 'pointer' : 'default' }}
         >
           <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: isLiveCallActive ? 1 : 0, transition: 'opacity 0.3s ease', pointerEvents: isLiveCallActive ? 'auto' : 'none' }}>
             <BlueprintVideo isPlaying={isLiveCallActive} />

@@ -14,7 +14,7 @@ export async function handler(event) {
 
     const spaceRes = await fetchWithTimeout("https://chat.googleapis.com/v1/spaces?pageSize=40", {
       headers: authHeaders
-    }, 20000);
+    }, 7000);
     const spaceData = await spaceRes.json();
 
     const notificationPromises = (spaceData.spaces || []).map(async (s) => {

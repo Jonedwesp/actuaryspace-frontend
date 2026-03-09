@@ -22,6 +22,8 @@ export const handler = async (event) => {
         targetTrelloName = "[SYSTEM]WorkTimerStart";
     } else if (fieldName.includes("WorkDuration")) {
         targetTrelloName = "[SYSTEM]WorkDuration";
+    } else if (fieldName.includes("WorkLog")) {
+        targetTrelloName = "[SYSTEM]WorkLog";
     }
 
     // Find the field on Trello (with fuzzy matching to ignore accidental spaces)

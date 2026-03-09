@@ -2463,6 +2463,10 @@ html, body {
   margin-bottom: 12px; /* A little extra breathing room */
 }
 
+.left-panel .panel-title {
+  padding-top: 48px;
+}
+
 /* --- Trello Label Colors (Top Row) --- */
 /* These match the modern Trello pastel palette */
 

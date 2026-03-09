@@ -242,6 +242,7 @@ export function useTrello({ currentView, setCurrentView }) {
         if (isPending("TimerStart"))    mergedCF.TimerStart    = prev.customFields.TimerStart;
         if (isPending("WorkDuration"))  mergedCF.WorkDuration  = prev.customFields.WorkDuration;
         if (isPending("WorkTimerStart")) mergedCF.WorkTimerStart = prev.customFields.WorkTimerStart;
+        if (isPending("WorkLog"))       mergedCF.WorkLog       = prev.customFields.WorkLog;
         return {
           ...prev,
           labels: fresh.labels,

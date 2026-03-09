@@ -3,19 +3,19 @@ import { useState, useRef, useEffect } from "react";
 // Inject a custom worklet directly via Blob to avoid Vite public folder issues
 const WORKLET_CODE = `
 class PCMProcessor extends AudioWorkletProcessor {
-  process(inputs, outputs, parameters) {
-    const input = inputs[0];
-    if (input && input.length > 0) {
-      const channelData = input[0];
-      const pcm16 = new Int16Array(channelData.length);
-      for (let i = 0; i < channelData.length; i++) {
-        let s = Math.max(-1, Math.min(1, channelData[i]));
+  process(inputs, outputs, parameters) {
+    const input = inputs[0];
+    if (input && input.length > 0) {
+      const channelData = input[0];
+      const pcm16 = new Int16Array(channelData.length);
+      for (let i = 0; i < channelData.length; i++) {
+        const s = Math.max(-1, Math.min(1, channelData[i]));
         pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-      }
-      this.port.postMessage(pcm16.buffer, [pcm16.buffer]);
-    }
-    return true;
-  }
+      }
+      this.port.postMessage(pcm16.buffer, [pcm16.buffer]);
+    }
+    return true;
+  }
 }
 registerProcessor('pcm-processor', PCMProcessor);
 `;
@@ -87,14 +87,18 @@ export function useRecording({ setPendingUpload }) {
       console.error("Donna Audio Error:", err);
     }
   };
-
-  const startDonnaMic = async (onAudioData) => {
+const startDonnaMic = async (onAudioData) => {
     if (!audioCtxRef.current) return;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: { sampleRate: 24000, channelCount: 1 } 
+      await audioCtxRef.current.resume();
+
+     const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true
       });
       micStreamRef.current = stream;
+      
+      const audioTrack = stream.getAudioTracks()[0];
+      console.log("[Donna] Using microphone device:", audioTrack.label);
       
       const source = audioCtxRef.current.createMediaStreamSource(stream);
       const workletNode = new AudioWorkletNode(audioCtxRef.current, 'pcm-processor');
@@ -106,6 +110,7 @@ export function useRecording({ setPendingUpload }) {
       };
 
       source.connect(workletNode);
+      workletNode.connect(audioCtxRef.current.destination);
     } catch (err) {
       console.error("Donna Mic Error:", err);
     }
