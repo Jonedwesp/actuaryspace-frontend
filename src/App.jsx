@@ -716,6 +716,7 @@ if (currentView.app === "gmail" || currentView.app === "email") {
       manualMins={manualMins} setManualMins={setManualMins}
       trelloAttachmentRef={trelloAttachmentRef}
       pendingCFRef={pendingCFRef}
+      triggerSnackbar={triggerSnackbar}
     />;
   }
 
@@ -1023,6 +1024,7 @@ return (
         setTrashedGchatSpaces={setTrashedGchatSpaces}
         chatToDelete={chatToDelete}
         setChatToDelete={setChatToDelete}
+        triggerSnackbar={triggerSnackbar}
       />
 
       <AppModals

@@ -46,6 +46,7 @@ export function TrelloApp({
   // --- Refs ---
   trelloAttachmentRef,
   pendingCFRef,
+  triggerSnackbar,
 }) {
   if (currentView.app === "trello" && trelloCard) {
     const c = trelloCard;
@@ -971,7 +972,7 @@ export function TrelloApp({
                              };
                           });
 
-                          window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "Priority" } }));
+                          window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "Priority", ttlMs: 10000 } }));
 
                           try {
                              await fetch("/.netlify/functions/trello-set-custom-field", {
@@ -1008,7 +1009,7 @@ export function TrelloApp({
                              };
                           });
                           
-                          window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "Status" } }));
+                          window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "Status", ttlMs: 10000 } }));
 
                           try {
                              await fetch("/.netlify/functions/trello-set-custom-field", {
@@ -1045,7 +1046,7 @@ export function TrelloApp({
                              };
                           });
 
-                          window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "Active" } }));
+                          window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "Active", ttlMs: 10000 } }));
 
                           try {
                              await fetch("/.netlify/functions/trello-set-custom-field", {

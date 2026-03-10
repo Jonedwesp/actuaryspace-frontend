@@ -19,7 +19,8 @@ const RightPanel = React.memo(function RightPanel({
   mutedGchatSpaces, setMutedGchatSpaces,
   trashedGchatSpaces, setTrashedGchatSpaces,
   chatToDelete, setChatToDelete,
-  activeTrelloCardId 
+  activeTrelloCardId,
+  triggerSnackbar,
 }) {
   // 👇 HYDRATE FROM CACHE: Gives notifications permanent memory across page refreshes!
   const knownTrelloCardsRef = useRef(null);
@@ -1039,8 +1040,9 @@ const RightPanel = React.memo(function RightPanel({
                       const actTimerMins = actRanges.reduce((sum, r) => sum + ((r[2] - r[1]) / 60), 0);
                       const v1Users = card.powerUpData?.users || {};
                       const v1TimerMins = Object.values(v1Users).reduce((sum, u) => sum + ((u.time || 0) / 60000), 0);
+                      const cfDurationMins = parseFloat(card.customFields?.Duration || "0") || 0;
                       const fmtMins = (m) => { const t = Math.floor(m); if (t >= 60) { const h = Math.floor(t/60); return t%60 > 0 ? `${h}h ${t%60}m` : `${h}h`; } return `${t}m`; };
-                      const hasFooter = actTimerMins > 0 || v1TimerMins > 0 || (card.people && card.people.length > 0);
+                      const hasFooter = actTimerMins > 0 || v1TimerMins > 0 || cfDurationMins > 0 || (card.people && card.people.length > 0);
 
                       return (
                         <>
@@ -1064,6 +1066,7 @@ const RightPanel = React.memo(function RightPanel({
                               <div className="tl-timers">
                                 {actTimerMins > 0 && <span className="tl-cnt"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>{fmtMins(actTimerMins)}</span>}
                                 {v1TimerMins > 0 && <span className="tl-cnt"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>{fmtMins(v1TimerMins)}</span>}
+                                {cfDurationMins > 0 && <span className="tl-cnt"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>{fmtMins(cfDurationMins)}</span>}
                               </div>
                               <div className="tl-people">
                                 {card.people?.map((p, idx) => {

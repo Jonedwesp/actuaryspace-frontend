@@ -7,13 +7,11 @@ export const handler = async (event) => {
     const key = process.env.TRELLO_API_KEY || process.env.TRELLO_KEY;
     const token = process.env.TRELLO_TOKEN;
 
-    const payload = { url: url };
-    if (name && name.trim() !== "") payload.name = name;
+    const params = new URLSearchParams({ key, token, url });
+    if (name && name.trim() !== "") params.set('name', name.trim());
 
-    const res = await fetch(`https://api.trello.com/1/cards/${cardId}/attachments?key=${key}&token=${token}`, {
+    const res = await fetch(`https://api.trello.com/1/cards/${cardId}/attachments?${params}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
     });
 
     if (!res.ok) {
