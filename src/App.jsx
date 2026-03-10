@@ -85,19 +85,21 @@ export default function App() {
   const donnaRespondingRef = useRef(false);
   const ignoreNextDonnaRef = useRef(false);
   const donnaTextModeRef = useRef(false);
+  const lastCtxRef = useRef("");
   const [donnaKey, setDonnaKey] = useState(0);
+  
 
- const { 
+const { 
     isConnected: isDonnaConnected, 
     connectDonna, 
     disconnectDonna, 
     sendSessionUpdate,
     sendToolResponse,
-    sendText,
-    pcRef, // 👈 WebRTC Peer Connection Reference
-    dcRef  // 👈 WebRTC Data Channel Reference
+    sendText,
+    pcRef, // 👈 WebRTC Peer Connection Reference
+    dcRef  // 👈 WebRTC Data Channel Reference
 } = useDonna({
-   instructions: "You are Agent Donna, a witty and professional actuarial assistant to Siyabonga (Siya).\n\n*** STRICT WAKE-WORD PROTOCOL ***\nYour audio stream is always open, but you are ASLEEP. You must ONLY wake up and respond if the user's sentence starts exactly with 'Hey Donna'.\n- If the user speaks without saying 'Hey Donna' first, you must output ABSOLUTELY NOTHING. YOU ARE FORBIDDEN FROM SAYING 'I can only respond to requests that begin with...'. Remain completely silent.\n- Do not explain the rule. Do not apologize. Just stay silent.\n- IMPORTANT: If the user says 'Hey Donna approve' or 'Hey Donna reject', this is handled locally by the system. YOU MUST OUTPUT ABSOLUTELY NOTHING. DO NOT ASK WHAT TO APPROVE. JUST REMAIN SILENT.\n- Once you fulfill a 'Hey Donna' request, go immediately back to sleep.\n\nBe concise and use your tools whenever appropriate. IMPORTANT: Always respond in English only.",  tools: DONNA_TOOLS,
+   instructions: "You are Agent Donna, a witty and professional actuarial assistant to Siyabonga (Siya).\n\n*** STRICT WAKE-WORD PROTOCOL ***\nYour audio stream is always open, but you are ASLEEP. You must ONLY wake up and respond if the user's sentence starts exactly with 'Hey Donna'.\n- If the user speaks without saying 'Hey Donna' first, you must output ABSOLUTELY NOTHING. YOU ARE FORBIDDEN FROM SAYING 'I can only respond to requests that begin with...'. Remain completely silent.\n- Do not explain the rule. Do not apologize. Just stay silent.\n- IMPORTANT: If the user says 'Hey Donna approve' or 'Hey Donna reject', this is handled locally by the system. YOU MUST OUTPUT ABSOLUTELY NOTHING. DO NOT ASK WHAT TO APPROVE. JUST REMAIN SILENT.\n- Once you fulfill a 'Hey Donna' request, go immediately back to sleep.\n\nWhen carrying out a request using your tools that involves creating, modifying, moving, or deleting data (e.g., saving a draft, moving a card), BEFORE you say what you are doing, you must ask Siya to approve or reject the request on his screen. You MUST call the tool immediately alongside your voice response. Do NOT wait for his verbal permission to call the tool. The system will catch your tool call and automatically display the Approve/Reject buttons on his screen while you speak. If you are simply navigating to an app or searching/fetching data, execute the tool immediately without asking for approval. Be concise. IMPORTANT: Always respond in English only.",  tools: DONNA_TOOLS,
 onTranscription: (text) => {
       if (!text) return; 
       const lowerText = text.toLowerCase().trim();
@@ -163,7 +165,7 @@ onResponseDelta: (delta, isNew) => {
       }
       donnaRespondingRef.current = true;
       setIsDonnaSpeaking(true);
-      // Removed setDonnaTranscription to keep Siya's text visible in the bubble
+      setDonnaTranscription(prev => isNew ? delta : prev + delta);
     },
     onResponseEnd: () => {
       if (ignoreNextDonnaRef.current) {
@@ -175,12 +177,13 @@ onResponseDelta: (delta, isNew) => {
       setIsDonnaSpeaking(false);
     },
 onFunctionCall: ({ name, args, call_id }) => {
-      // 🛡️ STERN WAKE-WORD GUARD: Block all tool execution unless "Hey Donna" was used
-      const lowerTranscription = donnaTranscription.toLowerCase().trim();
-      const isAuthorized = donnaTextModeRef.current || lowerTranscription.startsWith("hey donna");
+      // 🛡️ ARCHITECT'S GUARD: Allow tool if "Hey Donna" was said OR if she is already in a response loop
+      const lowerTranscription = (donnaTranscription || "").toLowerCase().trim();
+      const isAuthorized = lowerTranscription.startsWith("hey donna") || donnaRespondingRef.current;
 
       if (!isAuthorized) {
         console.log(`[Donna] Protocol Violation: Tool ${name} blocked. Wake-word missing.`);
+        // sendToolResponse(call_id, { error: "Protocol violation: Wake-word missing." }); // Optional: tell Donna why she failed
         return;
       }
 
@@ -211,11 +214,8 @@ onFunctionCall: ({ name, args, call_id }) => {
         fetch("/.netlify/functions/gmail-contacts")
           .then(res => res.json())
           .then(data => {
-            // Update session so Donna has the directory in her context
-            sendSessionUpdate({
-              instructions: `Contact Directory: ${JSON.stringify(data)}. Use these exact emails for drafts.`
-            });
-            // Feed the data back into the tool call using the new helper
+            // ✅ Only send the Tool Response. Donna will get the data via the tool output
+            // instead of a session instruction change.
             sendToolResponse(call_id, { success: true, contacts: data });
           });
         return;
@@ -239,39 +239,38 @@ onFunctionCall: ({ name, args, call_id }) => {
       // 4. All other "Write" tools require approval
       let finalArgs = { ...args };
 // 🔍 Simple Trigger: Just catch the intent and show the popup
-      if (name === "trello_move_card") {
-        setDonnaPendingAction({ name, args, call_id });
-        setDonnaTranscription(`Donna wants to: move Trello card "${args.cardId}" to "${args.targetListId}"`);
-        return; 
-      }
-
- // 3. All other "Write" tools require approval
-      setDonnaPendingAction({ name, args, call_id });
-      
-      if (name === "gmail_save_draft") {
-        // 🎯 UX Update: Soften the language to "Review"
-        setDonnaTranscription(`Donna has prepared a draft for your review.`);
-      } else if (name === "gmail_get_message") {
-        const sender = args.senderName || "Unknown";
-        const subject = args.subject ? ` ("${args.subject}")` : "";
-        setDonnaTranscription(`Donna wants to: open email from ${sender}${subject}`);
-      } else if (name === "gmail_delete_bulk") {
-        const sender = args.senderName || "this sender";
-        const subject = args.subject ? ` ("${args.subject}")` : "";
-        const action = args.restore ? "restore" : "delete";
-        setDonnaTranscription(`Donna wants to: ${action} email from ${sender}${subject}`);
-      } else if (name === "gmail_toggle_star") {
-        const sender = args.senderName || "this sender";
-        const subject = args.subject ? ` ("${args.subject}")` : "";
-        const action = args.starred !== false ? "star" : "unstar";
-        setDonnaTranscription(`Donna wants to: ${action} email from ${sender}${subject}`);
-      } else if (name === "gmail_mark_unread" || name === "gmail_mark_unread_bulk") {
-        const sender = args.senderName || "this sender";
-        const subject = args.subject ? ` ("${args.subject}")` : "";
-        setDonnaTranscription(`Donna wants to: mark as unread email from ${sender}${subject}`);
-      } else {
-        setDonnaTranscription(`Donna wants to: ${name.replace(/_/g, " ")}`);
+      if (name === "trello_move_card") {
+        setDonnaPendingAction({ name, args, call_id });
+        return; 
       }
+
+// 3. All other "Write" tools require approval
+      setDonnaPendingAction({ name, args, call_id });
+      
+      if (name === "gmail_save_draft") {
+        // 🎯 UX Update: Soften the language to "Review"
+        setDonnaTranscription(`Donna has prepared a draft for your review.`);
+      } else if (name === "gmail_get_message") {
+        const sender = args.senderName || "Unknown";
+        const subject = args.subject ? ` ("${args.subject}")` : "";
+        setDonnaTranscription(`Donna wants to: open email from ${sender}${subject}`);
+      } else if (name === "gmail_delete_bulk") {
+        const sender = args.senderName || "this sender";
+        const subject = args.subject ? ` ("${args.subject}")` : "";
+        const action = args.restore ? "restore" : "delete";
+        setDonnaTranscription(`Donna wants to: ${action} email from ${sender}${subject}`);
+      } else if (name === "gmail_toggle_star") {
+        const sender = args.senderName || "this sender";
+        const subject = args.subject ? ` ("${args.subject}")` : "";
+        const action = args.starred !== false ? "star" : "unstar";
+        setDonnaTranscription(`Donna wants to: ${action} email from ${sender}${subject}`);
+      } else if (name === "gmail_mark_unread") {
+        const sender = args.senderName || "this sender";
+        const subject = args.subject ? ` ("${args.subject}")` : "";
+        setDonnaTranscription(`Donna wants to: mark as unread email from ${sender}${subject}`);
+      } else {
+        setDonnaTranscription(`Donna wants to: ${name.replace(/_/g, " ")}`);
+      }
     },
     onError: (msg) => setDonnaTranscription(`Error: ${msg}`),
   });
@@ -282,7 +281,16 @@ onFunctionCall: ({ name, args, call_id }) => {
     return () => disconnectDonna();
   }, []); // 🛡️ FIX: Removed dependencies to prevent infinite loop crash
 
+  const donnaAudioRef = useRef(null);
 
+  useEffect(() => {
+    if (!pcRef || !pcRef.current) return;
+    pcRef.current.ontrack = (event) => {
+      if (donnaAudioRef.current && event.streams[0]) {
+        donnaAudioRef.current.srcObject = event.streams[0];
+      }
+    };
+  }, [pcRef]);
 
   const reportSystemError = (source, message) => setSystemErrors(prev => ({ ...prev, [source]: message }));
   const clearSystemError = (source) => setSystemErrors(prev => { const next = { ...prev }; delete next[source]; return next; });
@@ -432,14 +440,11 @@ const handleApproveDonna = () => {
         triggerSnackbar("Draft prepared.");
         return;
 
-case 'gmail_mark_unread':
-case 'gmail_mark_unread_bulk':
+     case 'gmail_mark_unread':
         console.log(`[Donna] Marking email as unread...`, args);
         setCurrentView({ app: 'gmail', contact: null });
-        if (args.messageId || args.messageIds) {
-          // Handle both singular and bulk ID formats from Donna
-          const messyId = args.messageId || (Array.isArray(args.messageIds) ? args.messageIds[0] : args.messageIds);
-          const exactId = getExactId(messyId);
+        if (args.messageId) {
+          const exactId = getExactId(args.messageId);
           
           // 🚀 ZERO-LATENCY UI UPDATE: Updates in place without changing the sort order
           setGmailEmails(prev => prev.map(msg => 
@@ -457,46 +462,45 @@ case 'gmail_mark_unread_bulk':
         }
         break;
 
-   case 'gmail_delete_bulk':
-        console.log(`[Donna] Binning email...`, args);
-        setCurrentView({ app: 'gmail', contact: null });
-        
-        let rawIds = [];
-        if (Array.isArray(args.messageIds)) rawIds = args.messageIds;
-        else if (typeof args.messageIds === 'string') rawIds = [args.messageIds];
-        else if (typeof args.messageId === 'string') rawIds = [args.messageId];
+      case 'gmail_delete_bulk':
+        console.log(`[Donna] Binning email...`, args);
+        setCurrentView({ app: 'gmail', contact: null });
+        
+        let rawIds = [];
+        if (Array.isArray(args.messageIds)) rawIds = args.messageIds;
+        else if (typeof args.messageIds === 'string') rawIds = [args.messageIds];
+        else if (typeof args.messageId === 'string') rawIds = [args.messageId];
 
-        // 🔥 Map the messy IDs to the EXACT perfect IDs
-        const exactIds = rawIds.map(getExactId);
+        // 🔥 Map the messy IDs to the EXACT perfect IDs
+        const exactIds = rawIds.map(getExactId);
 
-        if (exactIds.length > 0) {
-          // 🚀 ZERO-LATENCY UI UPDATE: Exact match filtering
-          setGmailEmails(prev => {
-            const nextList = prev.filter(e => !exactIds.includes(e.id));
-            
-            // Adjust pagination totals instantly
-            const removedCount = prev.length - nextList.length;
-            if (removedCount > 0) setGmailTotal(t => Math.max(0, t - removedCount));
-            
-            return nextList;
-          });
+        if (exactIds.length > 0) {
+          // 🚀 ZERO-LATENCY UI UPDATE: Exact match filtering
+          setGmailEmails(prev => {
+            const nextList = prev.filter(e => !exactIds.includes(e.id));
+            
+            // Adjust pagination totals instantly
+            const removedCount = prev.length - nextList.length;
+            if (removedCount > 0) setGmailTotal(t => Math.max(0, t - removedCount));
+            
+            return nextList;
+          });
 
-          setEmail(null);
-          setEmailPreview(null);
-          
-          // 🔄 Passing action info to enable the 'Undo' button in the global Snackbar
-          triggerSnackbar(`Conversation moved to Trash.`, { type: 'gmail_delete', ids: exactIds });
-          
-          fetch("/.netlify/functions/gmail-delete-bulk", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({ messageIds: exactIds, permanent: false }) // 🔥 Exact ID sent to server
-          }).catch(err => console.error("Delete failed:", err));
-        }
-        break;
+          setEmail(null);
+          setEmailPreview(null);
+          
+          triggerSnackbar(`Conversation(s) moved to Trash.`);
+          
+          fetch("/.netlify/functions/gmail-delete-bulk", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ messageIds: exactIds, permanent: false }) // 🔥 Exact ID sent to server
+          }).catch(err => console.error("Delete failed:", err));
+        }
+        break;
 
-      case 'gmail_toggle_star':
+    case 'gmail_toggle_star':
         console.log(`[Donna] Starring email...`, args);
         
         // 1. Bulletproof ID array handling (matches the delete logic)
@@ -541,14 +545,15 @@ case 'gmail_mark_unread_bulk':
         console.log("[Donna] Executing Trello move...", args);
         setCurrentView({ app: 'trello', contact: null });
 
-        let cardIdToMove = args.cardId;
+        let cardIdToMove = null;
         let listIdToTarget = args.targetListId;
+        let targetKeyName = null;
 
-        // 1. Find the Card ID by searching through all trelloBuckets
-        for (const [, cards] of Object.entries(trelloBuckets || {})) {
-          // 🛡️ Safety Guard: Skip if cards is not an array (prevents "find is not a function")
+        // 1. Resolve REAL Card ID (Search all buckets)
+        for (const [listName, cards] of Object.entries(trelloBuckets || {})) {
           if (Array.isArray(cards)) {
             const match = cards.find(c => 
+              c.id === args.cardId || 
               (c.title || c.name || "").toLowerCase().includes((args.cardId || "").toLowerCase())
             );
             if (match) {
@@ -558,42 +563,52 @@ case 'gmail_mark_unread_bulk':
           }
         }
 
-        // 2. Find the Target List ID by matching the list name in the bucket keys
+        // 2. Resolve Target List ID by Name
         const bucketNames = Object.keys(trelloBuckets || {});
-        const targetKey = bucketNames.find(n => 
+        targetKeyName = bucketNames.find(n => 
           n.toLowerCase().includes((args.targetListId || "").toLowerCase())
         );
 
-        // 🛡️ Safety Guard: Ensure target exists and is an array before checking length
-        if (targetKey && Array.isArray(trelloBuckets[targetKey]) && trelloBuckets[targetKey].length > 0) {
-          listIdToTarget = trelloBuckets[targetKey][0].idList;
+        if (targetKeyName && Array.isArray(trelloBuckets[targetKeyName])) {
+           if (trelloBuckets[targetKeyName].length > 0) {
+              listIdToTarget = trelloBuckets[targetKeyName][0].idList;
+           }
         }
 
-        // 🚀 ZERO-LATENCY UI UPDATE: Move the card in React state immediately
+        // 🛡️ GUARD: Prevent 400 Bad Request
+        if (!cardIdToMove || cardIdToMove.length < 10) {
+          console.error("[Donna] Could not resolve card ID for:", args.cardId);
+          triggerSnackbar("Error: Could not find that card.");
+          setDonnaPendingAction(null);
+          return;
+        }
+
+        // 🚀 OPTIMISTIC UI UPDATE (Prevents trelloBuckets.map error)
         setTrelloBuckets(prev => {
-          let movingCard = null;
+          if (!prev || typeof prev !== 'object') return prev; 
           const next = { ...prev };
+          let movingCard = null;
           
           for (const key in next) {
-            // 🛡️ Safety Guard: Iterate only over actual card arrays
             if (Array.isArray(next[key])) {
-              const idx = next[key].findIndex(c => c.id === cardIdToMove);
-              if (idx > -1) {
-                movingCard = { ...next[key][idx], idList: listIdToTarget };
-                next[key].splice(idx, 1);
+              const card = next[key].find(c => c.id === cardIdToMove);
+              if (card) {
+                movingCard = { ...card, idList: listIdToTarget };
+                next[key] = next[key].filter(c => c.id !== cardIdToMove);
                 break;
               }
             }
           }
           
-          if (movingCard && targetKey && Array.isArray(next[targetKey])) {
-            next[targetKey] = [movingCard, ...next[targetKey]];
+          if (movingCard && targetKeyName && Array.isArray(next[targetKeyName])) {
+            next[targetKeyName] = [movingCard, ...next[targetKeyName]];
           }
           return next;
         });
 
-        triggerSnackbar(`Moving card to ${targetKey || 'target list'}...`);
+        triggerSnackbar(`Moving card to ${targetKeyName || 'target list'}...`);
 
+        // 3. Hit the "Hands" (Netlify Function)
         fetch("/.netlify/functions/trello-move", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -607,7 +622,6 @@ case 'gmail_mark_unread_bulk':
           triggerSnackbar("Failed to sync Trello move.");
         });
         
-        // 🏁 CRITICAL: Ensure the action state is cleared to close the popup
         setDonnaPendingAction(null);
         break;
       }
@@ -616,15 +630,10 @@ case 'gmail_mark_unread_bulk':
         console.warn("Unmapped tool execution:", name);
     }
 
-const finalName = donnaPendingAction?.name;
-    setDonnaPendingAction(null);
-    
-    // 📢 Explicitly confirm the specific action Donna just completed
-    const confirmation = finalName === 'gmail_delete_bulk' ? "Email deleted." : "Action approved.";
-    setDonnaTranscription(confirmation);
-    
-    setTimeout(() => setDonnaTranscription(""), 3000);
-  };
+    setDonnaPendingAction(null);
+    setDonnaTranscription("Action approved.");
+    setTimeout(() => setDonnaTranscription(""), 3000);
+  };
   const handleRejectDonna = () => {
     setDonnaPendingAction(null);
     setDonnaTranscription("Action rejected.");
@@ -822,11 +831,11 @@ const [searchQuery, setSearchQuery] = useState("");
 
   const { isRecording, startRecording, stopRecording } = useRecording({ setPendingUpload });
 
- // Update Donna's session instructions with current screen context
+// Update Donna's session instructions with current screen context
   useEffect(() => {
     if (!isDonnaConnected) return;
     const app = currentView.app;
-  let ctx = "You are Agent Donna, a witty and professional actuarial assistant to Siyabonga (Siya, pronounced See-yah).\n\n*** STRICT WAKE-WORD PROTOCOL ***\nYour audio stream is always open, but you are ASLEEP. You must ONLY wake up and respond if the user's sentence starts exactly with 'Hey Donna'.\n- If the user speaks without saying 'Hey Donna' first, you must output ABSOLUTELY NOTHING. YOU ARE FORBIDDEN FROM SAYING 'I can only respond to requests that begin with...'. Remain completely silent.\n- Do not explain the rule. Do not apologize. Just stay silent.\n- IMPORTANT: If the user says 'Hey Donna approve' or 'Hey Donna reject', this is handled locally by the system. YOU MUST OUTPUT ABSOLUTELY NOTHING. DO NOT ASK WHAT TO APPROVE. JUST REMAIN SILENT.\n- Once you fulfill a 'Hey Donna' request, go immediately back to sleep.\n\nBe concise and use your tools whenever appropriate. IMPORTANT: Always respond in English only.\n\n";
+  let ctx = "You are Agent Donna, a witty and professional actuarial assistant to Siyabonga (Siya, pronounced See-yah).\n\n*** STRICT WAKE-WORD PROTOCOL ***\nYour audio stream is always open, but you are ASLEEP. You must ONLY wake up and respond if the user's sentence starts exactly with 'Hey Donna'.\n- If the user speaks without saying 'Hey Donna' first, you must output ABSOLUTELY NOTHING. YOU ARE FORBIDDEN FROM SAYING 'I can only respond to requests that begin with...'. Remain completely silent.\n- Do not explain the rule. Do not apologize. Just stay silent.\n- IMPORTANT: If the user says 'Hey Donna approve' or 'Hey Donna reject', this is handled locally by the system. YOU MUST OUTPUT ABSOLUTELY NOTHING. DO NOT ASK WHAT TO APPROVE. JUST REMAIN SILENT.\n- Once you fulfill a 'Hey Donna' request, go immediately back to sleep.\n\nWhen carrying out a request using your tools that involves creating, modifying, moving, or deleting data (e.g., saving a draft, moving a card), BEFORE you say what you are doing, you must ask Siya to approve or reject the request on his screen. You MUST call the tool immediately alongside your voice response. Do NOT wait for his verbal permission to call the tool. The system will catch your tool call and automatically display the Approve/Reject buttons on his screen while you speak. If you are simply navigating to an app or searching/fetching data, execute the tool immediately without asking for approval. Be concise. IMPORTANT: Always respond in English only.\n\n";
     const now = new Date();
     ctx += `Current date and time: ${now.toLocaleDateString("en-ZA", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}, ${now.toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit", hour12: true })}.\n`;
     ctx += `Current screen: ${app === "none" ? "Home / welcome screen" : app}.\n`;
@@ -878,10 +887,23 @@ const [searchQuery, setSearchQuery] = useState("");
       }
     }
 
-   console.log("[Donna Context]", ctx);
-    sendSessionUpdate({ instructions: ctx });
-  }, [isDonnaConnected, currentView.app, email, gchatSelectedSpace, gchatDmNames, trelloCard, gmailEmails, gchatMessages, calendarEvents, selectedEvent, gchatSpaces, trelloBuckets, gmailFolder]); // 🛡️ FIX: Removed sendSessionUpdate to prevent infinite loop
 
+  console.log("[Donna Context]", ctx);
+
+    // 🛡️ THE MUZZLE GUARD: If Donna is speaking or a response is in progress, 
+    // we abort the update to prevent the "assistant audio is present" error.
+    if (isDonnaSpeaking || donnaRespondingRef.current) {
+      console.warn("[Donna] Session update deferred: Assistant is currently speaking.");
+      return;
+    }
+
+    if (lastCtxRef.current !== ctx) {
+      lastCtxRef.current = ctx;
+      sendSessionUpdate({ instructions: ctx });
+    }
+    // 🎯 We add isDonnaSpeaking to the dependencies so that when she stops talking,
+    // this effect runs again and finally pushes the new context.
+  }, [isDonnaConnected, currentView.app, email, gchatSelectedSpace, gchatDmNames, trelloCard, gmailEmails, gchatMessages, calendarEvents, selectedEvent, gchatSpaces, trelloBuckets, gmailFolder, isDonnaSpeaking]);
 const chatTextareaRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -1247,6 +1269,7 @@ if (currentView.app === "gmail" || currentView.app === "email") {
 return (
   <PasswordGate persona={PERSONA}>
     <div className="app">
+      <audio ref={donnaAudioRef} autoPlay playsInline />
   <DonnaBubble
         transcription={donnaTranscription}
         isListening={isDonnaActive || isDonnaSpeaking} // 🛡️ Keep visible while she talks back
@@ -1271,7 +1294,6 @@ return (
             el.style.animation = 'press-bounce 0.25s ease';
             if (!isDonnaActive) {
               setIsDonnaLoading(true);
-              setDonnaTranscription("Listening..."); // 🛡️ Visual feedback that bubble is ready
             }
             setIsDonnaActive(!isDonnaActive);
           }}
@@ -1352,7 +1374,7 @@ return (
           setShowSystemPopup={setShowSystemPopup}
         />
 
-        <div style={{ display: "flex", flex: 1, overflow: "hidden", width: "100%" }}>
+        <div style={{ display: "flex", flex: 1, overflow: "hidden", width: "100%", paddingBottom: isDonnaActive ? "80px" : "0", transition: "padding-bottom 0.3s cubic-bezier(0.34,1.56,0.64,1)" }}>
           <div className="middle-content" style={{ flex: 1, paddingRight: "2px", paddingBottom: "2px" }}>
             {showWelcome && currentView.app === "none" ? (
               <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -1452,9 +1474,9 @@ return (
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 if (!donnaBarInput.trim()) return;
-                setDonnaTranscription(donnaBarInput);
+
                 donnaTextModeRef.current = true;
-                sendText(donnaBarInput);
+                sendText("Hey Donna, " + donnaBarInput);
                 setDonnaBarInput('');
               }
             }}
@@ -1464,9 +1486,9 @@ return (
             <button
               onClick={() => {
                 if (!donnaBarInput.trim()) return;
-                setDonnaTranscription(donnaBarInput);
+
                 donnaTextModeRef.current = true;
-                sendText(donnaBarInput);
+                sendText("Hey Donna, " + donnaBarInput);
                 setDonnaBarInput('');
               }}
               style={{

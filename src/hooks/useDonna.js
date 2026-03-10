@@ -60,17 +60,28 @@ export function useDonna({
         audioEl.style.display = "none";
         document.body.appendChild(audioEl);
       }
-      pc.ontrack = (e) => { audioEl.srcObject = e.streams[0]; };
+      pc.ontrack = (e) => {
+        const stream = (e.streams && e.streams[0]) ? e.streams[0] : new MediaStream([e.track]);
+        audioEl.srcObject = stream;
+        audioEl.play().catch(err => console.warn("[Donna] Audio play blocked:", err));
+      };
 
-      // 4. Add mic track — explicit echo cancellation to prevent Donna's audio feeding back
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-      stream.getTracks().forEach(track => pc.addTrack(track, stream));
+      // 4. Add mic track — falls back to silent track if mic is denied (OpenAI requires audio in SDP)
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+        stream.getTracks().forEach(track => pc.addTrack(track, stream));
+      } catch (micErr) {
+        console.warn("[Donna] Mic unavailable, using silent track for text-only mode:", micErr.message);
+        const audioCtx = new AudioContext();
+        const dest = audioCtx.createMediaStreamDestination();
+        dest.stream.getTracks().forEach(track => pc.addTrack(track, dest.stream));
+      }
 
       // 5. Data channel for events (transcriptions, function calls, etc.)
       const dc = pc.createDataChannel("oai-events");

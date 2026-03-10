@@ -12,21 +12,19 @@ async function processLedger(event) {
     const base = "https://api.trello.com/1";
     const auth = `key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`;
     
-    // 1. Get Midnight in SAST (South African Standard Time)
+    // 1. Get Midnight in SAST
     const now = new Date();
     const sastFormatter = new Intl.DateTimeFormat('en-US', { timeZone: 'Africa/Johannesburg', year: 'numeric', month: '2-digit', day: '2-digit' });
     const [month, day, year] = sastFormatter.format(now).split('/');
     const midnightSAST = new Date(`${year}-${month}-${day}T00:00:00+02:00`).toISOString();
 
     // 2. Fetch Board State AND Today's Move Actions
-    const [listsRes, cardsRes, actionsRes, customFieldsRes] = await Promise.all([
+    const [listsRes, cardsRes, actionsRes] = await Promise.all([
       fetch(`${base}/boards/${TRELLO_BOARD_ID}/lists?${auth}`),
-      fetch(`${base}/boards/${TRELLO_BOARD_ID}/cards?customFieldItems=true&fields=name,idList&${auth}`),
-      fetch(`${base}/boards/${TRELLO_BOARD_ID}/actions?filter=updateCard:idList&since=${midnightSAST}&limit=1000&${auth}`),
-      fetch(`${base}/boards/${TRELLO_BOARD_ID}/customFields?${auth}`)
+      fetch(`${base}/boards/${TRELLO_BOARD_ID}/cards?fields=name,idList&${auth}`),
+      fetch(`${base}/boards/${TRELLO_BOARD_ID}/actions?filter=updateCard:idList&since=${midnightSAST}&limit=1000&${auth}`)
     ]);
 
-    // ⚡ FIX: Read the JSON stream ONLY ONCE to prevent the "Body has already been read" crash
     const rawLists = await listsRes.json();
     const lists = Array.isArray(rawLists) ? rawLists : [];
 
@@ -36,24 +34,30 @@ async function processLedger(event) {
     const rawActions = await actionsRes.json();
     const actions = Array.isArray(rawActions) ? rawActions : [];
 
-    const rawCF = await customFieldsRes.json();
-    const customFields = Array.isArray(rawCF) ? rawCF : [];
-
     const reviewListId = lists.find(l => l.name === "Siya - Review")?.id;
     const yolandieListId = lists.find(l => l.name === "Yolandie to Send")?.id;
-    const workLogFieldId = customFields.find(f => f.name.includes("WorkLog"))?.id;
 
-    // 3. Map out which cards crossed the border TODAY
-    const movedToReviewToday = new Set();
-    const movedToYolandieToday = new Set();
+    // 3. TRACK EXACT MOVEMENTS (No timer dependency!)
+    const cardCredits = {};
 
     actions.forEach(action => {
        const destName = action.data?.listAfter?.name || "";
-       if (destName === "Siya - Review") movedToReviewToday.add(action.data.card.id);
-       if (destName === "Yolandie to Send") movedToYolandieToday.add(action.data.card.id);
+       const sourceName = action.data?.listBefore?.name || "";
+       const cardId = action.data?.card?.id;
+
+       // If anyone sent it to Review today, credit the list it came from (the sender)
+       if (destName === "Siya - Review" && sourceName) {
+           // Standardize Boniswa/Bonisa just in case
+           const standardizedName = sourceName.includes("Bonis") ? "Bonisa" : sourceName;
+           cardCredits[cardId] = standardizedName; 
+       }
+       // If Siya sent it to Yolandie today, credit Siya - Review
+       if (destName === "Yolandie to Send" && sourceName === "Siya - Review") {
+           cardCredits[cardId] = "Siya - Review";
+       }
     });
 
-    const targetUsers = ["Enock", "Songeziwe", "Bonisa", "Siya - Review"];
+    const targetUsers = ["Siya", "Enock", "Songeziwe", "Bonisa", "Siya - Review"];
     const liveStats = {};
     const snapshotRows = [];
     const todayStr = new Date().toLocaleDateString("en-GB", { timeZone: 'Africa/Johannesburg' });
@@ -61,33 +65,14 @@ async function processLedger(event) {
     // 4. Calculate Scores
     targetUsers.forEach(user => {
       let completedCards = [];
-      const bucketKey = user.substring(0, 3).toUpperCase(); // e.g., ENO, SON, BON, SIY
 
       cards.forEach(c => {
         if (!c.name || c.name.toLowerCase().includes("out of office")) return;
 
-        // Determine if they worked on it via the JSON WorkLog
-        let workedOnIt = false;
-        const logItem = (c.customFieldItems || []).find(item => item.idCustomField === workLogFieldId);
-        if (logItem && logItem.value?.text) {
-            try {
-               const parsed = JSON.parse(logItem.value.text);
-               if (parsed[bucketKey] > 0) workedOnIt = true;
-            } catch(e) {}
-        }
-
-        if (user === "Siya - Review") {
-           // Siya's score: Card is currently in Yolandie, it was moved there TODAY, and Siya worked on it.
-           if (c.idList === yolandieListId && movedToYolandieToday.has(c.id) && workedOnIt) {
-               completedCards.push(c);
-           }
-        } else {
-           // Data Capturers score: Card is currently in Review OR Yolandie (didn't bounce back),
-           // it was moved to one of them TODAY, and the capturer worked on it.
-           const isDownstream = (c.idList === reviewListId || c.idList === yolandieListId);
-           const movedToday = (movedToReviewToday.has(c.id) || movedToYolandieToday.has(c.id));
-           
-           if (isDownstream && movedToday && workedOnIt) {
+        // Did THIS user move THIS card to the target list today?
+        if (cardCredits[c.id] === user) {
+           // Make sure it didn't bounce back (must still be in Review or Yolandie)
+           if (c.idList === reviewListId || c.idList === yolandieListId) {
                completedCards.push(c);
            }
         }
@@ -98,7 +83,7 @@ async function processLedger(event) {
       snapshotRows.push([todayStr, user, completedCards.length, "N/A", cardNamesStr]);
     });
 
-    // 5. If called by React UI, return stats instantly and DO NOT write to Google Sheets
+    // 5. Return Live Stats instantly for the UI
     if (isLiveUI) {
        return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: JSON.stringify(liveStats) };
     }

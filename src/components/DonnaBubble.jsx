@@ -24,8 +24,12 @@ export default function DonnaBubble({ transcription, isListening, showActions, o
         dismiss();
       }
     };
-    document.addEventListener("mousedown", handleClick);
+    // Delay registration so a mousedown that triggered the send doesn't immediately dismiss
+    const reg = setTimeout(() => {
+      document.addEventListener("mousedown", handleClick);
+    }, 300);
     return () => {
+      clearTimeout(reg);
       document.removeEventListener("mousedown", handleClick);
       clearTimeout(exitTimerRef.current);
     };
