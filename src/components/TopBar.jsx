@@ -2,6 +2,7 @@ import React from "react";
 import gchatIcon from "../assets/Google Chat.png";
 import gmailIcon from "../assets/Gmail pic.png";
 import logo from "../assets/Actuary Consulting.png";
+import googleLogo from "../assets/Google Logo.png";
 import CalendarIcon from "./CalendarIcon.jsx";
 
 export function TopBar({
@@ -96,7 +97,8 @@ export function TopBar({
             </div>
 
             <a href="/.netlify/functions/google-auth-start" className="connect-google-btn">
-              Reconnect
+              <img src={googleLogo} alt="Google" />
+              Connect
             </a>
 
           </div>

@@ -296,9 +296,10 @@ export const DONNA_TOOLS = [
         "type": "object",
         "properties": { 
           "messageId": { "type": "string", "description": "The unique ID of the Gmail message." },
-          "senderName": { "type": "string", "description": "The name of the person who sent the email. Used to display context to the user." }
+          "senderName": { "type": "string", "description": "The name of the person who sent the email. Used to display context to the user." },
+          "subject": { "type": "string", "description": "The subject line of the email." }
         },
-        "required": ["messageId", "senderName"]
+        "required": ["messageId", "senderName", "subject"]
       }
     }
   },
@@ -339,7 +340,7 @@ export const DONNA_TOOLS = [
     }
   },
 
-  // gmail-delete-bulk.js
+// gmail-delete-bulk.js
   {
     "type": "function",
     "function": {
@@ -350,14 +351,16 @@ export const DONNA_TOOLS = [
         "properties": {
           "messageIds": { "type": "array", "items": { "type": "string" }, "description": "An array of Gmail message IDs to affect." },
           "permanent": { "type": "boolean", "description": "Set to true to permanently delete the emails." },
-          "restore": { "type": "boolean", "description": "Set to true to pull the emails out of the trash and back into the inbox." }
+          "restore": { "type": "boolean", "description": "Set to true to pull the emails out of the trash and back into the inbox." },
+          "senderName": { "type": "string", "description": "The name of the sender of the email(s) being deleted or restored." },
+          "subject": { "type": "string", "description": "The subject line of the email(s) being deleted or restored." }
         },
-        "required": ["messageIds"]
+        "required": ["messageIds", "senderName", "subject"]
       }
     }
   },
 
-  // gmail-toggle-star.js
+ // gmail-toggle-star.js
   {
     "type": "function",
     "function": {
@@ -367,26 +370,32 @@ export const DONNA_TOOLS = [
         "type": "object",
         "properties": {
           "messageId": { "type": "string", "description": "The unique ID of the Gmail message." },
-          "starred": { "type": "boolean", "description": "True to add a star, false to remove the star." }
+          "starred": { "type": "boolean", "description": "True to add a star, false to remove the star." },
+          "senderName": { "type": "string", "description": "The name of the sender of the email." },
+          "subject": { "type": "string", "description": "The subject line of the email." }
         },
-        "required": ["messageId", "starred"]
+        "required": ["messageId", "starred", "senderName", "subject"]
       }
     }
   },
 
-  // gmail-mark-unread.js
-  {
-    "type": "function",
-    "function": {
-      "name": "gmail_mark_unread",
-      "description": "Marks a specific email as unread.",
-      "parameters": {
-        "type": "object",
-        "properties": { "messageId": { "type": "string", "description": "The unique ID of the Gmail message to mark unread." } },
-        "required": ["messageId"]
-      }
-    }
-  },
+// gmail-mark-unread.js
+  {
+    "type": "function",
+    "function": {
+      "name": "gmail_mark_unread",
+      "description": "Marks a specific email as unread in Gmail. Use this when the user asks to mark an email as unread.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "messageId": { "type": "string", "description": "The unique ID of the Gmail message." },
+          "senderName": { "type": "string", "description": "The name of the sender of the email." },
+          "subject": { "type": "string", "description": "The subject line of the email." }
+        },
+        "required": ["messageId", "senderName", "subject"]
+      }
+    }
+  },
 
   // sheet-update-tracker.js
   {

@@ -12,7 +12,7 @@ export async function handler(event) {
     const accessToken = await getAccessToken(event);
     const authHeaders = { Authorization: `Bearer ${accessToken}` };
 
-    const spaceRes = await fetchWithTimeout("https://chat.googleapis.com/v1/spaces?pageSize=40", {
+    const spaceRes = await fetchWithTimeout("https://chat.googleapis.com/v1/spaces?pageSize=20", {
       headers: authHeaders
     }, 7000);
     const spaceData = await spaceRes.json();
@@ -23,11 +23,13 @@ export async function handler(event) {
         const [msgSettled, rsSettled] = await Promise.allSettled([
           fetchWithTimeout(
             `https://chat.googleapis.com/v1/${s.name}/messages?pageSize=20&orderBy=createTime+desc`,
-            { headers: authHeaders }
+            { headers: authHeaders },
+            5000
           ).then(r => r.json()),
           fetchWithTimeout(
             `https://chat.googleapis.com/v1/users/me/${s.name}/spaceReadState`,
-            { headers: authHeaders }
+            { headers: authHeaders },
+            5000
           ).then(r => r.json()),
         ]);
         if (msgSettled.status === "rejected") return [];
@@ -107,7 +109,9 @@ export async function handler(event) {
       }
     });
 
-    const notifications = (await Promise.all(notificationPromises))
+    const safeAll = Promise.all(notificationPromises);
+    const timeoutFallback = new Promise(resolve => setTimeout(() => resolve([]), 22000));
+    const notifications = (await Promise.race([safeAll, timeoutFallback]))
       .filter(Boolean)
       .flat();
 

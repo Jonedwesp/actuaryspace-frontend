@@ -126,11 +126,16 @@ if (currentView.app === "gmail") {
       setGmailLoading(false);
     };
     return (
-            <div style={{ position: "relative", display: "flex", flexDirection: "column", height: "100%", background: "#fff", borderRadius: "12px", border: "1px solid #8993a4", boxShadow: "0 8px 16px -4px rgba(9,30,66,0.25), 0 0 0 1px rgba(9,30,66,0.08)", overflow: "hidden" }}>
+          <div style={{ position: "relative", display: "flex", flexDirection: "column", height: "100%", background: "#fff", borderRadius: "12px", border: "1px solid #8993a4", boxShadow: "0 8px 16px -4px rgba(9,30,66,0.25), 0 0 0 1px rgba(9,30,66,0.08)", overflow: "hidden" }}>
               {isDonnaDrafting && (
                 <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(255,255,255,0.7)", backdropFilter: "blur(2px)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column" }}>
-                  <div style={{ width: "40px", height: "40px", border: "4px solid #f3f3f3", borderTop: "4px solid #0b57d0", borderRadius: "50%", animation: "spin 1s linear infinite", marginBottom: "16px" }}></div>
-                  <h3 style={{ color: "#202124", fontFamily: "'Google Sans', sans-serif" }}>Donna is Drafting...</h3>
+                  <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#0b57d0" strokeWidth="3" strokeLinecap="round" style={{ marginBottom: "16px" }}>
+                    <circle cx="12" cy="12" r="10" stroke="#f3f3f3" />
+                    <path d="M12 2a10 10 0 0 1 10 10">
+                      <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite" />
+                    </path>
+                  </svg>
+                  <h3 style={{ color: "#202124", fontFamily: "'Google Sans', sans-serif" }}>Donna is thinking...</h3>
                 </div>
               )}
               
@@ -1181,8 +1186,13 @@ const emailPane = (
   <div className="email-pane" style={{ position: "relative", border: "1px solid #e6e6e6", borderRadius: "12px", boxSizing: "border-box", padding: "0 24px", background: "#fff", display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
       {isDonnaDrafting && (
         <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(255,255,255,0.7)", backdropFilter: "blur(2px)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column" }}>
-          <div style={{ width: "40px", height: "40px", border: "4px solid #f3f3f3", borderTop: "4px solid #0b57d0", borderRadius: "50%", animation: "spin 1s linear infinite", marginBottom: "16px" }}></div>
-          <h3 style={{ color: "#202124", fontFamily: "'Google Sans', sans-serif" }}>Donna is Drafting...</h3>
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#0b57d0" strokeWidth="3" strokeLinecap="round" style={{ marginBottom: "16px" }}>
+            <circle cx="12" cy="12" r="10" stroke="#f3f3f3" />
+            <path d="M12 2a10 10 0 0 1 10 10">
+              <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite" />
+            </path>
+          </svg>
+          <h3 style={{ color: "#202124", fontFamily: "'Google Sans', sans-serif" }}>Donna is thinking...</h3>
         </div>
       )}
       

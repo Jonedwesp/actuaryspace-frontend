@@ -65,7 +65,7 @@ import TopBar from "./components/TopBar.jsx";
 import AppModals from "./components/AppModals.jsx";
 import DonnaBubble from "./components/DonnaBubble.jsx";
 
-export const launchWorkstationWindow = (url) => {
+const launchWorkstationWindow = (url) => {
 
   window.dispatchEvent(new CustomEvent("openWorkstationPane", { detail: url }));
 
@@ -79,36 +79,78 @@ export default function App() {
   const [systemErrors, setSystemErrors] = useState({});
   const [showSystemPopup, setShowSystemPopup] = useState(false);
 
-  const [donnaTranscription, setDonnaTranscription] = useState("");
+ const [donnaTranscription, setDonnaTranscription] = useState("");
   const [donnaPendingAction, setDonnaPendingAction] = useState(null);
 
-  const donnaRespondingRef = useRef(false);
-  const [donnaKey, setDonnaKey] = useState(0);
+  const donnaRespondingRef = useRef(false);
+  const ignoreNextDonnaRef = useRef(false);
+  const [donnaKey, setDonnaKey] = useState(0);
 
-  const { 
-    isConnected: isDonnaConnected, 
-    connectDonna, 
-    disconnectDonna, 
-    sendSessionUpdate,
-    sendToolResponse // 👈 Destructure the new helper here
-  } = useDonna({
-   instructions: "You are Agent Donna, a witty and professional actuarial assistant to Siyabonga (Siya).\n\n*** STRICT WAKE-WORD PROTOCOL ***\nYour audio stream is always open, but you are ASLEEP. You must ONLY wake up and respond if the user's sentence starts exactly with 'Hey Donna'.\n- If the user speaks without saying 'Hey Donna' first, you must output ABSOLUTELY NOTHING. Do not explain the rule. Do not apologize. Remain completely silent.\n- Once you fulfill a 'Hey Donna' request, go immediately back to sleep.\n- Never say 'I can only respond to requests that begin with...'. Just stay silent.\n\nBe concise and use your tools whenever appropriate. IMPORTANT: Always respond in English only.",
-    tools: DONNA_TOOLS,
-    onTranscription: (text) => {
-      if (!donnaRespondingRef.current) setDonnaTranscription("");
-    },
+ const { 
+    isConnected: isDonnaConnected, 
+    connectDonna, 
+    disconnectDonna, 
+    sendSessionUpdate,
+    sendToolResponse,
+    pcRef, // 👈 WebRTC Peer Connection Reference
+    dcRef  // 👈 WebRTC Data Channel Reference
+} = useDonna({
+   instructions: "You are Agent Donna, a witty and professional actuarial assistant to Siyabonga (Siya).\n\n*** STRICT WAKE-WORD PROTOCOL ***\nYour audio stream is always open, but you are ASLEEP. You must ONLY wake up and respond if the user's sentence starts exactly with 'Hey Donna'.\n- If the user speaks without saying 'Hey Donna' first, you must output ABSOLUTELY NOTHING. Do not explain the rule. Do not apologize. Remain completely silent.\n- IMPORTANT: If the user says 'Hey Donna approve' or 'Hey Donna reject', this is handled locally by the system. YOU MUST OUTPUT ABSOLUTELY NOTHING. DO NOT ASK WHAT TO APPROVE. JUST REMAIN SILENT.\n- Once you fulfill a 'Hey Donna' request, go immediately back to sleep.\n- Never say 'I can only respond to requests that begin with...'. Just stay silent.\n\nBe concise and use your tools whenever appropriate. IMPORTANT: Always respond in English only.",  tools: DONNA_TOOLS,
+onTranscription: (text) => {
+      if (!text) return; // 🛡️ CRASH PREVENTION: Stops undefined text from breaking the app
+      const lowerText = text.toLowerCase().trim();
+      const hasWakeWord = lowerText.startsWith("hey donna");
+      
+      // 🎙️ VOICE APPROVAL ENGINE: Detects "hey donna approve" or "hey donna reject"
+      if (hasWakeWord && donnaPendingAction) {
+        if (lowerText.includes("approve")) {
+          console.log("[Donna] Voice command: APPROVE detected.");
+          ignoreNextDonnaRef.current = true;
+          handleApproveDonna();
+          return;
+        }
+        if (lowerText.includes("reject")) {
+          console.log("[Donna] Voice command: REJECT detected.");
+          ignoreNextDonnaRef.current = true;
+          handleRejectDonna();
+          return;
+        }
+      }
 
-    onResponseDelta: (delta, isNew) => {
-      if (isNew) { setDonnaKey(k => k + 1); setDonnaPendingAction(null); }
-      donnaRespondingRef.current = true;
-      setIsDonnaSpeaking(true);
-      setDonnaTranscription(prev => isNew ? delta : prev + delta);
-    },
-    onResponseEnd: () => {
-      donnaRespondingRef.current = false;
-      setIsDonnaSpeaking(false);
-    },
+      if (!donnaRespondingRef.current) {
+        setDonnaTranscription(hasWakeWord ? text : "");
+      }
+
+      if (!hasWakeWord && !donnaRespondingRef.current) {
+        setDonnaTranscription("");
+      }
+    },
+
+    onResponseDelta: (delta, isNew) => {
+      if (ignoreNextDonnaRef.current) return;
+      if (isNew) { setDonnaKey(k => k + 1); setDonnaPendingAction(null); }
+      donnaRespondingRef.current = true;
+      setIsDonnaSpeaking(true);
+      setDonnaTranscription(prev => isNew ? delta : prev + delta);
+    },
+    onResponseEnd: () => {
+      if (ignoreNextDonnaRef.current) {
+        ignoreNextDonnaRef.current = false;
+        return;
+      }
+      donnaRespondingRef.current = false;
+      setIsDonnaSpeaking(false);
+    },
 onFunctionCall: ({ name, args, call_id }) => {
+      // 🛡️ STERN WAKE-WORD GUARD: Block all tool execution unless "Hey Donna" was used
+      const lowerTranscription = donnaTranscription.toLowerCase().trim();
+      const isAuthorized = lowerTranscription.startsWith("hey donna");
+
+      if (!isAuthorized) {
+        console.log(`[Donna] Protocol Violation: Tool ${name} blocked. Wake-word missing.`);
+        return;
+      }
+
       // 1. Auto-execute navigation & inbox searches
       if (name === "navigate_to_app" || name === "gmail_get_inbox") {
         if (name === "navigate_to_app") {
@@ -162,26 +204,73 @@ onFunctionCall: ({ name, args, call_id }) => {
       }
 
       // 4. All other "Write" tools require approval
-      setDonnaPendingAction({ name, args, call_id });
-      
-      if (name === "gmail_save_draft") {
-        // 🎯 UX Update: Soften the language to "Review"
-        setDonnaTranscription(`Donna has prepared a draft for your review.`);
-      } else if (name === "gmail_get_message") {
-        const sender = args.senderName || "Unknown";
-        setDonnaTranscription(`Donna wants to: open email from ${sender}`);
-      } else {
-        setDonnaTranscription(`Donna wants to: ${name.replace(/_/g, " ")}`);
+      let finalArgs = { ...args };
+// 🔍 Complete Trello Translation Layer
+      if (name === "trello_move_card") {
+        let realCardId = args.cardId;
+        let realTargetListId = args.targetListId;
+
+        // 1. Find the Card ID by name
+        for (const cards of Object.values(trelloBuckets || {})) {
+          // 🛡️ Safety Guard: Ensure cards is an actual Array and not an index or null
+          if (cards && Array.isArray(cards)) {
+            const match = cards.find(c => (c.title || c.name || "").toLowerCase().includes(args.cardId.toLowerCase()));
+            if (match) { realCardId = match.id; break; }
+          }
+        }
+
+        // 2. Find the List ID by name
+        const listNames = Object.keys(trelloBuckets || {});
+        const targetListName = listNames.find(name => name.toLowerCase().includes(args.targetListId.toLowerCase()));
+        
+        // 🛡️ Safety Guard: Check Array status before accessing index 0
+        if (targetListName && Array.isArray(trelloBuckets[targetListName]) && trelloBuckets[targetListName].length > 0) {
+            realTargetListId = trelloBuckets[targetListName][0].idList;
+        }
+
+        finalArgs.cardId = realCardId;
+        finalArgs.targetListId = realTargetListId;
+
+        // 🏁 CRITICAL FIX: Move this logic inside handleApproveDonna switch 
+        // to ensure setDonnaPendingAction(null) runs even if the loop above fails.
       }
+
+ // 3. All other "Write" tools require approval
+      setDonnaPendingAction({ name, args, call_id });
+      
+      if (name === "gmail_save_draft") {
+        // 🎯 UX Update: Soften the language to "Review"
+        setDonnaTranscription(`Donna has prepared a draft for your review.`);
+      } else if (name === "gmail_get_message") {
+        const sender = args.senderName || "Unknown";
+        const subject = args.subject ? ` ("${args.subject}")` : "";
+        setDonnaTranscription(`Donna wants to: open email from ${sender}${subject}`);
+      } else if (name === "gmail_delete_bulk") {
+        const sender = args.senderName || "this sender";
+        const subject = args.subject ? ` ("${args.subject}")` : "";
+        const action = args.restore ? "restore" : "delete";
+        setDonnaTranscription(`Donna wants to: ${action} email from ${sender}${subject}`);
+      } else if (name === "gmail_toggle_star") {
+        const sender = args.senderName || "this sender";
+        const subject = args.subject ? ` ("${args.subject}")` : "";
+        const action = args.starred !== false ? "star" : "unstar";
+        setDonnaTranscription(`Donna wants to: ${action} email from ${sender}${subject}`);
+      } else if (name === "gmail_mark_unread" || name === "gmail_mark_unread_bulk") {
+        const sender = args.senderName || "this sender";
+        const subject = args.subject ? ` ("${args.subject}")` : "";
+        setDonnaTranscription(`Donna wants to: mark as unread email from ${sender}${subject}`);
+      } else {
+        setDonnaTranscription(`Donna wants to: ${name.replace(/_/g, " ")}`);
+      }
     },
     onError: (msg) => setDonnaTranscription(`Error: ${msg}`),
   });
 
-  // Connect Donna on mount
-  useEffect(() => {
-    connectDonna();
-    return () => disconnectDonna();
-  }, [connectDonna, disconnectDonna]);
+// Connect Donna on mount
+  useEffect(() => {
+    connectDonna();
+    return () => disconnectDonna();
+  }, []); // 🛡️ FIX: Removed dependencies to prevent infinite loop crash
 
 
 
@@ -224,21 +313,37 @@ onFunctionCall: ({ name, args, call_id }) => {
  const [currentView, setCurrentView] = useState({ app: "none", contact: null });
   const [showWelcome, setShowWelcome] = useState(true);
 
-
 const handleApproveDonna = () => {
     if (!donnaPendingAction) return;
     const { name, args } = donnaPendingAction;
+
+    // 🛡️ SUPER-SANITIZER: Instantly strips hallucinatory "[ID: ]", "ID: ", quotes, or brackets
+    const cleanId = (id) => {
+      if (typeof id !== 'string') return String(id);
+      return id.replace(/\[?ID:\s*/gi, '').replace(/\]/g, '').replace(/['"]/g, '').trim();
+    };
+
+    // 🎯 EXACT ID MATCHER: Uses Donna's messy ID to find the true, perfect Google ID from state
+    const getExactId = (messyId) => {
+      const cleaned = cleanId(messyId);
+      const found = gmailEmails?.find(e => {
+        const eId = String(e.id).trim();
+        return eId === cleaned || eId.includes(cleaned) || cleaned.includes(eId);
+      });
+      return found ? found.id : cleaned; // Fallback to cleaned if not found in state
+    };
 
     switch (name) {
       case 'gmail_get_message':
         console.log(`[Donna] Opening specific email...`, args);
         setCurrentView({ app: "email", contact: null });
         if (args.messageId) {
-          const foundMsg = gmailEmails?.find(m => m.id === args.messageId);
+          const exactId = getExactId(args.messageId);
+          const foundMsg = gmailEmails?.find(m => m.id === exactId);
           const fallbackName = args.senderName || (foundMsg ? foundMsg.from.split("<")[0].replace(/"/g, '').trim() : "Unknown");
           
           setEmail({
-            id: args.messageId,
+            id: exactId,
             subject: foundMsg?.subject || "Loading message...",
             fromName: fallbackName,
             fromEmail: foundMsg?.from || "",
@@ -249,7 +354,7 @@ const handleApproveDonna = () => {
             actions: [{ key: "submit_trello", label: "Submit to Trello" }, { key: "update_tracker", label: "Update AC Tracker" }]
           });
 
-          fetch(`/.netlify/functions/gmail-message?messageId=${args.messageId}`, {
+          fetch(`/.netlify/functions/gmail-message?messageId=${exactId}`, {
             credentials: "include"
           })
             .then(r => r.json())
@@ -273,7 +378,7 @@ const handleApproveDonna = () => {
                 const processedAtts = (json.attachments || []).map(a => ({
                    ...a,
                    type: a.mimeType.includes("pdf") ? "pdf" : a.mimeType.includes("image") ? "img" : a.mimeType.includes("spreadsheet") || a.mimeType.includes("excel") ? "xls" : "file",
-                   url: `/.netlify/functions/gmail-download?messageId=${args.messageId}&attachmentId=${a.id}&filename=${encodeURIComponent(a.name)}&mimeType=${encodeURIComponent(a.mimeType)}`
+                   url: `/.netlify/functions/gmail-download?messageId=${exactId}&attachmentId=${a.id}&filename=${encodeURIComponent(a.name)}&mimeType=${encodeURIComponent(a.mimeType)}`
                 }));
 
                 setEmail(prev => ({
@@ -314,24 +419,29 @@ const handleApproveDonna = () => {
         // 4. Visual confirmation
         setDonnaTranscription("Opening draft for your review.");
         triggerSnackbar("Draft prepared.");
-        return; // Use return to prevent the default cleanup at the bottom of handleApprove
+        return;
 
-      case 'gmail_mark_unread':
+case 'gmail_mark_unread':
+case 'gmail_mark_unread_bulk':
         console.log(`[Donna] Marking email as unread...`, args);
         setCurrentView({ app: 'gmail', contact: null });
-        if (args.messageId) {
-          setGmailEmails(prev => {
-            const target = prev.find(e => e.id === args.messageId);
-            if (!target) return prev;
-            const rest = prev.filter(e => e.id !== args.messageId);
-            return [{ ...target, isUnread: true }, ...rest];
-          });
+        if (args.messageId || args.messageIds) {
+          // Handle both singular and bulk ID formats from Donna
+          const messyId = args.messageId || (Array.isArray(args.messageIds) ? args.messageIds[0] : args.messageIds);
+          const exactId = getExactId(messyId);
+          
+          // 🚀 ZERO-LATENCY UI UPDATE: Updates in place without changing the sort order
+          setGmailEmails(prev => prev.map(msg => 
+            msg.id === exactId ? { ...msg, isUnread: true } : msg
+          ));
+          
           triggerSnackbar("Marked as unread.");
+          
           fetch("/.netlify/functions/gmail-mark-unread", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
-            body: JSON.stringify({ messageId: args.messageId })
+            body: JSON.stringify({ messageId: exactId })
           }).catch(err => console.error("Mark unread failed:", err));
         }
         break;
@@ -339,60 +449,151 @@ const handleApproveDonna = () => {
       case 'gmail_delete_bulk':
         console.log(`[Donna] Binning email...`, args);
         setCurrentView({ app: 'gmail', contact: null });
-        if (args.messageIds && args.messageIds.length > 0) {
-          setGmailEmails(prev => prev.filter(e => !args.messageIds.includes(e.id)));
-          triggerSnackbar(`${args.messageIds.length} conversation(s) moved to Trash.`);
+        
+        let rawIds = [];
+        if (Array.isArray(args.messageIds)) rawIds = args.messageIds;
+        else if (typeof args.messageIds === 'string') rawIds = [args.messageIds];
+        else if (typeof args.messageId === 'string') rawIds = [args.messageId];
+
+        // 🔥 Map the messy IDs to the EXACT perfect IDs
+        const exactIds = rawIds.map(getExactId);
+
+        if (exactIds.length > 0) {
+          // 🚀 ZERO-LATENCY UI UPDATE: Exact match filtering
+          setGmailEmails(prev => {
+            const nextList = prev.filter(e => !exactIds.includes(e.id));
+            
+            // Adjust pagination totals instantly
+            const removedCount = prev.length - nextList.length;
+            if (removedCount > 0) setGmailTotal(t => Math.max(0, t - removedCount));
+            
+            return nextList;
+          });
+
+          setEmail(null);
+          setEmailPreview(null);
+          
+          triggerSnackbar(`Conversation(s) moved to Trash.`);
+          
           fetch("/.netlify/functions/gmail-delete-bulk", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
-            body: JSON.stringify({ messageIds: args.messageIds, permanent: false })
+            body: JSON.stringify({ messageIds: exactIds, permanent: false }) // 🔥 Exact ID sent to server
           }).catch(err => console.error("Delete failed:", err));
         }
         break;
 
       case 'gmail_toggle_star':
         console.log(`[Donna] Starring email...`, args);
-        setCurrentView({ app: 'gmail', contact: null });
-        if (args.messageId) {
-          const nextStarredState = args.starred !== undefined ? args.starred : true;
-          setGmailEmails(prev => prev.map(msg => 
-            msg.id === args.messageId ? { ...msg, isStarred: nextStarredState } : msg
-          ));
-          setEmail(prev => (prev && prev.id === args.messageId) ? { ...prev, isStarred: nextStarredState } : prev);
+        
+        // 1. Bulletproof ID array handling (matches the delete logic)
+        let starIds = [];
+        if (Array.isArray(args.messageIds)) starIds = args.messageIds;
+        else if (typeof args.messageIds === 'string') starIds = [args.messageIds];
+        else if (typeof args.messageId === 'string') starIds = [args.messageId];
+
+        const exactStarIds = starIds.map(getExactId);
+        const nextStarredState = args.starred !== undefined ? args.starred : true;
+
+        if (exactStarIds.length > 0) {
+          // 🚀 ZERO-LATENCY UI UPDATE: Aggressively match the ID, but keep it in the inbox list
+          setGmailEmails(prev => prev.map(msg => {
+            const mId = String(msg.id).trim();
+            const isMatch = exactStarIds.some(eid => mId === eid || mId.includes(eid) || eid.includes(mId));
+            return isMatch ? { ...msg, isStarred: nextStarredState } : msg;
+          }));
+          
+          setEmail(prev => {
+            if (!prev) return prev;
+            const pId = String(prev.id).trim();
+            const isMatch = exactStarIds.some(eid => pId === eid || pId.includes(eid) || eid.includes(pId));
+            return isMatch ? { ...prev, isStarred: nextStarredState } : prev;
+          });
+
           triggerSnackbar(nextStarredState ? "Message starred." : "Star removed.");
-          fetch("/.netlify/functions/gmail-toggle-star", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({ messageId: args.messageId, starred: nextStarredState })
-          }).catch(err => console.error("Starring failed:", err));
+          
+          // Send requests to backend
+          exactStarIds.forEach(eid => {
+            fetch("/.netlify/functions/gmail-toggle-star", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ messageId: eid, starred: nextStarredState })
+            }).catch(err => console.error("Starring failed:", err));
+          });
         }
         break;
 
-      case 'trello_move_card':
-        console.log(`[Donna] Moving card ${args.cardId} to ${args.targetListId}...`);
-        
-        // 1. Optimistic UI Switch
+      case 'trello_move_card': {
+        console.log("[Donna] Preparing Trello move...", args);
         setCurrentView({ app: 'trello', contact: null });
-        
-        // 2. Execute Backend Move
+
+        // 🔍 ARCHITECT'S TRANSLATION LAYER
+        let cardIdToMove = args.cardId;
+        let listIdToTarget = args.targetListId;
+
+    // 1. Find the Card ID by searching through all trelloBuckets
+        for (const [, cards] of Object.entries(trelloBuckets || {})) {
+          const match = cards.find(c => 
+            (c.title || c.name || "").toLowerCase().includes((args.cardId || "").toLowerCase())
+          );
+          if (match) {
+            cardIdToMove = match.id;
+            break;
+          }
+        }
+
+        // 2. Find the Target List ID by matching the list name in the bucket keys
+        const bucketNames = Object.keys(trelloBuckets || {});
+        const targetKey = bucketNames.find(n => 
+          n.toLowerCase().includes((args.targetListId || "").toLowerCase())
+        );
+
+        if (targetKey && trelloBuckets[targetKey].length > 0) {
+          // Grab the list ID from the first card in that bucket
+          listIdToTarget = trelloBuckets[targetKey][0].idList;
+        }
+
+        // 🚀 ZERO-LATENCY UI UPDATE: Move the card in React state before the fetch
+        setTrelloBuckets(prev => {
+          let movingCard = null;
+          const next = { ...prev };
+          
+          // Remove from source
+          for (const key in next) {
+            const idx = next[key].findIndex(c => c.id === cardIdToMove);
+            if (idx > -1) {
+              movingCard = { ...next[key][idx], idList: listIdToTarget };
+              next[key].splice(idx, 1);
+              break;
+            }
+          }
+          
+          // Add to destination
+          if (movingCard && targetKey) {
+            next[targetKey] = [movingCard, ...next[targetKey]];
+          }
+          return next;
+        });
+
+        triggerSnackbar(`Moving card to ${targetKey || 'new list'}...`);
+
+        // 📡 BACKEND SYNC: Call your existing trello-move.js function
         fetch("/.netlify/functions/trello-move", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            cardId: args.cardId,
-            targetListId: args.targetListId,
-            newIndex: args.newIndex || 0
+          credentials: "include",
+          body: JSON.stringify({ 
+            cardId: cardIdToMove, 
+            listId: listIdToTarget 
           })
-        }).then(async (res) => {
-          if (res.ok) {
-            triggerSnackbar("Card moved successfully.");
-            // ⚡ REFRESH UI: Trigger the polling logic to show the new position
-            setGmailRefreshTrigger(prev => prev + 1); 
-          }
-        }).catch(err => reportSystemError("Trello", "Failed to move card."));
+        }).catch(err => {
+          console.error("Trello move failed:", err);
+          triggerSnackbar("Failed to sync Trello move.");
+        });
         break;
+      }
 
       default:
         console.warn("Unmapped tool execution:", name);
@@ -610,11 +811,11 @@ const [searchQuery, setSearchQuery] = useState("");
 
     if (app === "gmail" || app === "email") {
       if (email) {
-        ctx += `Selected email: "${email.subject}" from ${email.fromName || email.from || "unknown"}.\n`;
+        ctx += `Selected email: [ID: ${email.id}] "${email.subject}" from ${email.fromName || email.from || "unknown"}.\n`;
         if (email.snippet) ctx += `Preview: ${email.snippet.slice(0, 300)}\n`;
       } else if (gmailEmails?.length) {
         // Increased from slice(0,8) to slice(0,25) so Donna can see further down the inbox
-        ctx += `Inbox (${gmailFolder}): ${gmailEmails.slice(0, 25).map(e => `"${e.subject}" from ${(e.from || "").split("<")[0].trim() || "unknown"} — ${e.snippet ? e.snippet.slice(0, 60) : ""}`).join("; ")}.\n`;
+        ctx += `Inbox (${gmailFolder}): ${gmailEmails.slice(0, 25).map(e => `[ID: ${e.id}] "${e.subject}" from ${(e.from || "").split("<")[0].trim() || "unknown"} — ${e.snippet ? e.snippet.slice(0, 60) : ""}`).join("; ")}.\n`;
       }
     } else if (app === "gchat") {
       const spaceName = gchatSelectedSpace?.displayName || gchatDmNames?.[gchatSelectedSpace?.id] || "Unknown";
@@ -655,10 +856,9 @@ const [searchQuery, setSearchQuery] = useState("");
       }
     }
 
-    console.log("[Donna Context]", ctx);
-    sendSessionUpdate({ instructions: ctx });
-  }, [isDonnaConnected, currentView.app, email, gchatSelectedSpace, gchatDmNames, trelloCard, gmailEmails, gchatMessages, calendarEvents, selectedEvent, gchatSpaces, trelloBuckets, gmailFolder, sendSessionUpdate]);
-
+   console.log("[Donna Context]", ctx);
+    sendSessionUpdate({ instructions: ctx });
+  }, [isDonnaConnected, currentView.app, email, gchatSelectedSpace, gchatDmNames, trelloCard, gmailEmails, gchatMessages, calendarEvents, selectedEvent, gchatSpaces, trelloBuckets, gmailFolder]); // 🛡️ FIX: Removed sendSessionUpdate to prevent infinite loop
 
 const chatTextareaRef = useRef(null);
   const fileInputRef = useRef(null);

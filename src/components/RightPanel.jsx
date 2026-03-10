@@ -451,7 +451,13 @@ const RightPanel = React.memo(function RightPanel({
     fetch("/.netlify/functions/trello-move", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cardId: card.id, targetListId: realTargetListId, newIndex: itemI }),
+        // 👇 JUST ADD 'targetListName: destList.title' TO THIS PAYLOAD
+        body: JSON.stringify({ 
+            cardId: card.id, 
+            targetListId: destList.id, 
+            newIndex: itemI, 
+            targetListName: destList.title 
+        }),
     }).catch(e => console.error("Move failed", e));
   };
   // 4. Style Helper

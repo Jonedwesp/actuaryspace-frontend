@@ -1,6 +1,30 @@
 import React, { useState, useEffect } from "react";
 import { avatarFor } from "../utils/avatarUtils.js";
 
+// 🌟 NEW: Standalone summary banner for the top of the dashboard
+const LiveDailyStatsBanner = ({ stats, loading }) => {
+   if (loading) return <div style={{ marginBottom: '24px', color: '#5e6c84', fontStyle: 'italic' }}>Loading today's live pipeline stats...</div>;
+   if (!stats || Object.keys(stats).length === 0) return null;
+
+   return (
+      <div style={{ background: '#f4f5f7', padding: '16px', borderRadius: '8px', marginBottom: '24px', border: '1px solid #dfe1e6' }}>
+         <h3 style={{ margin: '0 0 12px 0', fontSize: '16px', color: '#172b4d', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            🚀 Cards Sent Today
+         </h3>
+         <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+            {Object.entries(stats).map(([user, count]) => (
+               <div key={user} style={{ background: '#fff', padding: '8px 16px', borderRadius: '4px', border: '1px solid #091e4224', boxShadow: '0 1px 2px rgba(9,30,66,0.08)', minWidth: '100px' }}>
+                  <div style={{ fontSize: '12px', color: '#5e6c84', fontWeight: 600, textTransform: 'uppercase', marginBottom: '4px' }}>
+                    {user === "Siya - Review" ? "Siya (Review)" : user}
+                  </div>
+                  <div style={{ fontSize: '24px', color: '#0052cc', fontWeight: 'bold' }}>{count}</div>
+               </div>
+            ))}
+         </div>
+      </div>
+   );
+};
+
 const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
   const [selectedUser, setSelectedUser] = useState(null);
   const [prodAnimClass, setProdAnimClass] = useState("");
@@ -12,20 +36,20 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
       setTimeout(() => setProdAnimClass(""), 250);
     }, 120);
   };
+
   React.useEffect(() => {
     const handler = (e) => transitionTo(e.detail || null);
     window.addEventListener("prodBackToSummary", handler);
     return () => window.removeEventListener("prodBackToSummary", handler);
   }, []);
+
   const [prodStats, setProdStats] = useState({ "Siya": 0, "Enock": 0, "Songeziwe": 0, "Bonisa": 0 });
+  const [dailySentStats, setDailySentStats] = useState({}); // 🌟 NEW: Holds the live movement counts
   const [isLoadingStats, setIsLoadingStats] = useState(true);
 
-  // Helper to dynamically pull avatars from live Trello state or local fallback
   const getMemberAvatar = (userName) => {
-    // Local slack-profiles photos are always reliable — try them first
     const local = avatarFor(userName);
     if (local) return local;
-    // Fall back to Trello S3 only when there is no local photo
     if (trelloMembers && trelloMembers.length > 0) {
       const match = trelloMembers.find(m => m.fullName.toLowerCase().includes(userName.toLowerCase()));
       if (match && match.avatarUrl) {
@@ -35,39 +59,30 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
     return null;
   };
 
-  // Helper to extract due date from title
   const extractDueDate = (title) => {
     const match = (title || "").match(/\(Due\s+([^)]+)\)/i);
     return match ? match[1].trim() : "-";
   };
 
-  // Helper to convert due date strings into timestamps for sorting
-  const getDueTimestamp = (dateStr) => {
-    if (!dateStr || dateStr === "-") return Infinity; // Cards without due dates go to the bottom
-    
-    // Replace "COB" (Close of Business) with 17:00 so the math works
-    let cleanStr = dateStr.replace(/COB/i, "17:00");
-    
-    // Append the current year so JavaScript's Date parser understands it completely
-    const currentYear = new Date().getFullYear();
-    const parsedDate = new Date(`${cleanStr} ${currentYear}`);
-    
-    // If it fails to parse, throw it to the bottom of the list
-    return isNaN(parsedDate.getTime()) ? Infinity : parsedDate.getTime();
-  };
-
-  // Poll the backend for accurate movement durations every 30 seconds
+  // 🌟 NEW: Fetches BOTH time logged AND daily card movements simultaneously!
   useEffect(() => {
     let isMounted = true;
     const fetchStats = async () => {
       try {
-        const res = await fetch("/.netlify/functions/trello-productivity");
-        const json = await res.json();
-        if (isMounted && json.ok) {
-          setProdStats(json.stats);
+        const [prodRes, ledgerRes] = await Promise.all([
+           fetch("/.netlify/functions/trello-productivity"),
+           fetch("/.netlify/functions/daily-ledger?mode=live")
+        ]);
+        
+        const prodJson = await prodRes.json();
+        const ledgerJson = await ledgerRes.json();
+
+        if (isMounted) {
+          if (prodJson.ok) setProdStats(prodJson.stats);
+          if (!ledgerJson.error) setDailySentStats(ledgerJson);
         }
       } catch (error) {
-        console.error("Failed to fetch productivity stats", error);
+        console.error("Failed to fetch stats", error);
       } finally {
         if (isMounted) setIsLoadingStats(false);
       }
@@ -78,23 +93,17 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
     return () => { isMounted = false; clearInterval(interval); };
   }, []);
 
-  // 🟢 NEW: "Siya - Review" is now just a standard user card at the bottom
   const TARGET_USERS = ["Siya", "Enock", "Songeziwe", "Bonisa", "Siya - Review"];
   const reviewList = trelloBuckets.find(b => b.title === "Siya - Review") || { cards: [] };
 
-  // Helper to extract metrics for a specific user based on the rules
   const getUserMetrics = (userName) => {
-    // Exact list matches
     const userList = trelloBuckets.find(b => b.title.toLowerCase() === userName.toLowerCase()) || { cards: [] };
-    const reviewList = trelloBuckets.find(b => b.title === "Siya - Review") || { cards: [] };
 
-    // Filter out "Away from Cases" / "Out of Office" cards strictly for the Card Count
     const activeCards = userList.cards.filter(c => 
       !c.title.toLowerCase().includes("out of office") && 
       !c.title.toLowerCase().includes("away from cases")
     );
 
-    // 🟢 NEW: Find ALL cards across the entire board where this user is assigned
     const allAssignedCards = trelloBuckets.flatMap(b => b.cards).filter(c => 
       c.people?.some(p => String(p).toLowerCase().includes(userName.toLowerCase())) &&
       !c.title.toLowerCase().includes("out of office") && 
@@ -104,7 +113,6 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
     let status = "🟢";
     let currentTask = "None";
 
-    // 1. Live Status & Current Task (Based strictly on the top card of the bucket)
     if (userList.cards.length > 0) {
       const topCard = userList.cards[0];
       const topTitle = topCard.title.toLowerCase();
@@ -118,54 +126,28 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
       }
     }
 
-    // 2. Daily Output (Cumulative Pipeline Tracking)
-    let completedCards = [];
-    const yolandieList = trelloBuckets.find(b => b.title === "Yolandie to Send") || { cards: [] };
+    // 🌟 NEW: Replace flawed snapshot math with hyper-accurate backend action tracker!
+    const reviewCount = dailySentStats[userName] || 0;
 
-    if (userName === "Siya - Review") {
-      // Siya's score: Any card sitting in Yolandie to Send
-      completedCards = yolandieList.cards.filter(c => 
-        !c.title.toLowerCase().includes("out of office") && 
-        !c.title.toLowerCase().includes("away from cases")
-      );
-    } else {
-      // Data Capturers score: Cards in Review OR Yolandie to Send
-      const reviewAndBeyondCards = [...reviewList.cards, ...yolandieList.cards];
-      completedCards = reviewAndBeyondCards.filter(c => 
-        c.people?.some(p => String(p).toLowerCase().includes(userName.toLowerCase())) &&
-        !c.title.toLowerCase().includes("out of office") && 
-        !c.title.toLowerCase().includes("away from cases")
-      );
-    }
-    const reviewCount = completedCards.length;
-
-    // 3. Time Logged (Backend calculated: Top of bucket to Review)
     const calculateTimeLogged = () => {
       const totalMinutes = Math.floor(prodStats[userName] || 0);
       if (totalMinutes === 0) return "0h 0m";
-
       const hours = Math.floor(totalMinutes / 60);
       const mins = totalMinutes % 60;
-      
       return `${hours}h ${mins}m`;
     };
 
-    // 4. 🟢 Active Timer (WorkFlow Timer: Tracks time by Bucket across the whole board)
     const calculateActiveTimer = () => {
       let totalMinutes = 0;
       const now = Date.now();
-      
-      // ⚡ FIX: Scan ALL cards on the board, not just currently assigned ones.
-      // This ensures they keep their accumulated time even after passing the card to someone else.
       const allCardsOnBoard = trelloBuckets.flatMap(b => b.cards);
 
       allCardsOnBoard.forEach(c => {
-        // 1. Add manually saved duration for THIS SPECIFIC BUCKET
         let savedDurations = {};
         const rawDur = c.customFields?.WorkDuration || "{}";
         try {
           if (!rawDur.startsWith("{")) {
-            savedDurations = { [c.list]: parseFloat(rawDur) || 0 }; // Legacy fallback
+            savedDurations = { [c.list]: parseFloat(rawDur) || 0 };
           } else {
             savedDurations = JSON.parse(rawDur);
           }
@@ -176,12 +158,10 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
           totalMinutes += userSavedDur;
         }
 
-        // 2. Add currently ticking time ONLY if it was started in THIS user's bucket
         const rawStart = c.customFields?.WorkTimerStart || "";
         if (rawStart) {
           const [startTsStr, startList] = rawStart.split("|");
           const startTs = parseFloat(startTsStr);
-          // If the timer is running, and the bucket it was started in matches this user's row
           if (startTs > 1000000000000 && startList === userName) {
             const tickingMins = Math.max(0, now - startTs) / 1000 / 60;
             totalMinutes += tickingMins;
@@ -190,10 +170,8 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
       });
 
       if (totalMinutes === 0) return "0h 0m";
-
       const hours = Math.floor(totalMinutes / 60);
       const mins = Math.floor(totalMinutes % 60);
-      
       return `${hours}h ${mins}m`;
     };
 
@@ -271,55 +249,57 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
         </div>
       ) : (
         <>
+          {/* 🌟 NEW: The Live Summary Banner Drop-in! */}
+          <LiveDailyStatsBanner stats={dailySentStats} loading={isLoadingStats} />
 
-      <div className="prod-grid">
-        {TARGET_USERS.map(user => {
-          const m = getUserMetrics(user);
-          return (
-            <div key={user} className="prod-card" style={{ flexDirection: "column", alignItems: "stretch", gap: "14px" }} onClick={() => transitionTo(user)}>
+          <div className="prod-grid">
+            {TARGET_USERS.map(user => {
+              const m = getUserMetrics(user);
+              return (
+                <div key={user} className="prod-card" style={{ flexDirection: "column", alignItems: "stretch", gap: "14px" }} onClick={() => transitionTo(user)}>
 
-              {/* 1. Identity (Top) */}
-              <div className="prod-card-header">
-                <div style={{ position: "relative", width: "40px", height: "40px", borderRadius: "50%", background: "#e8f0fe", color: "#1a73e8", display: "grid", placeItems: "center", fontWeight: "bold", fontSize: "14px", overflow: "hidden", flexShrink: 0 }}>
-                  <span style={{ position: "absolute", userSelect: "none" }}>{user.split(" ").filter(Boolean).map(w => w[0].toUpperCase()).filter((_, i, arr) => i === 0 || i === arr.length - 1).join("")}</span>
-                  {(() => { const av = getMemberAvatar(user); return av ? <img key={av} src={av} alt={user} style={{ position: "absolute", width: "100%", height: "100%", objectFit: "cover", display: "block" }} onError={(e) => { e.currentTarget.style.display = "none"; }}/> : null; })()}
-                </div>
-                <div className="prod-card-title">
-                  <div style={{ width: "10px", height: "10px", borderRadius: "50%", flexShrink: 0, backgroundColor: m.status === "🟢" ? "#34A853" : "#EA4335", boxShadow: m.status === "🟢" ? "0 0 6px #34A853" : "0 0 8px #EA4335", transition: "all 0.3s ease" }} />
-                  {user}
-                </div>
-              </div>
+                  {/* 1. Identity (Top) */}
+                  <div className="prod-card-header">
+                    <div style={{ position: "relative", width: "40px", height: "40px", borderRadius: "50%", background: "#e8f0fe", color: "#1a73e8", display: "grid", placeItems: "center", fontWeight: "bold", fontSize: "14px", overflow: "hidden", flexShrink: 0 }}>
+                      <span style={{ position: "absolute", userSelect: "none" }}>{user.split(" ").filter(Boolean).map(w => w[0].toUpperCase()).filter((_, i, arr) => i === 0 || i === arr.length - 1).join("")}</span>
+                      {(() => { const av = getMemberAvatar(user); return av ? <img key={av} src={av} alt={user} style={{ position: "absolute", width: "100%", height: "100%", objectFit: "cover", display: "block" }} onError={(e) => { e.currentTarget.style.display = "none"; }}/> : null; })()}
+                    </div>
+                    <div className="prod-card-title">
+                      <div style={{ width: "10px", height: "10px", borderRadius: "50%", flexShrink: 0, backgroundColor: m.status === "🟢" ? "#34A853" : "#EA4335", boxShadow: m.status === "🟢" ? "0 0 6px #34A853" : "0 0 8px #EA4335", transition: "all 0.3s ease" }} />
+                      {user}
+                    </div>
+                  </div>
 
-              {/* 2. All metrics (Below) */}
-              <div style={{ display: "flex", gap: "24px", flexWrap: "wrap", alignItems: "flex-start" }}>
-                <div className="prod-metric" style={{ flex: 1, minWidth: "120px", overflow: "hidden" }}>
-                  <span className="prod-metric-label">Current Task</span>
-                  <span className="prod-metric-value">{m.currentTask}</span>
-                </div>
-                <div className="prod-metric" style={{ minWidth: "90px" }}>
-                  <span className="prod-metric-label">Card Count</span>
-                  <span className="prod-metric-value highlight" style={{ color: "#1f1f1f" }}>{m.cardCount}</span>
-                </div>
-                <div className="prod-metric" style={{ minWidth: "110px" }}>
-                  <span className="prod-metric-label">Time Logged</span>
-                  <span className="prod-metric-value highlight" style={{ color: "#1f1f1f" }}>{m.timeLogged}</span>
-                </div>
-                <div className="prod-metric" style={{ minWidth: "110px" }}>
-                  <span className="prod-metric-label">Active Timer</span>
-                  <span className="prod-metric-value highlight" style={{ color: "#1f1f1f" }}>{m.activeTimer}</span>
-                </div>
-                <div className="prod-metric" style={{ minWidth: "130px" }}>
-                  <span className="prod-metric-label">
-                    {user === "Siya - Review" ? "Sent to Yolandie" : "Sent to Review"}
-                  </span>
-                  <span className="prod-metric-value highlight" style={{ color: "#1f1f1f" }}>{m.reviewCount}</span>
-                </div>
-              </div>
+                  {/* 2. All metrics (Below) */}
+                  <div style={{ display: "flex", gap: "24px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                    <div className="prod-metric" style={{ flex: 1, minWidth: "120px", overflow: "hidden" }}>
+                      <span className="prod-metric-label">Current Task</span>
+                      <span className="prod-metric-value">{m.currentTask}</span>
+                    </div>
+                    <div className="prod-metric" style={{ minWidth: "90px" }}>
+                      <span className="prod-metric-label">Card Count</span>
+                      <span className="prod-metric-value highlight" style={{ color: "#1f1f1f" }}>{m.cardCount}</span>
+                    </div>
+                    <div className="prod-metric" style={{ minWidth: "110px" }}>
+                      <span className="prod-metric-label">Time Logged</span>
+                      <span className="prod-metric-value highlight" style={{ color: "#1f1f1f" }}>{m.timeLogged}</span>
+                    </div>
+                    <div className="prod-metric" style={{ minWidth: "110px" }}>
+                      <span className="prod-metric-label">Active Timer</span>
+                      <span className="prod-metric-value highlight" style={{ color: "#1f1f1f" }}>{m.activeTimer}</span>
+                    </div>
+                    <div className="prod-metric" style={{ minWidth: "130px" }}>
+                      <span className="prod-metric-label">
+                        {user === "Siya - Review" ? "Sent to Yolandie" : "Sent to Review"}
+                      </span>
+                      <span className="prod-metric-value highlight" style={{ color: "#1f1f1f" }}>{m.reviewCount}</span>
+                    </div>
+                  </div>
 
-            </div>
-          );
-        })}
-        </div>
+                </div>
+              );
+            })}
+          </div>
         </>
       )}
       </div>

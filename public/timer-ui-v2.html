@@ -79,13 +79,18 @@
           const durKey = Object.keys(foundCard.customFields).find(k => k.includes("Duration")) || "WorkDuration";
           const logKey = Object.keys(foundCard.customFields).find(k => k.includes("WorkLog")) || "WorkLog";
 
-          // Pull basic duration
-          let rawDur = extractVal(foundCard.customFields[durKey]);
-          workDuration = parseFloat(rawDur) || 0;
-
-          // Pull WorkLog JSON safely
+          // 🛡️ THE AMNESIA SHIELD: Pull total directly from JSON, NOT WorkDuration
           let rawLog = extractVal(foundCard.customFields[logKey]);
-          try { workLogObj = JSON.parse(rawLog || "{}"); } catch(e) { workLogObj = {}; }
+          try { 
+              workLogObj = JSON.parse(rawLog || "{}"); 
+              // Grab the total, or sum it up manually if _total is missing
+              workDuration = parseFloat(workLogObj._total) || Object.keys(workLogObj).filter(k => k !== "_total").reduce((sum, k) => sum + (parseFloat(workLogObj[k]) || 0), 0);
+          } catch(e) { 
+              workLogObj = {}; 
+              // Absolute fallback if JSON is totally empty
+              workDuration = parseFloat(extractVal(foundCard.customFields[durKey])) || 0;
+          }
+          if (isNaN(workDuration) || workDuration > 1000000) workDuration = 0;
 
           // Extract Start Timer
           let storedStart = extractVal(foundCard.customFields[startKey]);
@@ -153,15 +158,15 @@
 
       const sessionMins = (Date.now() - startTs) / 1000 / 60;
       const newTotal = parseFloat((workDuration + sessionMins).toFixed(2));
+      const newTotalStr = String(newTotal); 
       
-      // 🌟 FRONTEND DATA MODEL UPDATE
+      // Update local object
       workLogObj[bucketKey] = parseFloat(((workLogObj[bucketKey] || 0) + sessionMins).toFixed(2));
       workLogObj._total = newTotal;
       const workLogStr = JSON.stringify(workLogObj);
 
       try {
-        // Fire all 3 updates. Webhook is no longer needed!
-        await setField('[SYSTEM]WorkDuration', String(newTotal), newTotal);
+        await setField('[SYSTEM]WorkDuration', newTotalStr, newTotal);
         await setField('[SYSTEM]WorkLog', workLogStr, null);
         await setField('[SYSTEM]WorkTimerStart', "", null); 
         

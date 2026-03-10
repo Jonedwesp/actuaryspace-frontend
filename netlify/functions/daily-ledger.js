@@ -1,116 +1,111 @@
-// netlify/functions/daily-ledger.js
-import { schedule } from "@netlify/functions";
 import { google } from "googleapis";
 
-// Wakes up every day at exactly 21:55 UTC (11:55 PM SAST)
-const cronExpression = "55 21 * * *"; 
+async function processLedger(event) {
+  // Check if this is a live UI request from your website
+  const isLiveUI = event.queryStringParameters && event.queryStringParameters.mode === "live";
+  
+  const { TRELLO_KEY, TRELLO_TOKEN, TRELLO_BOARD_ID, GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_PRIVATE_KEY, DAILY_LEDGER_SHEET_ID } = process.env;
 
-async function captureSnapshot(event) {
-  console.log("[DAILY LEDGER] Waking up to capture midnight productivity snapshot...");
-
-  const { 
-    TRELLO_KEY, TRELLO_TOKEN, TRELLO_BOARD_ID, 
-    GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_PRIVATE_KEY, DAILY_LEDGER_SHEET_ID 
-  } = process.env;
-
-  if (!DAILY_LEDGER_SHEET_ID || !GOOGLE_SERVICE_ACCOUNT_EMAIL || !GOOGLE_PRIVATE_KEY) {
-    console.error("[DAILY LEDGER] Missing Google Sheets env vars.");
-    return { statusCode: 500, body: "Missing env vars" };
-  }
+  if (!TRELLO_KEY || !TRELLO_BOARD_ID) return { statusCode: 500, body: JSON.stringify({ error: "Missing Trello Env Vars" }) };
 
   try {
     const base = "https://api.trello.com/1";
     const auth = `key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`;
     
-    // 1. Fetch live Trello data
-    const [listsRes, cardsRes, membersRes, customFieldsRes] = await Promise.all([
+    // 1. Get Midnight in SAST (South African Standard Time)
+    const now = new Date();
+    const sastFormatter = new Intl.DateTimeFormat('en-US', { timeZone: 'Africa/Johannesburg', year: 'numeric', month: '2-digit', day: '2-digit' });
+    const [month, day, year] = sastFormatter.format(now).split('/');
+    const midnightSAST = new Date(`${year}-${month}-${day}T00:00:00+02:00`).toISOString();
+
+    // 2. Fetch Board State AND Today's Move Actions
+    const [listsRes, cardsRes, actionsRes, customFieldsRes] = await Promise.all([
       fetch(`${base}/boards/${TRELLO_BOARD_ID}/lists?${auth}`),
-      fetch(`${base}/boards/${TRELLO_BOARD_ID}/cards?customFieldItems=true&fields=name,idList,idMembers&${auth}`),
-      fetch(`${base}/boards/${TRELLO_BOARD_ID}/members?${auth}`),
+      fetch(`${base}/boards/${TRELLO_BOARD_ID}/cards?customFieldItems=true&fields=name,idList&${auth}`),
+      // 🌟 NEW: Fetch all list-movements since midnight!
+      fetch(`${base}/boards/${TRELLO_BOARD_ID}/actions?filter=updateCard:idList&since=${midnightSAST}&limit=1000&${auth}`),
       fetch(`${base}/boards/${TRELLO_BOARD_ID}/customFields?${auth}`)
     ]);
 
-    const rawLists = await listsRes.json();
-    const rawCards = await cardsRes.json();
-    const rawMembers = await membersRes.json();
-    const rawCustomFields = await customFieldsRes.json();
+    const lists = Array.isArray(await listsRes.json()) ? await listsRes.json() : [];
+    const cards = Array.isArray(await cardsRes.json()) ? await cardsRes.json() : [];
+    const actions = Array.isArray(await actionsRes.json()) ? await actionsRes.json() : [];
+    const customFields = Array.isArray(await customFieldsRes.json()) ? await customFieldsRes.json() : [];
 
-    // 🛡️ SAFETY NET: Ensure Trello returned arrays. Prevents ".find is not a function" crashes.
-    const lists = Array.isArray(rawLists) ? rawLists : [];
-    const cards = Array.isArray(rawCards) ? rawCards : [];
-    const members = Array.isArray(rawMembers) ? rawMembers : [];
-    const customFields = Array.isArray(rawCustomFields) ? rawCustomFields : [];
-
-    // 2. Map IDs for accurate counting
     const reviewListId = lists.find(l => l.name === "Siya - Review")?.id;
     const yolandieListId = lists.find(l => l.name === "Yolandie to Send")?.id;
-    
-    // 🟢 CHANGED: Explicitly target the WorkLog (JSON) field
     const workLogFieldId = customFields.find(f => f.name.includes("WorkLog"))?.id;
-    const timerStartFieldId = customFields.find(f => f.name.includes("WorkTimerStart"))?.id;
 
-    const targetUsers = ["Siya", "Enock", "Songeziwe", "Bonisa", "Siya - Review"];
-    const todayStr = new Date().toLocaleDateString("en-GB"); 
-    const nowMs = Date.now();
+    // 3. Map out which cards crossed the border TODAY
+    const movedToReviewToday = new Set();
+    const movedToYolandieToday = new Set();
+
+    actions.forEach(action => {
+       const destName = action.data?.listAfter?.name || "";
+       if (destName === "Siya - Review") movedToReviewToday.add(action.data.card.id);
+       if (destName === "Yolandie to Send") movedToYolandieToday.add(action.data.card.id);
+    });
+
+    const targetUsers = ["Enock", "Songeziwe", "Bonisa", "Siya - Review"];
+    const liveStats = {};
     const snapshotRows = [];
+    const todayStr = new Date().toLocaleDateString("en-GB", { timeZone: 'Africa/Johannesburg' });
 
-    // 3. Process each user
+    // 4. Calculate Scores
     targetUsers.forEach(user => {
       let completedCards = [];
-      let totalMinutes = 0;
-      
-      const memberId = members.find(m => m.fullName.toLowerCase().includes(user.split(' ')[0].toLowerCase()))?.id;
+      const bucketKey = user.substring(0, 3).toUpperCase(); // e.g., ENO, SON, BON, SIY
 
       cards.forEach(c => {
         if (!c.name || c.name.toLowerCase().includes("out of office")) return;
 
-        // 🟢 Pass the full user/list name to extract their specific time from the JSON
-        const { minutes, workedOnIt } = getCardTimeForUser(c, workLogFieldId, timerStartFieldId, user, nowMs);
-        totalMinutes += minutes;
+        // Determine if they worked on it via the JSON WorkLog
+        let workedOnIt = false;
+        const logItem = (c.customFieldItems || []).find(item => item.idCustomField === workLogFieldId);
+        if (logItem && logItem.value?.text) {
+            try {
+               const parsed = JSON.parse(logItem.value.text);
+               if (parsed[bucketKey] > 0) workedOnIt = true;
+            } catch(e) {}
+        }
 
-        // Completed Logic
+        // 🌟 THE LOGIC: 
         if (user === "Siya - Review") {
-          // Siya's Score: All cards currently sitting in Yolandie to Send
-          if (c.idList === yolandieListId) {
-             completedCards.push(c);
-          }
+           // Siya's score: Card is currently in Yolandie, it was moved there TODAY, and Siya worked on it.
+           if (c.idList === yolandieListId && movedToYolandieToday.has(c.id) && workedOnIt) {
+               completedCards.push(c);
+           }
         } else {
-          // Data Capturers Score: Cards in Review or Yolandie to Send
-          const isCompleted = (c.idList === reviewListId || c.idList === yolandieListId);
-          
-          // Give credit if they explicitly tracked time on it OR are assigned to it
-          const belongsToUser = workedOnIt || (memberId && (c.idMembers || []).includes(memberId));
-          
-          if (isCompleted && belongsToUser) {
-             completedCards.push(c);
-          }
+           // Data Capturers score: Card is currently in Review OR Yolandie (didn't bounce back),
+           // it was moved to one of them TODAY, and the capturer worked on it.
+           const isDownstream = (c.idList === reviewListId || c.idList === yolandieListId);
+           const movedToday = (movedToReviewToday.has(c.id) || movedToYolandieToday.has(c.id));
+           
+           if (isDownstream && movedToday && workedOnIt) {
+               completedCards.push(c);
+           }
         }
       });
 
-      // Deduplicate cards just to be safe
-      completedCards = [...new Map(completedCards.map(item => [item.id, item])).values()];
-
-      // Format Time beautifully
-      const h = Math.floor(totalMinutes / 60);
-      const m = Math.floor(totalMinutes % 60);
-      const timeStr = `${h}h ${m}m`;
-
-      // Extract specific card names and join them
+      liveStats[user] = completedCards.length;
       const cardNamesStr = completedCards.map(c => c.name).join("  |  ");
-
-      // Push all 5 columns to the row
-      snapshotRows.push([todayStr, user, completedCards.length, timeStr, cardNamesStr]);
+      snapshotRows.push([todayStr, user, completedCards.length, "N/A", cardNamesStr]);
     });
 
-    // 4. Authenticate and Push to Google Sheets
+    // 5. If called by React UI, return stats instantly and DO NOT write to Google Sheets
+    if (isLiveUI) {
+       return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: JSON.stringify(liveStats) };
+    }
+
+    // 6. IF MIDNIGHT: Write to Google Sheets
+    if (!DAILY_LEDGER_SHEET_ID || !GOOGLE_SERVICE_ACCOUNT_EMAIL || !GOOGLE_PRIVATE_KEY) {
+       return { statusCode: 500, body: "Missing Google Sheets Env Vars" };
+    }
+
     const formattedKey = GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n');
     const authClient = new google.auth.JWT(
-      GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      null,
-      formattedKey,
-      ['https://www.googleapis.com/auth/spreadsheets']
+      GOOGLE_SERVICE_ACCOUNT_EMAIL, null, formattedKey, ['https://www.googleapis.com/auth/spreadsheets']
     );
-
     const sheets = google.sheets({ version: 'v4', auth: authClient });
 
     await sheets.spreadsheets.values.append({
@@ -120,56 +115,14 @@ async function captureSnapshot(event) {
       requestBody: { values: snapshotRows },
     });
 
-    console.log("[DAILY LEDGER] Successfully backed up scores for the day.");
-    return { statusCode: 200, body: JSON.stringify({ ok: true, message: "Ledger updated" }) };
+    return { statusCode: 200, body: JSON.stringify({ ok: true, message: "Ledger updated to Google Sheets", stats: liveStats }) };
 
   } catch (error) {
-    console.error("[DAILY LEDGER] Fatal error:", error);
+    console.error("Ledger error:", error);
     return { statusCode: 500, body: JSON.stringify({ ok: false, error: error.toString() }) };
   }
 }
 
-// 🟢 NEW HELPER: Extracts JSON from WorkLog using the List Name
-function getCardTimeForUser(c, workLogId, timerStartId, targetListName, nowMs) {
-  let minutes = 0;
-  let workedOnIt = false;
-  const cfItems = c.customFieldItems || [];
-  
-  // 1. Extract from JSON WorkLog
-  const logItem = cfItems.find(item => item.idCustomField === workLogId);
-  if (logItem && logItem.value?.text) {
-      try {
-        const parsed = JSON.parse(logItem.value.text);
-        if (parsed[targetListName]) {
-          minutes += parseFloat(parsed[targetListName]);
-          workedOnIt = true; // We know for a fact they worked on this!
-        }
-      } catch(e) {}
-  }
-  
-  // 2. Add currently ticking timer if it belongs to this list
-  const startItem = cfItems.find(item => item.idCustomField === timerStartId);
-  if (startItem && startItem.value?.text) {
-    const rawStart = String(startItem.value.text);
-    
-    // Check if the timer start string contains their list name (timestamp|listName)
-    if (rawStart.includes("|")) {
-      const parts = rawStart.split("|");
-      const activeListName = parts[1];
-      
-      if (activeListName === targetListName) {
-        const startVal = parseFloat(parts[0]);
-        if (startVal > 1000000000000) {
-          minutes += (nowMs - startVal) / 1000 / 60;
-          workedOnIt = true;
-        }
-      }
-    }
-  }
-  
-  // Safety guard against NaN UI glitches
-  if (isNaN(minutes) || minutes < 0) minutes = 0;
-  return { minutes, workedOnIt };
-}
-
-export const handler = schedule(cronExpression, captureSnapshot);
+export const handler = async (event, context) => {
+  return processLedger(event);
+};

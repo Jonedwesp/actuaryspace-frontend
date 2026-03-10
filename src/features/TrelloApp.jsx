@@ -1067,7 +1067,7 @@ export function TrelloApp({
                </div>
             </div>
 
-            {/* --- START WORKFLOW TIMER BLOCK --- */}
+           {/* --- START WORKFLOW TIMER BLOCK --- */}
              <div className="trello-section">
                 <div className="trello-section-icon">
                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1104,24 +1104,30 @@ export function TrelloApp({
                                  const startStr = String(currentStart);
                                  const startTime = parseFloat(startStr.includes("|") ? startStr.split("|")[0] : startStr);
                                  
-                                 // Determine exactly where the timer was started
                                  const listName = startStr.includes("|") ? startStr.split("|")[1] : (c.boardList || c.list || "UNK");
                                  const bucketKey = listName.substring(0, 3).toUpperCase();
                                  const sessionMins = (stopTime - startTime) / 1000 / 60;
 
-                                 let rawDur = extractVal(c.customFields?.WorkDuration);
-                                 let currentTotal = parseFloat(rawDur) || 0;
+                                 // 🛡️ THE AMNESIA SHIELD: ALWAYS read total from WorkLog JSON
+                                 let workLogObj = {};
+                                 let currentTotal = 0;
+                                 try { 
+                                     workLogObj = JSON.parse(extractVal(c.customFields?.WorkLog) || "{}"); 
+                                     currentTotal = parseFloat(workLogObj._total) || Object.keys(workLogObj).filter(k => k !== "_total").reduce((sum, k) => sum + (parseFloat(workLogObj[k]) || 0), 0);
+                                 } catch(e) {
+                                     // Fallback only if JSON is physically missing
+                                     currentTotal = parseFloat(extractVal(c.customFields?.WorkDuration)) || 0;
+                                 }
+                                 if (isNaN(currentTotal)) currentTotal = 0;
+
                                  const newTotal = parseFloat((currentTotal + sessionMins).toFixed(2));
                                  const newTotalStr = String(newTotal);
 
-                                 // 🌟 BUILD WORKLOG JSON DIRECTLY IN REACT
-                                 let workLogObj = {};
-                                 try { workLogObj = JSON.parse(extractVal(c.customFields?.WorkLog) || "{}"); } catch(e) {}
+                                 // Build updated JSON
                                  workLogObj[bucketKey] = parseFloat(((workLogObj[bucketKey] || 0) + sessionMins).toFixed(2));
                                  workLogObj._total = newTotal;
                                  const workLogStr = JSON.stringify(workLogObj);
 
-                                 // Lock all three fields from the poller
                                  window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "WorkDuration", ttlMs: 15000 } }));
                                  window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "WorkLog", ttlMs: 15000 } }));
                                  window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "WorkTimerStart", ttlMs: 15000 } }));
@@ -1137,7 +1143,6 @@ export function TrelloApp({
                                  }));
 
                                  try {
-                                    // Send all 3 updates simultaneously. The website clock will stop instantly!
                                     await fetch("/.netlify/functions/trello-set-custom-field", { method: "POST", body: JSON.stringify({ cardId: c.id, fieldName: "WorkDuration", valueText: newTotalStr }) });
                                     await fetch("/.netlify/functions/trello-set-custom-field", { method: "POST", body: JSON.stringify({ cardId: c.id, fieldName: "WorkLog", valueText: workLogStr }) });
                                     await fetch("/.netlify/functions/trello-set-custom-field", { method: "POST", body: JSON.stringify({ cardId: c.id, fieldName: "WorkTimerStart", valueText: "" }) });
