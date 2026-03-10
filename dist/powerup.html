@@ -7,20 +7,21 @@
   </head>
   <body>
     <script>
+      // Initialize the Power-Up
       window.TrelloPowerUp.initialize({
-        'card-back-section': function(t, options) {
-          return {
-            title: 'WorkFlow Timer',
-            icon: 'https://siya.actuaryspace.co.za/favicon.ico', 
-            content: {
-              type: 'iframe',
-              // 👇 THE FIX: Added "?v=newjson" to force Trello to clear its cache
-              url: t.signUrl('./timer-ui.html?v=newjson'), 
-              height: 110
-            }
-          };
-        }
-      });
+  'card-back-section': function(t, options) {
+    return {
+      title: 'WorkFlow Timer',
+      icon: 'https://siya.actuaryspace.co.za/favicon.ico', 
+      content: {
+        type: 'iframe',
+        // 👇 Change the word after ?v= to break the cache
+        url: t.signUrl('./timer-ui-v2.html'),
+        height: 110
+      }
+    };
+  }
+});
     </script>
   </body>
 </html>

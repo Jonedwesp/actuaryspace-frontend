@@ -221,5 +221,19 @@ export function useDonna({
     }
   }, []);
 
-  return { isConnected, connectDonna, disconnectDonna, sendSessionUpdate, sendToolResponse };
+  const sendText = useCallback((text) => {
+    if (dcRef.current?.readyState === "open") {
+      dcRef.current.send(JSON.stringify({
+        type: "conversation.item.create",
+        item: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text }],
+        },
+      }));
+      dcRef.current.send(JSON.stringify({ type: "response.create" }));
+    }
+  }, []);
+
+  return { isConnected, connectDonna, disconnectDonna, sendSessionUpdate, sendToolResponse, sendText };
 }

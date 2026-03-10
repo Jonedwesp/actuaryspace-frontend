@@ -22,15 +22,22 @@ async function processLedger(event) {
     const [listsRes, cardsRes, actionsRes, customFieldsRes] = await Promise.all([
       fetch(`${base}/boards/${TRELLO_BOARD_ID}/lists?${auth}`),
       fetch(`${base}/boards/${TRELLO_BOARD_ID}/cards?customFieldItems=true&fields=name,idList&${auth}`),
-      // 🌟 NEW: Fetch all list-movements since midnight!
       fetch(`${base}/boards/${TRELLO_BOARD_ID}/actions?filter=updateCard:idList&since=${midnightSAST}&limit=1000&${auth}`),
       fetch(`${base}/boards/${TRELLO_BOARD_ID}/customFields?${auth}`)
     ]);
 
-    const lists = Array.isArray(await listsRes.json()) ? await listsRes.json() : [];
-    const cards = Array.isArray(await cardsRes.json()) ? await cardsRes.json() : [];
-    const actions = Array.isArray(await actionsRes.json()) ? await actionsRes.json() : [];
-    const customFields = Array.isArray(await customFieldsRes.json()) ? await customFieldsRes.json() : [];
+    // ⚡ FIX: Read the JSON stream ONLY ONCE to prevent the "Body has already been read" crash
+    const rawLists = await listsRes.json();
+    const lists = Array.isArray(rawLists) ? rawLists : [];
+
+    const rawCards = await cardsRes.json();
+    const cards = Array.isArray(rawCards) ? rawCards : [];
+
+    const rawActions = await actionsRes.json();
+    const actions = Array.isArray(rawActions) ? rawActions : [];
+
+    const rawCF = await customFieldsRes.json();
+    const customFields = Array.isArray(rawCF) ? rawCF : [];
 
     const reviewListId = lists.find(l => l.name === "Siya - Review")?.id;
     const yolandieListId = lists.find(l => l.name === "Yolandie to Send")?.id;
@@ -69,7 +76,6 @@ async function processLedger(event) {
             } catch(e) {}
         }
 
-        // 🌟 THE LOGIC: 
         if (user === "Siya - Review") {
            // Siya's score: Card is currently in Yolandie, it was moved there TODAY, and Siya worked on it.
            if (c.idList === yolandieListId && movedToYolandieToday.has(c.id) && workedOnIt) {
@@ -99,7 +105,7 @@ async function processLedger(event) {
 
     // 6. IF MIDNIGHT: Write to Google Sheets
     if (!DAILY_LEDGER_SHEET_ID || !GOOGLE_SERVICE_ACCOUNT_EMAIL || !GOOGLE_PRIVATE_KEY) {
-       return { statusCode: 500, body: "Missing Google Sheets Env Vars" };
+       return { statusCode: 500, body: JSON.stringify({ error: "Missing Google Sheets Env Vars" }) };
     }
 
     const formattedKey = GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n');
@@ -123,6 +129,6 @@ async function processLedger(event) {
   }
 }
 
-export const handler = async (event, context) => {
+export const handler = async (event) => {
   return processLedger(event);
 };

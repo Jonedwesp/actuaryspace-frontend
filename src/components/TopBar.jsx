@@ -2,7 +2,7 @@ import React from "react";
 import gchatIcon from "../assets/Google Chat.png";
 import gmailIcon from "../assets/Gmail pic.png";
 import logo from "../assets/Actuary Consulting.png";
-import googleLogo from "../assets/Google Logo.png";
+import whatsappIcon from "../assets/WhatsApp.png";
 import CalendarIcon from "./CalendarIcon.jsx";
 
 export function TopBar({
@@ -36,9 +36,11 @@ export function TopBar({
             </button>
           </div>
 
-          <img src={logo} alt="Actuary Consulting" style={{ height: "42px", width: "auto", objectFit: "contain" }} />
+          <a href="/.netlify/functions/google-auth-start" style={{ display: "flex", alignItems: "center" }}>
+            <img src={logo} alt="Actuary Consulting" style={{ height: "42px", width: "auto", objectFit: "contain", cursor: "pointer" }} />
+          </a>
 
-   {/* RIGHT SIDE: Productivity -> Status -> Reconnect -> Close — flex:1 + justify end */}
+   {/* RIGHT SIDE: Productivity -> Status -> WhatsApp — flex:1 + justify end */}
           <div style={{ flex: 1, display: "flex", alignItems: "center", gap: "8px", justifyContent: "flex-end" }}>
 
             <button
@@ -96,13 +98,13 @@ export function TopBar({
               })()}
             </div>
 
-            <a href="/.netlify/functions/google-auth-start" className="connect-google-btn">
-              <img src={googleLogo} alt="Google" />
-              Connect
-            </a>
+            <button className="connect-google-btn" type="button">
+              <img src={whatsappIcon} alt="WhatsApp" />
+              WhatsApp
+            </button>
 
           </div>
-        </div>
+        </div>
   );
 }
 

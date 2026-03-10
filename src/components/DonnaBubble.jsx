@@ -6,7 +6,7 @@ export default function DonnaBubble({ transcription, isListening, showActions, o
   const [animDone, setAnimDone] = useState(false);
   const exitTimerRef = useRef(null);
 
-  const shouldShow = !!(transcription || isListening);
+  const shouldShow = !!transcription;
 
   const dismiss = useCallback(() => {
     if (isExiting) return;
@@ -59,7 +59,7 @@ export default function DonnaBubble({ transcription, isListening, showActions, o
       `}</style>
 
       <div style={styles.transcription}>
-        {isListening && !transcription ? "Listening..." : transcription}
+        {transcription}
       </div>
 
       {showActions && (
