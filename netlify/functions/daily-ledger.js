@@ -13,9 +13,9 @@ async function captureSnapshot(event) {
     GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_PRIVATE_KEY, DAILY_LEDGER_SHEET_ID 
   } = process.env;
 
-  if (!DAILY_LEDGER_SHEET_ID || !GOOGLE_SERVICE_ACCOUNT_EMAIL) {
+  if (!DAILY_LEDGER_SHEET_ID || !GOOGLE_SERVICE_ACCOUNT_EMAIL || !GOOGLE_PRIVATE_KEY) {
     console.error("[DAILY LEDGER] Missing Google Sheets env vars.");
-    return { statusCode: 500 };
+    return { statusCode: 500, body: "Missing env vars" };
   }
 
   try {
@@ -30,20 +30,27 @@ async function captureSnapshot(event) {
       fetch(`${base}/boards/${TRELLO_BOARD_ID}/customFields?${auth}`)
     ]);
 
-    const lists = await listsRes.json();
-    const cards = await cardsRes.json();
-    const members = await membersRes.json();
-    const customFields = await customFieldsRes.json();
+    const rawLists = await listsRes.json();
+    const rawCards = await cardsRes.json();
+    const rawMembers = await membersRes.json();
+    const rawCustomFields = await customFieldsRes.json();
+
+    // 🛡️ SAFETY NET: Ensure Trello returned arrays. Prevents ".find is not a function" crashes.
+    const lists = Array.isArray(rawLists) ? rawLists : [];
+    const cards = Array.isArray(rawCards) ? rawCards : [];
+    const members = Array.isArray(rawMembers) ? rawMembers : [];
+    const customFields = Array.isArray(rawCustomFields) ? rawCustomFields : [];
 
     // 2. Map IDs for accurate counting
     const reviewListId = lists.find(l => l.name === "Siya - Review")?.id;
     const yolandieListId = lists.find(l => l.name === "Yolandie to Send")?.id;
     
-    const durationFieldId = customFields.find(f => f.name === "[SYSTEM]WorkDuration")?.id;
-    const timerStartFieldId = customFields.find(f => f.name === "[SYSTEM]WorkTimerStart")?.id;
+    // 🟢 CHANGED: Explicitly target the WorkLog (JSON) field
+    const workLogFieldId = customFields.find(f => f.name.includes("WorkLog"))?.id;
+    const timerStartFieldId = customFields.find(f => f.name.includes("WorkTimerStart"))?.id;
 
     const targetUsers = ["Siya", "Enock", "Songeziwe", "Bonisa", "Siya - Review"];
-    const todayStr = new Date().toLocaleDateString("en-GB"); // DD/MM/YYYY format
+    const todayStr = new Date().toLocaleDateString("en-GB"); 
     const nowMs = Date.now();
     const snapshotRows = [];
 
@@ -52,14 +59,13 @@ async function captureSnapshot(event) {
       let completedCards = [];
       let totalMinutes = 0;
       
-      // Safely grab the member ID (e.g. mapping "Siya - Review" to "Siya")
       const memberId = members.find(m => m.fullName.toLowerCase().includes(user.split(' ')[0].toLowerCase()))?.id;
 
       cards.forEach(c => {
-        if (c.name.toLowerCase().includes("out of office")) return;
+        if (!c.name || c.name.toLowerCase().includes("out of office")) return;
 
-        // 🟢 NEW: Use the JSON-aware time calculator to pull EXACTLY this user's time
-        const { minutes, workedOnIt } = getCardTimeForUser(c, durationFieldId, timerStartFieldId, user, nowMs, lists);
+        // 🟢 Pass the full user/list name to extract their specific time from the JSON
+        const { minutes, workedOnIt } = getCardTimeForUser(c, workLogFieldId, timerStartFieldId, user, nowMs);
         totalMinutes += minutes;
 
         // Completed Logic
@@ -72,8 +78,8 @@ async function captureSnapshot(event) {
           // Data Capturers Score: Cards in Review or Yolandie to Send
           const isCompleted = (c.idList === reviewListId || c.idList === yolandieListId);
           
-          // 🟢 NEW: Give credit if they explicitly tracked time on it OR are assigned to it
-          const belongsToUser = workedOnIt || (memberId && c.idMembers.includes(memberId));
+          // Give credit if they explicitly tracked time on it OR are assigned to it
+          const belongsToUser = workedOnIt || (memberId && (c.idMembers || []).includes(memberId));
           
           if (isCompleted && belongsToUser) {
              completedCards.push(c);
@@ -115,66 +121,53 @@ async function captureSnapshot(event) {
     });
 
     console.log("[DAILY LEDGER] Successfully backed up scores for the day.");
-    return { statusCode: 200, body: "Ledger updated" };
+    return { statusCode: 200, body: JSON.stringify({ ok: true, message: "Ledger updated" }) };
 
   } catch (error) {
     console.error("[DAILY LEDGER] Fatal error:", error);
-    return { statusCode: 500, body: error.toString() };
+    return { statusCode: 500, body: JSON.stringify({ ok: false, error: error.toString() }) };
   }
 }
 
-// 🟢 NEW HELPER: Extracts JSON time and determines fair ownership
-function getCardTimeForUser(c, durationId, timerStartId, targetListName, nowMs, lists) {
+// 🟢 NEW HELPER: Extracts JSON from WorkLog using the List Name
+function getCardTimeForUser(c, workLogId, timerStartId, targetListName, nowMs) {
   let minutes = 0;
   let workedOnIt = false;
   const cfItems = c.customFieldItems || [];
-  const targetListId = lists.find(l => l.name === targetListName)?.id;
   
-  // 1. Extract Saved Duration JSON
-  const durItem = cfItems.find(item => item.idCustomField === durationId);
-  if (durItem && durItem.value?.text) {
-    const rawDur = String(durItem.value.text);
-    if (rawDur.startsWith("{")) {
+  // 1. Extract from JSON WorkLog
+  const logItem = cfItems.find(item => item.idCustomField === workLogId);
+  if (logItem && logItem.value?.text) {
       try {
-        const parsed = JSON.parse(rawDur);
+        const parsed = JSON.parse(logItem.value.text);
         if (parsed[targetListName]) {
           minutes += parseFloat(parsed[targetListName]);
-          workedOnIt = true;
+          workedOnIt = true; // We know for a fact they worked on this!
         }
       } catch(e) {}
-    } else if (c.idList === targetListId) {
-       // Legacy fallback: if it's a raw number, count it if it's currently in their list
-       minutes += parseFloat(rawDur) || 0;
-       workedOnIt = true;
-    }
   }
   
-  // 2. Extract Active Ticking Timer (timestamp|listName)
+  // 2. Add currently ticking timer if it belongs to this list
   const startItem = cfItems.find(item => item.idCustomField === timerStartId);
   if (startItem && startItem.value?.text) {
     const rawStart = String(startItem.value.text);
+    
+    // Check if the timer start string contains their list name (timestamp|listName)
     if (rawStart.includes("|")) {
       const parts = rawStart.split("|");
-      const startTsStr = parts[0];
-      const listName = parts[1];
+      const activeListName = parts[1];
       
-      if (listName === targetListName) {
-        const startVal = parseFloat(startTsStr);
+      if (activeListName === targetListName) {
+        const startVal = parseFloat(parts[0]);
         if (startVal > 1000000000000) {
           minutes += (nowMs - startVal) / 1000 / 60;
           workedOnIt = true;
         }
       }
-    } else if (c.idList === targetListId) {
-       // Legacy fallback
-       const startVal = parseFloat(rawStart);
-       if (startVal > 1000000000000) {
-          minutes += (nowMs - startVal) / 1000 / 60;
-          workedOnIt = true;
-       }
     }
   }
   
+  // Safety guard against NaN UI glitches
   if (isNaN(minutes) || minutes < 0) minutes = 0;
   return { minutes, workedOnIt };
 }

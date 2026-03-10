@@ -83,8 +83,11 @@ export const handler = async (event) => {
     const encodedSubject = `=?utf-8?B?${Buffer.from(safeSubject).toString('base64')}?=`;
     const impersonatedEmail = "siyabonga@actuaryconsulting.co.za";
 
+    // Ensure "To" has a fallback to avoid header rejection if Donna forgets the email
+    const recipient = to && to.trim() !== "" ? to : "siyabonga@actuaryconsulting.co.za";
+
     let rawEmailParts = [
-      `To: ${to || ""}`,
+      `To: ${recipient}`,
       `From: "Siyabonga Nono" <${impersonatedEmail}>`,
       `Subject: ${encodedSubject}`,
       'MIME-Version: 1.0',
@@ -92,22 +95,28 @@ export const handler = async (event) => {
       '',
       `--${boundary}`,
       `Content-Type: text/html; charset="UTF-8"`,
+      'Content-Transfer-Encoding: 7bit',
       '',
       htmlBody,
       ''
     ];
 
-    for (const att of attachments) {
-      rawEmailParts.push(
-        `--${boundary}`,
-        `Content-Type: ${att.mimeType}; name="${att.filename}"`,
-        `Content-Disposition: attachment; filename="${att.filename}"`,
-        `Content-Transfer-Encoding: base64`,
-        '',
-        att.content,
-        ''
-      );
+    // Explicitly check for attachments length to ensure clean boundary management
+    if (attachments && attachments.length > 0) {
+      for (const att of attachments) {
+        rawEmailParts.push(
+          `--${boundary}`,
+          `Content-Type: ${att.mimeType}; name="${att.filename}"`,
+          `Content-Disposition: attachment; filename="${att.filename}"`,
+          `Content-Transfer-Encoding: base64`,
+          '',
+          att.content,
+          ''
+        );
+      }
     }
+    
+    // Always close the boundary
     rawEmailParts.push(`--${boundary}--`);
 
     const encodedMail = Buffer.from(rawEmailParts.join('\r\n'))

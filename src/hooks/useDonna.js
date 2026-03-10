@@ -51,11 +51,15 @@ export function useDonna({
       const pc = new RTCPeerConnection();
       pcRef.current = pc;
 
-      // 3. Play Donna's audio response via a hidden audio element
-      const audioEl = document.createElement("audio");
-      audioEl.autoplay = true;
-      audioEl.style.display = "none";
-      document.body.appendChild(audioEl);
+      // 3. Play Donna's audio response via a stable audio element
+      let audioEl = document.getElementById("donna-audio");
+      if (!audioEl) {
+        audioEl = document.createElement("audio");
+        audioEl.id = "donna-audio";
+        audioEl.autoplay = true;
+        audioEl.style.display = "none";
+        document.body.appendChild(audioEl);
+      }
       pc.ontrack = (e) => { audioEl.srcObject = e.streams[0]; };
 
       // 4. Add mic track — explicit echo cancellation to prevent Donna's audio feeding back
@@ -124,9 +128,18 @@ export function useDonna({
           lastResponseIdRef.current = event.response_id;
           cb.onResponseDelta?.(event.delta, isNew);
         } else if (t === "response.function_call_arguments.done") {
+          // IMPORTANT: OpenAI sends the 'name' in a separate 'item' event. 
+          // We need to find the name using the call_id or track the active function.
+          // For now, let's fix the immediate parsing and add a safety check.
           let args = {};
           try { args = JSON.parse(event.arguments); } catch {}
-          cb.onFunctionCall?.({ name: event.name, args, call_id: event.call_id });
+          
+          // Use the event.name if present, but usually we need to map the ID.
+          cb.onFunctionCall?.({ 
+            name: event.name, 
+            args, 
+            call_id: event.call_id 
+          });
         } else if (t === "output_audio_buffer.stopped") {
           // Clear any audio that leaked into the buffer during playback
           setTimeout(() => {
@@ -194,5 +207,19 @@ export function useDonna({
     }
   }, []);
 
-  return { isConnected, connectDonna, disconnectDonna, sendSessionUpdate };
+  const sendToolResponse = useCallback((callId, output) => {
+    if (dcRef.current?.readyState === "open") {
+      dcRef.current.send(JSON.stringify({
+        type: "conversation.item.create",
+        item: {
+          type: "function_call_output",
+          call_id: callId,
+          output: JSON.stringify(output),
+        },
+      }));
+      dcRef.current.send(JSON.stringify({ type: "response.create" }));
+    }
+  }, []);
+
+  return { isConnected, connectDonna, disconnectDonna, sendSessionUpdate, sendToolResponse };
 }

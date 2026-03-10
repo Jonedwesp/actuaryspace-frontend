@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>WorkFlow Timer</title>
+  <script src="https://p.trellocdn.com/power-up.min.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 16px; margin: 0; color: #172b4d; display: flex; flex-direction: column; gap: 12px; }
+    .btn { border: none; border-radius: 4px; padding: 10px 12px; font-weight: 600; cursor: pointer; font-size: 14px; width: 100%; transition: opacity 0.2s; }
+    .btn:hover { opacity: 0.9; }
+    .btn-yellow { background-color: #f2d600; color: #172b4d; }
+    .btn-red { background-color: #eb5a46; color: #fff; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .display { text-align: center; font-size: 18px; font-weight: 600; margin-bottom: 4px; transition: color 0.3s; }
+    .loading { font-size: 14px; color: #5e6c84; text-align: center; margin-top: 20px; }
+  </style>
+</head>
+<body>
+
+  <div id="loader" class="loading">Connecting to ActuarySpace...</div>
+
+  <div id="ui" style="display: none;">
+    <div class="display" id="time-display">⏱ 0m</div>
+    <button id="start-btn" class="btn btn-yellow" style="display: none;">Start WorkFlow</button>
+    <button id="stop-btn" class="btn btn-red" style="display: none;">Stop WorkFlow</button>
+  </div>
+
+  <script>
+    const t = window.TrelloPowerUp.iframe();
+    let cardId = null;
+    let workDuration = 0;
+    let workTimerStartStr = null; 
+    let workLogObj = {};
+    let currentBucketName = "Inbox";
+    let liveInterval = null;
+
+    const loader = document.getElementById('loader');
+    const ui = document.getElementById('ui');
+    const display = document.getElementById('time-display');
+    const startBtn = document.getElementById('start-btn');
+    const stopBtn = document.getElementById('stop-btn');
+
+    function formatTime(totalMins) {
+      if (isNaN(totalMins) || totalMins < 0) totalMins = 0;
+      const m = Math.floor(totalMins);
+      if (m < 60) return `${m}m`;
+      const hours = Math.floor(m / 60);
+      const mins = m % 60;
+      return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`; 
+    }
+
+    function extractVal(v) {
+      if (v === null || v === undefined) return "";
+      if (typeof v === "object") return v.text || v.number || v.value?.text || v.value?.number || "";
+      return String(v);
+    }
+
+    async function init() {
+      const card = await t.card('id');
+      cardId = card.id;
+
+      try {
+        const listData = await t.list('name');
+        currentBucketName = listData.name || "Inbox";
+
+        const res = await fetch('/.netlify/functions/trello');
+        const data = await res.json();
+
+        let foundCard = null;
+        if (data.buckets) {
+          for (const b of data.buckets) {
+            const c = b.cards.find(x => x.id === cardId);
+            if (c) { foundCard = c; break; }
+          }
+        }
+
+        if (foundCard && foundCard.customFields) {
+          const startKey = Object.keys(foundCard.customFields).find(k => k.includes("TimerStart")) || "WorkTimerStart";
+          const durKey = Object.keys(foundCard.customFields).find(k => k.includes("Duration")) || "WorkDuration";
+          const logKey = Object.keys(foundCard.customFields).find(k => k.includes("WorkLog")) || "WorkLog";
+
+          // Pull basic duration
+          let rawDur = extractVal(foundCard.customFields[durKey]);
+          workDuration = parseFloat(rawDur) || 0;
+
+          // Pull WorkLog JSON safely
+          let rawLog = extractVal(foundCard.customFields[logKey]);
+          try { workLogObj = JSON.parse(rawLog || "{}"); } catch(e) { workLogObj = {}; }
+
+          // Extract Start Timer
+          let storedStart = extractVal(foundCard.customFields[startKey]);
+          const startTs = parseFloat(storedStart.includes("|") ? storedStart.split("|")[0] : storedStart);
+          if (startTs > 1000000000000) { 
+            workTimerStartStr = storedStart;
+          }
+        }
+        render();
+      } catch (err) {
+        loader.innerText = "Network offline.";
+      }
+    }
+
+    function render() {
+      loader.style.display = 'none';
+      ui.style.display = 'block';
+
+      if (liveInterval) clearInterval(liveInterval);
+
+      if (workTimerStartStr) {
+        startBtn.style.display = 'none';
+        stopBtn.style.display = 'block';
+        updateLiveClock();
+        liveInterval = setInterval(updateLiveClock, 1000);
+      } else {
+        startBtn.style.display = 'block';
+        stopBtn.style.display = 'none';
+        display.innerText = `⏱ ${formatTime(workDuration)} logged`;
+      }
+      t.sizeTo('body');
+    }
+
+    function updateLiveClock() {
+      if (!workTimerStartStr) return;
+      const startTs = parseFloat(workTimerStartStr.includes("|") ? workTimerStartStr.split("|")[0] : workTimerStartStr);
+      const liveMins = Math.max(0, Date.now() - startTs) / 1000 / 60;
+      display.innerText = `⏱ ${formatTime(workDuration + liveMins)} (Recording)`;
+    }
+
+    async function setField(fieldName, valueText, valueNumber = null) {
+      return fetch('/.netlify/functions/trello-set-custom-field', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cardId, fieldName, valueText: String(valueText), valueNumber })
+      });
+    }
+
+    startBtn.onclick = async () => {
+      setLoadingState(true);
+      const nowStr = `${Date.now()}|${currentBucketName}`;
+      try {
+        await setField('[SYSTEM]WorkTimerStart', nowStr, null);
+        workTimerStartStr = nowStr;
+        render();
+      } catch (e) {}
+      setLoadingState(false);
+    }
+
+    stopBtn.onclick = async () => {
+      setLoadingState(true);
+      const startTs = parseFloat(workTimerStartStr.includes("|") ? workTimerStartStr.split("|")[0] : workTimerStartStr);
+      const listName = workTimerStartStr.includes("|") ? workTimerStartStr.split("|")[1] : currentBucketName;
+      const bucketKey = listName.substring(0, 3).toUpperCase();
+
+      const sessionMins = (Date.now() - startTs) / 1000 / 60;
+      const newTotal = parseFloat((workDuration + sessionMins).toFixed(2));
+      
+      // 🌟 FRONTEND DATA MODEL UPDATE
+      workLogObj[bucketKey] = parseFloat(((workLogObj[bucketKey] || 0) + sessionMins).toFixed(2));
+      workLogObj._total = newTotal;
+      const workLogStr = JSON.stringify(workLogObj);
+
+      try {
+        // Fire all 3 updates. Webhook is no longer needed!
+        await setField('[SYSTEM]WorkDuration', String(newTotal), newTotal);
+        await setField('[SYSTEM]WorkLog', workLogStr, null);
+        await setField('[SYSTEM]WorkTimerStart', "", null); 
+        
+        workDuration = newTotal;
+        workTimerStartStr = null;
+        render();
+      } catch (e) {
+        console.warn("Network failed");
+      }
+      setLoadingState(false);
+    }
+
+    function setLoadingState(isLoading) {
+      startBtn.disabled = isLoading;
+      stopBtn.disabled = isLoading;
+      startBtn.innerText = isLoading ? "Saving..." : "Start WorkFlow";
+      stopBtn.innerText = isLoading ? "Saving..." : "Stop WorkFlow";
+    }
+
+    init();
+  </script>
+</body>
+</html>

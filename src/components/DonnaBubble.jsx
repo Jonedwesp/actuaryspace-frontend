@@ -65,7 +65,12 @@ export default function DonnaBubble({ transcription, isListening, showActions, o
       {showActions && (
         <div style={styles.actionContainer}>
           <button onClick={onReject} style={{ ...styles.button, ...styles.rejectButton }}>Reject</button>
-          <button onClick={onApprove} style={{ ...styles.button, ...styles.approveButton }}>Approve</button>
+          <button 
+            onClick={onApprove} 
+            style={{ ...styles.button, ...styles.approveButton }}
+          >
+            {transcription.toLowerCase().includes("review") ? "Open Review" : "Approve"}
+          </button>
         </div>
       )}
     </div>

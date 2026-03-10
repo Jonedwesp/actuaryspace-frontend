@@ -42,8 +42,10 @@ export function GmailApp({
   draftWindowRef,
   isDraggingDraft,
   htmlTooltipRef,
-  // --- Handlers ---
-  triggerSnackbar,
+// --- Handlers ---
+  handleDraftMouseDown, // ⚡ Component can now "see" this function
+  triggerSnackbar,
+  isDonnaDrafting,
 }) {
 if (currentView.app === "gmail") {
     const allSelected = (filteredEmails || []).length > 0 && selectedEmailIds.size === filteredEmails.length;
@@ -118,15 +120,21 @@ if (currentView.app === "gmail") {
           setSelectedEmailIds(new Set());
           triggerSnackbar(`${snapshotIds.length} marked as unread.`);
         }
-      } catch (e) {
-        console.error(e);
-      }
-      setGmailLoading(false);
-    };
-    return (
-            <div style={{ position: "relative", display: "flex", flexDirection: "column", height: "100%", background: "#fff", borderRadius: "12px", border: "1px solid #8993a4", boxShadow: "0 8px 16px -4px rgba(9,30,66,0.25), 0 0 0 1px rgba(9,30,66,0.08)", overflow: "hidden" }}>
-              
-              {/* 🟢 TOP ROW: COMPOSE + SEARCH BAR */}
+  } catch (e) {
+        console.error(e);
+      }
+      setGmailLoading(false);
+    };
+    return (
+            <div style={{ position: "relative", display: "flex", flexDirection: "column", height: "100%", background: "#fff", borderRadius: "12px", border: "1px solid #8993a4", boxShadow: "0 8px 16px -4px rgba(9,30,66,0.25), 0 0 0 1px rgba(9,30,66,0.08)", overflow: "hidden" }}>
+              {isDonnaDrafting && (
+                <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(255,255,255,0.7)", backdropFilter: "blur(2px)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column" }}>
+                  <div style={{ width: "40px", height: "40px", border: "4px solid #f3f3f3", borderTop: "4px solid #0b57d0", borderRadius: "50%", animation: "spin 1s linear infinite", marginBottom: "16px" }}></div>
+                  <h3 style={{ color: "#202124", fontFamily: "'Google Sans', sans-serif" }}>Donna is Drafting...</h3>
+                </div>
+              )}
+              
+              {/* 🟢 TOP ROW: COMPOSE + SEARCH BAR */}
               <div style={{ padding: "12px 16px", background: "#fff", borderBottom: "1px solid #eee", display: "flex", alignItems: "center", gap: "16px" }}>
                 <button 
                   className="btn blue" 
@@ -833,8 +841,9 @@ if (currentView.app === "gmail") {
                          subject: currentSubject || "New Message", 
                          body: bodyText.replace(/\*([^*]+)\*/g, "<b>$1</b>")
                        })
-                     }).then(res => res.json()).then(json => {
-                       if (res.ok && json.ok) {
+                     }).then(async (response) => {
+                       const json = await response.json();
+                       if (response.ok && json.ok) {
                          // Clean up the old draft version if we were editing an existing one
                          if (draftIdToDelete) {
                             fetch("/.netlify/functions/gmail-delete", {
@@ -844,7 +853,7 @@ if (currentView.app === "gmail") {
                             });
                          }
                          if (gmailFolder === "DRAFTS") {
-                            setGmailRefreshTrigger(prev => prev + 1);
+                           setGmailRefreshTrigger(prev => prev + 1);
                          }
                        }
                      }).catch(err => console.error("Auto-save failed", err));
@@ -1169,9 +1178,15 @@ if (currentView.app === "gmail") {
   };
 
 const emailPane = (
-  <div className="email-pane" style={{ border: "1px solid #e6e6e6", borderRadius: "12px", boxSizing: "border-box", padding: "0 24px", background: "#fff", display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
-      
-      {/* ❄️ FROZEN HEADER: strictly limited to the Action Bar buttons */}
+  <div className="email-pane" style={{ position: "relative", border: "1px solid #e6e6e6", borderRadius: "12px", boxSizing: "border-box", padding: "0 24px", background: "#fff", display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+      {isDonnaDrafting && (
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(255,255,255,0.7)", backdropFilter: "blur(2px)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column" }}>
+          <div style={{ width: "40px", height: "40px", border: "4px solid #f3f3f3", borderTop: "4px solid #0b57d0", borderRadius: "50%", animation: "spin 1s linear infinite", marginBottom: "16px" }}></div>
+          <h3 style={{ color: "#202124", fontFamily: "'Google Sans', sans-serif" }}>Donna is Drafting...</h3>
+        </div>
+      )}
+      
+      {/* ❄️ FROZEN HEADER: strictly limited to the Action Bar buttons */}
       <div style={{ 
         background: "#fff", 
         padding: "8px 0",

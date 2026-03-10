@@ -1701,7 +1701,7 @@ html, body {
   background: #ffffff;
   color: #3c4043; /* Dark gray text */
   border: 1px solid #dadce0; /* Subtle border */
-  border-radius: 6px; /* Slight rounding, not profound */
+  border-radius: 12px;
   padding: 0 12px;
   font-size: 13px;
   font-weight: 500;

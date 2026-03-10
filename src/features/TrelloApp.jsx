@@ -1067,118 +1067,127 @@ export function TrelloApp({
                </div>
             </div>
 
-             {/* WORKFLOW TIMER (NEW) */}
-            <div className="trello-section">
-               <div className="trello-section-icon">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                     <circle cx="12" cy="12" r="10" />
-                     <path d="M12 6v6l4 2" />
-                  </svg>
-               </div>
-               <div className="trello-section-header">
-                  <h3 className="trello-h3">WorkFlow</h3>
-               </div>
-               
-               <div className="timer-row" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  
-                  {c.isArchived ? (
-                     <div style={{ color: '#5e6c84', fontSize: '13px', fontWeight: 600, padding: '6px 12px', background: '#091e420f', borderRadius: '4px' }}>
-                        Read-Only (Restore card to track time)
-                     </div>
-                  ) : (() => {
-                     const extractVal = (v) => {
-                        if (!v) return "";
-                        if (typeof v === "object") return v.text || v.value?.text || String(v);
-                        return String(v);
-                     };
-                     const currentStart = extractVal(c.customFields?.WorkTimerStart);
-                     // Running if WorkTimerStart is a valid 13-digit unix timestamp (plain number, no pipe)
-                     const isRunning = currentStart && /^\d{12,14}/.test(String(currentStart).trim());
+            {/* --- START WORKFLOW TIMER BLOCK --- */}
+             <div className="trello-section">
+                <div className="trello-section-icon">
+                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="12" cy="12" r="10" />
+                      <path d="M12 6v6l4 2" />
+                   </svg>
+                </div>
+                <div className="trello-section-header">
+                   <h3 className="trello-h3">WorkFlow</h3>
+                </div>
+                
+                <div className="timer-row" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                   
+                   {c.isArchived ? (
+                      <div style={{ color: '#5e6c84', fontSize: '13px', fontWeight: 600, padding: '6px 12px', background: '#091e420f', borderRadius: '4px' }}>
+                         Read-Only (Restore card to track time)
+                      </div>
+                   ) : (() => {
+                      const extractVal = (v) => {
+                         if (!v) return "";
+                         if (typeof v === "object") return v.text || v.value?.text || String(v);
+                         return String(v);
+                      };
+                      const currentStart = extractVal(c.customFields?.WorkTimerStart);
+                      const isRunning = currentStart && /^\d{12,14}/.test(String(currentStart).trim());
 
-                     if (isRunning) {
-                        return (
-                           <button 
-                             className="btn-red" 
-                             style={{ backgroundColor: '#eb5a46', color: '#fff', border: 'none', borderRadius: 3, padding: '6px 12px', fontWeight: 600, cursor: 'pointer', width: '105px', textAlign: 'center' }}
-                             onClick={async () => {
-                                const stopTime  = Date.now();
-                                const startTime = parseFloat(String(currentStart));
-                                const sessionMins = (stopTime - startTime) / 1000 / 60;
+                      if (isRunning) {
+                         return (
+                            <button 
+                              className="btn-red" 
+                              style={{ backgroundColor: '#eb5a46', color: '#fff', border: 'none', borderRadius: 3, padding: '6px 12px', fontWeight: 600, cursor: 'pointer', width: '105px', textAlign: 'center' }}
+                              onClick={async () => {
+                                 const stopTime  = Date.now();
+                                 const startStr = String(currentStart);
+                                 const startTime = parseFloat(startStr.includes("|") ? startStr.split("|")[0] : startStr);
+                                 
+                                 // Determine exactly where the timer was started
+                                 const listName = startStr.includes("|") ? startStr.split("|")[1] : (c.boardList || c.list || "UNK");
+                                 const bucketKey = listName.substring(0, 3).toUpperCase();
+                                 const sessionMins = (stopTime - startTime) / 1000 / 60;
 
-                                // WorkDuration is now a plain running total (minutes).
-                                // The webhook (trello-webhook.js) handles per-person WorkLog attribution.
-                                const currentTotal = parseFloat(extractVal(c.customFields?.WorkDuration)) || 0;
-                                const newTotal     = parseFloat((currentTotal + sessionMins).toFixed(2));
-                                const newTotalStr  = String(newTotal);
+                                 let rawDur = extractVal(c.customFields?.WorkDuration);
+                                 let currentTotal = parseFloat(rawDur) || 0;
+                                 const newTotal = parseFloat((currentTotal + sessionMins).toFixed(2));
+                                 const newTotalStr = String(newTotal);
 
-                                window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "WorkDuration", ttlMs: 30000 } }));
-                                window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "WorkTimerStart", ttlMs: 30000 } }));
+                                 // 🌟 BUILD WORKLOG JSON DIRECTLY IN REACT
+                                 let workLogObj = {};
+                                 try { workLogObj = JSON.parse(extractVal(c.customFields?.WorkLog) || "{}"); } catch(e) {}
+                                 workLogObj[bucketKey] = parseFloat(((workLogObj[bucketKey] || 0) + sessionMins).toFixed(2));
+                                 workLogObj._total = newTotal;
+                                 const workLogStr = JSON.stringify(workLogObj);
 
-                                setTrelloCard(prev => ({
-                                   ...prev, customFields: { ...prev.customFields, WorkTimerStart: null, WorkDuration: newTotalStr }
-                                }));
+                                 // Lock all three fields from the poller
+                                 window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "WorkDuration", ttlMs: 15000 } }));
+                                 window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "WorkLog", ttlMs: 15000 } }));
+                                 window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "WorkTimerStart", ttlMs: 15000 } }));
 
-                                window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
-                                   detail: { cardId: c.id, updater: old => ({
-                                      ...old, customFields: { ...old.customFields, WorkTimerStart: null, WorkDuration: newTotalStr }
-                                   }) }
-                                }));
+                                 setTrelloCard(prev => ({
+                                    ...prev, customFields: { ...prev.customFields, WorkTimerStart: null, WorkDuration: newTotalStr, WorkLog: workLogStr }
+                                 }));
 
-                                try {
-                                   await fetch("/.netlify/functions/trello-set-custom-field", {
-                                      method: "POST", body: JSON.stringify({ cardId: c.id, fieldName: "WorkDuration", valueText: newTotalStr })
-                                   });
-                                   await fetch("/.netlify/functions/trello-set-custom-field", {
-                                      method: "POST", body: JSON.stringify({ cardId: c.id, fieldName: "WorkTimerStart", valueText: "" })
-                                   });
-                                } catch(err) { console.error("WorkFlow Timer Stop Failed", err); }
-                             }}
-                           >
-                             Stop
-                           </button>
-                        );
-                     } else {
-                        return (
-                           <button 
-                             className="btn-yellow"
-                             style={{ backgroundColor: '#f2d600', color: '#172b4d', border: 'none', borderRadius: 3, padding: '6px 12px', fontWeight: 600, cursor: 'pointer', width: '105px', textAlign: 'center' }}
-                             onClick={async () => {
-                                // Plain timestamp — same format as the WorkFlow Timer power-up
-                                const nowStr = Date.now().toString();
+                                 window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
+                                    detail: { cardId: c.id, updater: old => ({
+                                       ...old, customFields: { ...old.customFields, WorkTimerStart: null, WorkDuration: newTotalStr, WorkLog: workLogStr }
+                                    }) }
+                                 }));
 
-                                window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "WorkTimerStart", ttlMs: 30000 } }));
+                                 try {
+                                    // Send all 3 updates simultaneously. The website clock will stop instantly!
+                                    await fetch("/.netlify/functions/trello-set-custom-field", { method: "POST", body: JSON.stringify({ cardId: c.id, fieldName: "WorkDuration", valueText: newTotalStr }) });
+                                    await fetch("/.netlify/functions/trello-set-custom-field", { method: "POST", body: JSON.stringify({ cardId: c.id, fieldName: "WorkLog", valueText: workLogStr }) });
+                                    await fetch("/.netlify/functions/trello-set-custom-field", { method: "POST", body: JSON.stringify({ cardId: c.id, fieldName: "WorkTimerStart", valueText: "" }) });
+                                 } catch(err) { console.error("WorkFlow Timer Stop Failed", err); }
+                              }}
+                            >
+                              Stop
+                            </button>
+                         );
+                      } else {
+                         return (
+                            <button 
+                              className="btn-yellow"
+                              style={{ backgroundColor: '#f2d600', color: '#172b4d', border: 'none', borderRadius: 3, padding: '6px 12px', fontWeight: 600, cursor: 'pointer', width: '105px', textAlign: 'center' }}
+                              onClick={async () => {
+                                 const bucketName = c.boardList || c.list || "Inbox";
+                                 const nowStr = `${Date.now()}|${bucketName}`;
 
-                                setTrelloCard(prev => ({
-                                   ...prev, customFields: { ...prev.customFields, WorkTimerStart: nowStr }
-                                }));
+                                 window.dispatchEvent(new CustomEvent("pendingCF", { detail: { cardId: c.id, field: "WorkTimerStart", ttlMs: 15000 } }));
 
-                                window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
-                                   detail: { cardId: c.id, updater: old => ({
-                                      ...old, customFields: { ...old.customFields, WorkTimerStart: nowStr }
-                                   }) }
-                                }));
+                                 setTrelloCard(prev => ({
+                                    ...prev, customFields: { ...prev.customFields, WorkTimerStart: nowStr }
+                                 }));
 
-                                try {
-                                   await fetch("/.netlify/functions/trello-set-custom-field", {
-                                      method: "POST", body: JSON.stringify({ cardId: c.id, fieldName: "WorkTimerStart", valueText: nowStr })
-                                   });
-                                } catch(err) { console.error("WorkFlow Timer Start Failed", err); }
-                             }}
-                           >
-                             Start timer
-                           </button>
-                        );
-                     }
-                  })()}
+                                 window.dispatchEvent(new CustomEvent("patchCardInBuckets", {
+                                    detail: { cardId: c.id, updater: old => ({
+                                       ...old, customFields: { ...old.customFields, WorkTimerStart: nowStr }
+                                    }) }
+                                 }));
 
-                  <div className="timer-display">
-                     <LiveTimer 
-                        startTime={!c.isArchived ? c.customFields?.WorkTimerStart : null} 
-                        duration={c.customFields?.WorkDuration} 
-                     />
-                  </div>  
-               </div>
-            </div>
+                                 try {
+                                    await fetch("/.netlify/functions/trello-set-custom-field", { method: "POST", body: JSON.stringify({ cardId: c.id, fieldName: "WorkTimerStart", valueText: nowStr }) });
+                                 } catch(err) { console.error("WorkFlow Timer Start Failed", err); }
+                              }}
+                            >
+                              Start timer
+                            </button>
+                         );
+                      }
+                   })()}
+
+                   <div className="timer-display">
+                      <LiveTimer 
+                         startTime={!c.isArchived ? c.customFields?.WorkTimerStart : null} 
+                         duration={c.customFields?.WorkDuration} 
+                      />
+                   </div>  
+                </div>
+             </div>
+             {/* --- END WORKFLOW TIMER BLOCK --- */}
 
             {/* Activity Timer */}
             <div className="trello-section">

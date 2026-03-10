@@ -85,9 +85,15 @@ export default function App() {
   const donnaRespondingRef = useRef(false);
   const [donnaKey, setDonnaKey] = useState(0);
 
-  const { isConnected: isDonnaConnected, connectDonna, disconnectDonna, sendSessionUpdate } = useDonna({
-    instructions: "You are Agent Donna, a witty and professional actuarial assistant to Siyabonga (Siya). Be concise and use your tools whenever appropriate. Respond immediately once the user stops talking. IMPORTANT: Always respond in English only, regardless of what language the user speaks in.",
-    tools: DONNA_TOOLS,
+  const { 
+    isConnected: isDonnaConnected, 
+    connectDonna, 
+    disconnectDonna, 
+    sendSessionUpdate,
+    sendToolResponse // 👈 Destructure the new helper here
+  } = useDonna({
+   instructions: "You are Agent Donna, a witty and professional actuarial assistant to Siyabonga (Siya).\n\n*** STRICT WAKE-WORD PROTOCOL ***\nYour audio stream is always open, but you are ASLEEP. You must ONLY wake up and respond if the user's sentence starts exactly with 'Hey Donna'.\n- If the user speaks without saying 'Hey Donna' first, you must output ABSOLUTELY NOTHING. Do not explain the rule. Do not apologize. Remain completely silent.\n- Once you fulfill a 'Hey Donna' request, go immediately back to sleep.\n- Never say 'I can only respond to requests that begin with...'. Just stay silent.\n\nBe concise and use your tools whenever appropriate. IMPORTANT: Always respond in English only.",
+    tools: DONNA_TOOLS,
     onTranscription: (text) => {
       if (!donnaRespondingRef.current) setDonnaTranscription("");
     },
@@ -102,24 +108,71 @@ export default function App() {
       donnaRespondingRef.current = false;
       setIsDonnaSpeaking(false);
     },
-    onFunctionCall: ({ name, args, call_id }) => {
-      // Auto-execute navigation — no approval needed
-      if (name === "navigate_to_app") {
-        setCurrentView({ app: args.app, contact: null });
-        if (args.app === "trello" && args.trello_card_name) {
-          const query = (args.trello_card_name || "").toLowerCase();
-          let found = null;
-          for (const cards of Object.values(trelloBuckets || {})) {
-            const match = (cards || []).find(c => (c.title || c.name || "").toLowerCase().includes(query));
-            if (match) { found = match; break; }
-          }
-          if (found) window.dispatchEvent(new CustomEvent("openTrelloCard", { detail: found }));
-        }
+onFunctionCall: ({ name, args, call_id }) => {
+      // 1. Auto-execute navigation & inbox searches
+      if (name === "navigate_to_app" || name === "gmail_get_inbox") {
+        if (name === "navigate_to_app") {
+          setCurrentView({ app: args.app, contact: null });
+          if (args.app === "trello" && args.trello_card_name) {
+            const query = (args.trello_card_name || "").toLowerCase();
+            let found = null;
+            for (const cards of Object.values(trelloBuckets || {})) {
+              const match = (cards || []).find(c => (c.title || c.name || "").toLowerCase().includes(query));
+              if (match) { found = match; break; }
+            }
+            if (found) window.dispatchEvent(new CustomEvent("openTrelloCard", { detail: found }));
+          }
+        } else if (name === "gmail_get_inbox") {
+          setCurrentView({ app: 'gmail', contact: null });
+          if (args.q) setSearchQuery(args.q);
+          if (args.folder) setGmailFolder(args.folder.toUpperCase());
+        }
+        return;
+      }
+
+      // 2. Auto-execute Contact Lookup (Solves the email accuracy issue)
+      if (name === "gmail_get_contacts") {
+        console.log("[Donna] Fetching contacts for lookup...");
+        fetch("/.netlify/functions/gmail-contacts")
+          .then(res => res.json())
+          .then(data => {
+            // Update session so Donna has the directory in her context
+            sendSessionUpdate({
+              instructions: `Contact Directory: ${JSON.stringify(data)}. Use these exact emails for drafts.`
+            });
+            // Feed the data back into the tool call using the new helper
+            sendToolResponse(call_id, { success: true, contacts: data });
+          });
         return;
       }
-      // All other tools require approval
+
+      // 3. Auto-execute Trello List Lookup
+      if (name === "trello_get_lists") {
+        console.log("[Donna] Fetching Trello lists...");
+        fetch("/.netlify/functions/trello-lists")
+          .then(res => res.json())
+          .then(data => {
+            // Feed the list IDs back so Donna knows where cards can go
+            sendSessionUpdate({
+              instructions: `Available Trello Lists: ${JSON.stringify(data)}. Use these IDs for move operations.`
+            });
+            sendToolResponse(call_id, { success: true, lists: data });
+          });
+        return;
+      }
+
+      // 4. All other "Write" tools require approval
       setDonnaPendingAction({ name, args, call_id });
-      setDonnaTranscription(`Donna wants to: ${name.replace(/_/g, " ")}`);
+      
+      if (name === "gmail_save_draft") {
+        // 🎯 UX Update: Soften the language to "Review"
+        setDonnaTranscription(`Donna has prepared a draft for your review.`);
+      } else if (name === "gmail_get_message") {
+        const sender = args.senderName || "Unknown";
+        setDonnaTranscription(`Donna wants to: open email from ${sender}`);
+      } else {
+        setDonnaTranscription(`Donna wants to: ${name.replace(/_/g, " ")}`);
+      }
     },
     onError: (msg) => setDonnaTranscription(`Error: ${msg}`),
   });
@@ -172,41 +225,174 @@ export default function App() {
   const [showWelcome, setShowWelcome] = useState(true);
 
 
-
- const handleApproveDonna = () => {
+const handleApproveDonna = () => {
     if (!donnaPendingAction) return;
     const { name, args } = donnaPendingAction;
 
     switch (name) {
-      case 'gmail_get_inbox':
-        setCurrentView({ app: 'gmail' }); 
-        if (args.draftId) {
-          setEmailPreview(args.draftId); 
+      case 'gmail_get_message':
+        console.log(`[Donna] Opening specific email...`, args);
+        setCurrentView({ app: "email", contact: null });
+        if (args.messageId) {
+          const foundMsg = gmailEmails?.find(m => m.id === args.messageId);
+          const fallbackName = args.senderName || (foundMsg ? foundMsg.from.split("<")[0].replace(/"/g, '').trim() : "Unknown");
+          
+          setEmail({
+            id: args.messageId,
+            subject: foundMsg?.subject || "Loading message...",
+            fromName: fallbackName,
+            fromEmail: foundMsg?.from || "",
+            date: foundMsg?.date || new Date().toISOString(),
+            time: foundMsg?.date ? new Date(foundMsg.date).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "",
+            bodyLoading: true,
+            attachments: [],
+            actions: [{ key: "submit_trello", label: "Submit to Trello" }, { key: "update_tracker", label: "Update AC Tracker" }]
+          });
+
+          fetch(`/.netlify/functions/gmail-message?messageId=${args.messageId}`, {
+            credentials: "include"
+          })
+            .then(r => r.json())
+            .then(json => {
+              if(json.ok) {
+                const isHtml = /<(html|body|div|p|br|b|strong|i|em|a|span|table|style)[^>]*>/i.test(json.body || "");
+                let rawBody = json.body || "";
+                if (!isHtml && rawBody.split('\n').length < 4) {
+                   rawBody = rawBody
+                     .replace(/(---------- Forwarded message ---------)/gi, '\n\n$1\n')
+                     .replace(/(From:|Date:|Subject:|To:|Cc:)/g, '\n$1')
+                     .replace(/(Dear\s+[A-Za-z]+|Hi\s+[A-Za-z]+|Good\s+day)/gi, '\n\n$1\n\n')
+                     .replace(/(Kind\s+Regards|Regards|Sincerely|Thank\s+you)/gi, '\n\n$1\n')
+                     .replace(/(On\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^:]+wrote:)/gi, '\n\n$1\n')
+                     .replace(/(>\s*>)/g, '>>')
+                     .replace(/(>\s+)/g, '\n$1')
+                     .replace(/(\s\d+\.)/g, '\n$1')
+                     .replace(/\n{3,}/g, '\n\n')
+                     .trim();
+                }
+                const processedAtts = (json.attachments || []).map(a => ({
+                   ...a,
+                   type: a.mimeType.includes("pdf") ? "pdf" : a.mimeType.includes("image") ? "img" : a.mimeType.includes("spreadsheet") || a.mimeType.includes("excel") ? "xls" : "file",
+                   url: `/.netlify/functions/gmail-download?messageId=${args.messageId}&attachmentId=${a.id}&filename=${encodeURIComponent(a.name)}&mimeType=${encodeURIComponent(a.mimeType)}`
+                }));
+
+                setEmail(prev => ({
+                   ...prev,
+                   body: isHtml ? "" : rawBody,
+                   bodyHtml: isHtml ? json.body : "",
+                   attachments: processedAtts,
+                   bodyLoading: false
+                }));
+              }
+            })
+            .catch(err => {
+               console.error("Body fetch failed:", err);
+               setEmail(prev => ({ ...prev, bodyLoading: false, body: "Error loading message." }));
+            });
         }
         break;
 
       case 'gmail_save_draft':
-        console.log("[Donna] Navigating to Gmail Drafts and saving draft...");
+        console.log("[Donna] Transferring draft to Gmail UI for review...");
         
-        // 1. Move UI to Drafts immediately (Optimistic UI)
-        setCurrentView({ app: 'gmail' });
-        setGmailFolder('DRAFTS');
+        // 1. Close the Donna form/pending action state immediately
+        setDonnaPendingAction(null); 
         
-        // 2. Call the real backend function
-        fetch("/.netlify/functions/gmail-save-draft", {
-          method: "POST",
-          body: JSON.stringify(args),
-          credentials: "include"
-        }).then(() => {
-          setGmailRefreshTrigger(prev => prev + 1);
-          triggerSnackbar("Draft created successfully.");
-        }).catch(err => reportSystemError("Gmail", "Failed to save draft."));
+        // 2. Switch the main view to Gmail
+        setCurrentView({ app: 'gmail', contact: null });
+        
+        // 3. Inject the text into the Compose window state
+        setSelectedDraftTemplate({
+          id: "donna_live_review",
+          label: "Donna's Draft",
+          subject: args.subject || "New Message",
+          body: args.body || "",
+          isForward: false
+        });
+        setDraftTo(args.to || "");
+
+        // 4. Visual confirmation
+        setDonnaTranscription("Opening draft for your review.");
+        triggerSnackbar("Draft prepared.");
+        return; // Use return to prevent the default cleanup at the bottom of handleApprove
+
+      case 'gmail_mark_unread':
+        console.log(`[Donna] Marking email as unread...`, args);
+        setCurrentView({ app: 'gmail', contact: null });
+        if (args.messageId) {
+          setGmailEmails(prev => {
+            const target = prev.find(e => e.id === args.messageId);
+            if (!target) return prev;
+            const rest = prev.filter(e => e.id !== args.messageId);
+            return [{ ...target, isUnread: true }, ...rest];
+          });
+          triggerSnackbar("Marked as unread.");
+          fetch("/.netlify/functions/gmail-mark-unread", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ messageId: args.messageId })
+          }).catch(err => console.error("Mark unread failed:", err));
+        }
+        break;
+
+      case 'gmail_delete_bulk':
+        console.log(`[Donna] Binning email...`, args);
+        setCurrentView({ app: 'gmail', contact: null });
+        if (args.messageIds && args.messageIds.length > 0) {
+          setGmailEmails(prev => prev.filter(e => !args.messageIds.includes(e.id)));
+          triggerSnackbar(`${args.messageIds.length} conversation(s) moved to Trash.`);
+          fetch("/.netlify/functions/gmail-delete-bulk", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ messageIds: args.messageIds, permanent: false })
+          }).catch(err => console.error("Delete failed:", err));
+        }
+        break;
+
+      case 'gmail_toggle_star':
+        console.log(`[Donna] Starring email...`, args);
+        setCurrentView({ app: 'gmail', contact: null });
+        if (args.messageId) {
+          const nextStarredState = args.starred !== undefined ? args.starred : true;
+          setGmailEmails(prev => prev.map(msg => 
+            msg.id === args.messageId ? { ...msg, isStarred: nextStarredState } : msg
+          ));
+          setEmail(prev => (prev && prev.id === args.messageId) ? { ...prev, isStarred: nextStarredState } : prev);
+          triggerSnackbar(nextStarredState ? "Message starred." : "Star removed.");
+          fetch("/.netlify/functions/gmail-toggle-star", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ messageId: args.messageId, starred: nextStarredState })
+          }).catch(err => console.error("Starring failed:", err));
+        }
         break;
 
       case 'trello_move_card':
-        setCurrentView({ app: 'trello' });
-        console.log("Moving Trello card via Donna...", args);
-        break;
+        console.log(`[Donna] Moving card ${args.cardId} to ${args.targetListId}...`);
+        
+        // 1. Optimistic UI Switch
+        setCurrentView({ app: 'trello', contact: null });
+        
+        // 2. Execute Backend Move
+        fetch("/.netlify/functions/trello-move", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cardId: args.cardId,
+            targetListId: args.targetListId,
+            newIndex: args.newIndex || 0
+          })
+        }).then(async (res) => {
+          if (res.ok) {
+            triggerSnackbar("Card moved successfully.");
+            // ⚡ REFRESH UI: Trigger the polling logic to show the new position
+            setGmailRefreshTrigger(prev => prev + 1); 
+          }
+        }).catch(err => reportSystemError("Trello", "Failed to move card."));
+        break;
 
       default:
         console.warn("Unmapped tool execution:", name);
@@ -216,7 +402,6 @@ export default function App() {
     setDonnaTranscription("Action approved.");
     setTimeout(() => setDonnaTranscription(""), 3000);
   };
-
   const handleRejectDonna = () => {
     setDonnaPendingAction(null);
     setDonnaTranscription("Action rejected.");
@@ -414,23 +599,24 @@ const [searchQuery, setSearchQuery] = useState("");
 
   const { isRecording, startRecording, stopRecording } = useRecording({ setPendingUpload });
 
-  // Update Donna's session instructions with current screen context
-  useEffect(() => {
-    if (!isDonnaConnected) return;
-    const app = currentView.app;
-    let ctx = "You are Agent Donna, a witty and professional actuarial assistant to Siyabonga (Siya, pronounced See-yah). Be concise and use your tools whenever appropriate. Respond immediately once the user stops talking. IMPORTANT: Always respond in English only, regardless of what language the user speaks in.\n\n";
-    const now = new Date();
-    ctx += `Current date and time: ${now.toLocaleDateString("en-ZA", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}, ${now.toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit", hour12: true })}.\n`;
-    ctx += `Current screen: ${app === "none" ? "Home / welcome screen" : app}.\n`;
+// Update Donna's session instructions with current screen context
+  useEffect(() => {
+    if (!isDonnaConnected) return;
+    const app = currentView.app;
+  let ctx = "You are Agent Donna, a witty and professional actuarial assistant to Siyabonga (Siya, pronounced See-yah).\n\n*** STRICT WAKE-WORD PROTOCOL ***\nYour audio stream is always open, but you are ASLEEP. You must ONLY wake up and respond if the user's sentence starts exactly with 'Hey Donna'.\n- If the user speaks without saying 'Hey Donna' first, you must output ABSOLUTELY NOTHING. Do not explain the rule. Do not apologize. Remain completely silent.\n- Once you fulfill a 'Hey Donna' request, go immediately back to sleep.\n- Never say 'I can only respond to requests that begin with...'. Just stay silent.\n\nBe concise and use your tools whenever appropriate. IMPORTANT: Always respond in English only.\n\n";
+    const now = new Date();
+    ctx += `Current date and time: ${now.toLocaleDateString("en-ZA", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}, ${now.toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit", hour12: true })}.\n`;
+    ctx += `Current screen: ${app === "none" ? "Home / welcome screen" : app}.\n`;
 
-    if (app === "gmail" || app === "email") {
-      if (email) {
-        ctx += `Selected email: "${email.subject}" from ${email.fromName || email.from || "unknown"}.\n`;
-        if (email.snippet) ctx += `Preview: ${email.snippet.slice(0, 300)}\n`;
-      } else if (gmailEmails?.length) {
-        ctx += `Inbox (${gmailFolder}): ${gmailEmails.slice(0, 8).map(e => `"${e.subject}" from ${(e.from || "").split("<")[0].trim() || "unknown"} — ${e.snippet ? e.snippet.slice(0, 60) : ""}`).join("; ")}.\n`;
-      }
-    } else if (app === "gchat") {
+    if (app === "gmail" || app === "email") {
+      if (email) {
+        ctx += `Selected email: "${email.subject}" from ${email.fromName || email.from || "unknown"}.\n`;
+        if (email.snippet) ctx += `Preview: ${email.snippet.slice(0, 300)}\n`;
+      } else if (gmailEmails?.length) {
+        // Increased from slice(0,8) to slice(0,25) so Donna can see further down the inbox
+        ctx += `Inbox (${gmailFolder}): ${gmailEmails.slice(0, 25).map(e => `"${e.subject}" from ${(e.from || "").split("<")[0].trim() || "unknown"} — ${e.snippet ? e.snippet.slice(0, 60) : ""}`).join("; ")}.\n`;
+      }
+    } else if (app === "gchat") {
       const spaceName = gchatSelectedSpace?.displayName || gchatDmNames?.[gchatSelectedSpace?.id] || "Unknown";
       ctx += `Open conversation: "${spaceName}".\n`;
       if (gchatMessages?.length) {
@@ -647,10 +833,11 @@ if (currentView.app === "gchat") {
 }
 
 if (currentView.app === "gmail" || currentView.app === "email") {
-  return <GmailApp
-    filteredEmails={filteredEmails}
-    combinedContacts={combinedContacts}
-    gmailEmails={gmailEmails} setGmailEmails={setGmailEmails}
+  return <GmailApp
+    isDonnaDrafting={donnaPendingAction !== null}
+    filteredEmails={filteredEmails}
+    combinedContacts={combinedContacts}
+    gmailEmails={gmailEmails} setGmailEmails={setGmailEmails}
     gmailLoading={gmailLoading} setGmailLoading={setGmailLoading}
     gmailError={gmailError} setGmailError={setGmailError}
     gmailFolder={gmailFolder} setGmailFolder={setGmailFolder}
@@ -680,6 +867,7 @@ if (currentView.app === "gmail" || currentView.app === "email") {
     draftFileInputRef={draftFileInputRef}
     draftWindowRef={draftWindowRef}
     isDraggingDraft={isDraggingDraft}
+    handleDraftMouseDown={handleDraftMouseDown} // 👈 ADDED THIS LINE
     htmlTooltipRef={htmlTooltipRef}
     triggerSnackbar={triggerSnackbar}
   />;
