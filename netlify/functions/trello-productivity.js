@@ -1,95 +1,95 @@
-import https from 'https';
+export const handler = async (event) => {
+  const { TRELLO_KEY, TRELLO_TOKEN, TRELLO_BOARD_ID } = process.env;
+  if (!TRELLO_KEY || !TRELLO_BOARD_ID) return { statusCode: 500, body: JSON.stringify({ error: "Missing Env Vars" }) };
 
-export const handler = async (event, context) => {
-  const API_KEY = process.env.TRELLO_API_KEY;
-  const TOKEN = process.env.TRELLO_TOKEN;
-  const BOARD_ID = process.env.TRELLO_BOARD_ID;
+  try {
+    const base = "https://api.trello.com/1";
+    const auth = `key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`;
 
-  if (!API_KEY || !TOKEN || !BOARD_ID) {
-    return { statusCode: 500, body: JSON.stringify({ ok: false, error: 'Missing Trello config' }) };
-  }
+    const [listsRes, customFieldsRes] = await Promise.all([
+      fetch(`${base}/boards/${TRELLO_BOARD_ID}/lists?cards=open&card_customFieldItems=true&${auth}`),
+      fetch(`${base}/boards/${TRELLO_BOARD_ID}/customFields?${auth}`)
+    ]);
 
-  // Fetch the last 1000 list movements on the board
-  const url = `https://api.trello.com/1/boards/${BOARD_ID}/actions?filter=updateCard:idList&limit=1000&key=${API_KEY}&token=${TOKEN}`;
+    const lists = await listsRes.json();
+    const customFields = await customFieldsRes.json();
 
-  return new Promise((resolve) => {
-    https.get(url, (res) => {
-      let data = '';
-      res.on('data', chunk => { data += chunk; });
-      res.on('end', () => {
-        try {
-          const actions = JSON.parse(data);
-          
-          // Trello returns newest first. We reverse it to simulate time moving forward.
-          actions.reverse();
+    const idleFieldId = customFields.find(f => f.name.includes("IdleLog"))?.id;
 
-          // The active buckets we are tracking
-          const TARGET_USERS = ["Siya", "Enock", "Songeziwe", "Bonisa"];
-          const userTimes = { "Siya": 0, "Enock": 0, "Songeziwe": 0, "Bonisa": 0 };
-          
-          // Tracks cards currently sitting in a bucket: { cardId: { listName: "Enock", enteredAt: timestamp } }
-          const activeCards = {};
+    if (!idleFieldId) {
+      return { statusCode: 400, body: JSON.stringify({ error: "Could not find IdleLog Custom Field" }) };
+    }
 
-          // We only want to log time for TODAY.
-          const startOfToday = new Date();
-          startOfToday.setHours(0, 0, 0, 0); 
+    const targetUsers = ["Siya", "Enock", "Songeziwe", "Bonisa", "Siya - Review"];
+    const topCardsMap = new Map();
 
-          actions.forEach(action => {
-            const cardId = action.data.card.id;
-            const listAfter = action.data.listAfter.name;
-            const listBefore = action.data.listBefore.name;
-            const actionTime = new Date(action.date);
-
-            // 1. EXIT LOGIC: Card moved out of a tracked user's list (e.g., to "Siya - Review")
-            if (TARGET_USERS.includes(listBefore) && activeCards[cardId]?.listName === listBefore) {
-              let enteredAt = activeCards[cardId].enteredAt;
-              
-              // If the card entered their list yesterday, we only start the clock at midnight today
-              if (enteredAt < startOfToday) {
-                  enteredAt = startOfToday;
-              }
-
-              // Calculate minutes spent in the bucket
-              if (actionTime > enteredAt) {
-                const diffMins = (actionTime - enteredAt) / 1000 / 60;
-                userTimes[listBefore] += diffMins;
-              }
-              
-              delete activeCards[cardId]; // Clock stopped. Remove from active tracking.
-            }
-
-            // 2. ENTRY LOGIC: Card moved INTO a tracked user's list
-            if (TARGET_USERS.includes(listAfter)) {
-              activeCards[cardId] = {
-                listName: listAfter,
-                enteredAt: actionTime
-              };
-            }
-          });
-
-          // 3. LIVE TICKING LOGIC: Add time for cards that are STILL in their lists right now
-          const now = new Date();
-          Object.values(activeCards).forEach(active => {
-              let enteredAt = active.enteredAt;
-              if (enteredAt < startOfToday) enteredAt = startOfToday;
-              
-              if (now > enteredAt) {
-                  const diffMins = (now - enteredAt) / 1000 / 60;
-                  userTimes[active.listName] += diffMins;
-              }
-          });
-
-          resolve({
-            statusCode: 200,
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ok: true, stats: userTimes })
-          });
-        } catch (err) {
-          resolve({ statusCode: 500, body: JSON.stringify({ ok: false, error: err.message }) });
-        }
-      });
-    }).on('error', (err) => {
-      resolve({ statusCode: 500, body: JSON.stringify({ ok: false, error: err.message }) });
+    lists.forEach(list => {
+       const listName = list.name.trim();
+       const matchedUser = targetUsers.find(u => u.toLowerCase() === listName.toLowerCase());
+       if (matchedUser) {
+           const activeCards = list.cards.filter(c => !c.name.toLowerCase().includes("out of office") && !c.name.toLowerCase().includes("away from cases"));
+           if (activeCards.length > 0) topCardsMap.set(activeCards[0].id, matchedUser);
+       }
     });
-  });
+
+    const allCards = lists.flatMap(l => l.cards);
+    const apiUpdates = [];
+    const nowTs = Date.now();
+
+    const updateTrelloJSON = (cardId, jsonObject) => {
+        apiUpdates.push(
+            fetch(`${base}/cards/${cardId}/customField/${idleFieldId}/item?${auth}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ value: { text: JSON.stringify(jsonObject) } })
+            }).catch(e => console.error("Failed to update JSON:", e))
+        );
+    };
+
+    allCards.forEach(card => {
+        const durItem = card.customFieldItems?.find(i => i.idCustomField === idleFieldId);
+        let workLog = {};
+        try { workLog = JSON.parse(durItem?.value?.text || "{}"); } catch(e) {}
+
+        const isTopUser = topCardsMap.get(card.id);
+        let needsUpdate = false;
+
+        if (isTopUser) {
+            // Card is at the top
+            if (!workLog._topReachedAt) {
+                workLog._topReachedAt = nowTs;
+                workLog._topUser = isTopUser;
+                needsUpdate = true;
+            } else if (workLog._topUser !== isTopUser) {
+                // Moved directly from top of one list to top of another
+                const elapsedMins = (nowTs - workLog._topReachedAt) / 60000;
+                const idleKey = `${workLog._topUser}_idle`;
+                workLog[idleKey] = (workLog[idleKey] || 0) + elapsedMins;
+                
+                workLog._topReachedAt = nowTs;
+                workLog._topUser = isTopUser;
+                needsUpdate = true;
+            }
+        } else {
+            // Card is NOT at the top
+            if (workLog._topReachedAt) {
+                const elapsedMins = (nowTs - workLog._topReachedAt) / 60000;
+                const idleKey = `${workLog._topUser}_idle`;
+                workLog[idleKey] = (workLog[idleKey] || 0) + elapsedMins;
+
+                delete workLog._topReachedAt;
+                delete workLog._topUser;
+                needsUpdate = true;
+            }
+        }
+
+        if (needsUpdate) updateTrelloJSON(card.id, workLog);
+    });
+
+    if (apiUpdates.length > 0) await Promise.allSettled(apiUpdates);
+    return { statusCode: 200, body: JSON.stringify({ ok: true }) };
+
+  } catch (error) {
+    return { statusCode: 500, body: JSON.stringify({ ok: false, error: error.message }) };
+  }
 };

@@ -6,7 +6,8 @@ export default function DonnaBubble({ transcription, isListening, showActions, o
   const [animDone, setAnimDone] = useState(false);
   const exitTimerRef = useRef(null);
 
-  const shouldShow = !!transcription;
+  // 🛡️ STICKY LOGIC: Show if there is text OR if Donna is currently active/listening.
+  const shouldShow = !!transcription || isListening;
 
   const dismiss = useCallback(() => {
     if (isExiting) return;
@@ -21,10 +22,13 @@ export default function DonnaBubble({ transcription, isListening, showActions, o
   useEffect(() => {
     const handleClick = (e) => {
       if (containerRef.current && !containerRef.current.contains(e.target)) {
+        if (showActions) {
+          console.log("[DonnaBubble] Outside click blocked to preserve pending action.");
+          return;
+        }
         dismiss();
       }
     };
-    // Delay registration so a mousedown that triggered the send doesn't immediately dismiss
     const reg = setTimeout(() => {
       document.addEventListener("mousedown", handleClick);
     }, 300);
@@ -33,7 +37,7 @@ export default function DonnaBubble({ transcription, isListening, showActions, o
       document.removeEventListener("mousedown", handleClick);
       clearTimeout(exitTimerRef.current);
     };
-  }, [dismiss]);
+  }, [dismiss, showActions]);
 
   if (!shouldShow && !isExiting) return null;
 
@@ -63,7 +67,8 @@ export default function DonnaBubble({ transcription, isListening, showActions, o
       `}</style>
 
       <div style={styles.transcription}>
-        {transcription}
+        {/* 🎯 Visual Placeholder: Ensures the bubble isn't a blank white box while she 'thinks' */}
+        {transcription || (isListening ? "Donna is listening..." : "")}
       </div>
 
       {showActions && (
@@ -73,7 +78,7 @@ export default function DonnaBubble({ transcription, isListening, showActions, o
             onClick={onApprove} 
             style={{ ...styles.button, ...styles.approveButton }}
           >
-            {transcription.toLowerCase().includes("review") ? "Open Review" : "Approve"}
+            {(transcription || "").toLowerCase().includes("review") ? "Open Review" : "Approve"}
           </button>
         </div>
       )}

@@ -104,12 +104,21 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
       !c.title.toLowerCase().includes("away from cases")
     );
 
-    const allAssignedCards = trelloBuckets.flatMap(b => b.cards).filter(c => 
-      c.people?.some(p => String(p).toLowerCase().includes(userName.toLowerCase())) &&
-      !c.title.toLowerCase().includes("out of office") && 
-      !c.title.toLowerCase().includes("away from cases")
-    );
+    // 🌟 NEW: Grab the specific cards this user pushed forward today from the backend
+    const completedTodayIds = dailySentStats[`${userName}_cards`] || []; 
 
+    const allAssignedCards = trelloBuckets.flatMap(b => b.cards).filter(c => {
+      // Condition 1: Is it assigned to them right now AND not an admin card?
+      const isCurrentlyHere = c.people?.some(p => String(p).toLowerCase().includes(userName.toLowerCase())) &&
+                              !c.title.toLowerCase().includes("out of office") && 
+                              !c.title.toLowerCase().includes("away from cases");
+      
+      // Condition 2: Did they successfully send this card forward TODAY?
+      const wasCompletedToday = completedTodayIds.includes(c.id);
+
+      // Show the card in their daily log if EITHER condition is true
+      return isCurrentlyHere || wasCompletedToday;
+    });
     let status = "🟢";
     let currentTask = "None";
 
@@ -126,15 +135,23 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
       }
     }
 
-    // 🌟 NEW: Replace flawed snapshot math with hyper-accurate backend action tracker!
     const reviewCount = dailySentStats[userName] || 0;
 
-    const calculateTimeLogged = () => {
-      const totalMinutes = Math.floor(prodStats[userName] || 0);
-      if (totalMinutes === 0) return "0h 0m";
-      const hours = Math.floor(totalMinutes / 60);
-      const mins = totalMinutes % 60;
-      return `${hours}h ${mins}m`;
+    // 3. Time Logged (Now shows the Arrival Timestamp of the #1 card)
+    const calculateArrivalTime = () => {
+      if (activeCards.length > 0) {
+         const topCard = activeCards[0];
+         try {
+             const durObj = JSON.parse(topCard.customFields?.IdleLog || "{}");
+             // If the card is at the top AND the timestamp belongs to this user
+             if (durObj._topReachedAt && durObj._topUser === userName) {
+                 const date = new Date(durObj._topReachedAt);
+                 // Format it as HH:MM (e.g., 17:41)
+                 return date.toLocaleTimeString('en-ZA', { timeZone: 'Africa/Johannesburg', hour: '2-digit', minute: '2-digit', hour12: false });
+             }
+         } catch(e) {}
+      }
+      return "-"; // Returns a dash if no card is actively at the top
     };
 
     const calculateActiveTimer = () => {
@@ -144,7 +161,7 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
 
       allCardsOnBoard.forEach(c => {
         let savedDurations = {};
-        const rawDur = c.customFields?.WorkDuration || "{}";
+        const rawDur = c.customFields?.IdleLog || "{}";
         try {
           if (!rawDur.startsWith("{")) {
             savedDurations = { [c.list]: parseFloat(rawDur) || 0 };
@@ -175,7 +192,7 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
       return `${hours}h ${mins}m`;
     };
 
-    return { status, currentTask, reviewCount, cardCount: activeCards.length, timeLogged: calculateTimeLogged(), activeTimer: calculateActiveTimer(), allUserCards: allAssignedCards };
+   return { status, currentTask, reviewCount, cardCount: activeCards.length, timeLogged: calculateArrivalTime(), activeTimer: calculateActiveTimer(), allUserCards: allAssignedCards };
   };
 
   const metrics = selectedUser ? getUserMetrics(selectedUser) : null;
@@ -216,11 +233,12 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
             <table className="prod-table">
               <thead>
                 <tr>
-                  <th style={{ width: "40%" }}>Card Name</th>
+                  <th style={{ width: "35%" }}>Card Name</th>
                   <th>Location</th>
                   <th>Due Date</th>
-                  <th>Priority</th>
                   <th>Status</th>
+                  {/* 🌟 NEW: Replaced Time Logged with Idle Time */}
+                  <th>Idle Time</th> 
                 </tr>
               </thead>
               <tbody>
@@ -229,19 +247,40 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
                     <td colSpan="5" style={{ textAlign: "center", color: "#5f6368", fontStyle: "italic", padding: "32px" }}>No active or reviewed cards found for {selectedUser}.</td>
                   </tr>
                 ) : (
-                  allUserCards.map(c => (
-                    <tr key={c.id} style={{ cursor: "pointer" }} onClick={() => window.dispatchEvent(new CustomEvent("openTrelloCard", { detail: { ...c, fromProductivity: selectedUser } }))}>
-                      <td style={{ fontWeight: 500 }}>{c.title}</td>
-                      <td>
-                        <span style={{ background: c.list === "Siya - Review" ? "#e6f4ea" : "#f1f3f4", color: c.list === "Siya - Review" ? "#137333" : "#3c4043", padding: "4px 8px", borderRadius: "4px", fontSize: "12px", fontWeight: 600 }}>
-                          {c.list}
-                        </span>
-                      </td>
-                      <td style={{ color: "#5f6368", fontWeight: 500 }}>{extractDueDate(c.title)}</td>
-                      <td>{c.customFields?.Priority || "-"}</td>
-                      <td>{c.customFields?.Active || c.customFields?.Status || "-"}</td>
-                    </tr>
-                  ))
+                  allUserCards.map(c => {
+                    // 🌟 NEW: Calculate accumulated + currently ticking Idle Time
+                    let idleMins = 0;
+                    try {
+                        const durObj = JSON.parse(topCard.customFields?.IdleLog || "{}");
+                        idleMins += parseFloat(durObj[`${selectedUser}_idle`] || 0);
+                        
+                        // Add live ticking time if it is CURRENTLY at the top
+                        if (durObj._topReachedAt && durObj._topUser === selectedUser) {
+                            idleMins += (Date.now() - durObj._topReachedAt) / 60000;
+                        }
+                    } catch(e) {}
+
+                    const formattedIdle = idleMins > 0 
+                        ? `${Math.floor(idleMins / 60)}h ${Math.floor(idleMins % 60)}m` 
+                        : "0m";
+
+                    return (
+                      <tr key={c.id} style={{ cursor: "pointer" }} onClick={() => window.dispatchEvent(new CustomEvent("openTrelloCard", { detail: { ...c, fromProductivity: selectedUser } }))}>
+                        <td style={{ fontWeight: 500 }}>{c.title}</td>
+                        <td>
+                          <span style={{ background: c.list === "Siya - Review" ? "#e6f4ea" : "#f1f3f4", color: c.list === "Siya - Review" ? "#137333" : "#3c4043", padding: "4px 8px", borderRadius: "4px", fontSize: "12px", fontWeight: 600 }}>
+                            {c.list}
+                          </span>
+                        </td>
+                        <td style={{ color: "#5f6368", fontWeight: 500 }}>{extractDueDate(c.title)}</td>
+                        <td>{c.customFields?.Active || c.customFields?.Status || "-"}</td>
+                        {/* 🌟 NEW: Display Idle Time */}
+                        <td style={{ fontWeight: "bold", color: idleMins > 0 ? "#ea4335" : "#97a0af" }}>
+                            {formattedIdle}
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>

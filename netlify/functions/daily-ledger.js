@@ -18,26 +18,23 @@ async function processLedger(event) {
     const [month, day, year] = sastFormatter.format(now).split('/');
     const midnightSAST = new Date(`${year}-${month}-${day}T00:00:00+02:00`).toISOString();
 
-    // 2. Fetch Board State AND Today's Move Actions
-    const [listsRes, cardsRes, actionsRes] = await Promise.all([
+    // 2. Fetch Board State, Today's Actions, AND Custom Fields
+    const [listsRes, cardsRes, actionsRes, customFieldsRes] = await Promise.all([
       fetch(`${base}/boards/${TRELLO_BOARD_ID}/lists?${auth}`),
-      fetch(`${base}/boards/${TRELLO_BOARD_ID}/cards?fields=name,idList&${auth}`),
-      fetch(`${base}/boards/${TRELLO_BOARD_ID}/actions?filter=updateCard:idList&since=${midnightSAST}&limit=1000&${auth}`)
+      fetch(`${base}/boards/${TRELLO_BOARD_ID}/cards?customFieldItems=true&fields=name,idList&${auth}`), // <-- Added customFieldItems=true so we can see the IdleLog!
+      fetch(`${base}/boards/${TRELLO_BOARD_ID}/actions?filter=updateCard:idList&since=${midnightSAST}&limit=1000&${auth}`),
+      fetch(`${base}/boards/${TRELLO_BOARD_ID}/customFields?${auth}`) // <-- Fetching the fields so we can find IdleLog
     ]);
 
-    const rawLists = await listsRes.json();
-    const lists = Array.isArray(rawLists) ? rawLists : [];
+    const lists = await listsRes.json();
+    const cards = await cardsRes.json();
+    const actions = await actionsRes.json();
+    const customFields = await customFieldsRes.json();
 
-    const rawCards = await cardsRes.json();
-    const cards = Array.isArray(rawCards) ? rawCards : [];
+    // Find the new IdleLog field ID safely
+    const idleFieldId = customFields.find(f => f.name && f.name.includes("IdleLog"))?.id;
 
-    const rawActions = await actionsRes.json();
-    const actions = Array.isArray(rawActions) ? rawActions : [];
-
-    const reviewListId = lists.find(l => l.name === "Siya - Review")?.id;
-    const yolandieListId = lists.find(l => l.name === "Yolandie to Send")?.id;
-
-    // 3. TRACK EXACT MOVEMENTS (No timer dependency!)
+    // 3. TRACK EXACT MOVEMENTS
     const cardCredits = {};
 
     actions.forEach(action => {
@@ -45,15 +42,14 @@ async function processLedger(event) {
        const sourceName = action.data?.listBefore?.name || "";
        const cardId = action.data?.card?.id;
 
-       // If anyone sent it to Review today, credit the list it came from (the sender)
+       if (!cardCredits[cardId]) cardCredits[cardId] = new Set();
+
        if (destName === "Siya - Review" && sourceName) {
-           // Standardize Boniswa/Bonisa just in case
            const standardizedName = sourceName.includes("Bonis") ? "Bonisa" : sourceName;
-           cardCredits[cardId] = standardizedName; 
+           cardCredits[cardId].add(standardizedName); 
        }
-       // If Siya sent it to Yolandie today, credit Siya - Review
        if (destName === "Yolandie to Send" && sourceName === "Siya - Review") {
-           cardCredits[cardId] = "Siya - Review";
+           cardCredits[cardId].add("Siya - Review");
        }
     });
 
@@ -62,28 +58,50 @@ async function processLedger(event) {
     const snapshotRows = [];
     const todayStr = new Date().toLocaleDateString("en-GB", { timeZone: 'Africa/Johannesburg' });
 
-    // 4. Calculate Scores
+    // 4. Calculate Scores AND Idle Time
     targetUsers.forEach(user => {
       let completedCards = [];
+      let totalIdleMins = 0; // Track idle time across all cards for the day
 
       cards.forEach(c => {
+        // --- A. Calculate Idle Time using the new [SYSTEM]IdleLog field ---
+        if (idleFieldId) {
+            const idleItem = c.customFieldItems?.find(i => i.idCustomField === idleFieldId);
+            try {
+                const parsed = JSON.parse(idleItem?.value?.text || "{}");
+                const idleKey = `${user}_idle`;
+                
+                // Add previously stored idle time
+                if (parsed[idleKey]) totalIdleMins += parsed[idleKey];
+                
+                // Add currently ticking idle time (if they left it at the top of the list right now)
+                if (parsed._topReachedAt && parsed._topUser === user) {
+                    totalIdleMins += (new Date().getTime() - parsed._topReachedAt) / 60000;
+                }
+            } catch(e) {}
+        }
+
+        // --- B. Calculate Movement ---
         if (!c.name || c.name.toLowerCase().includes("out of office")) return;
 
-        // Did THIS user move THIS card to the target list today?
-        if (cardCredits[c.id] === user) {
-           // Make sure it didn't bounce back (must still be in Review or Yolandie)
-           if (c.idList === reviewListId || c.idList === yolandieListId) {
+        if (cardCredits[c.id] && cardCredits[c.id].has(user)) {
+           const currentListName = lists.find(l => l.id === c.idList)?.name;
+           if (currentListName !== user) {
                completedCards.push(c);
            }
         }
       });
 
       liveStats[user] = completedCards.length;
+      liveStats[`${user}_cards`] = completedCards.map(c => c.id);
       const cardNamesStr = completedCards.map(c => c.name).join("  |  ");
-      snapshotRows.push([todayStr, user, completedCards.length, "N/A", cardNamesStr]);
+      const formattedIdleTime = `${Math.floor(totalIdleMins / 60)}h ${Math.floor(totalIdleMins % 60)}m`;
+
+      // Build the row exactly matching the 6 Google Sheet columns: [Date, Name, Cases, Active Time, Idle Time, Card Names]
+      snapshotRows.push([todayStr, user, completedCards.length, "N/A", formattedIdleTime, cardNamesStr]);
     });
 
-    // 5. Return Live Stats instantly for the UI
+    // 5. If called by React UI, return stats instantly and DO NOT write to Google Sheets
     if (isLiveUI) {
        return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: JSON.stringify(liveStats) };
     }
