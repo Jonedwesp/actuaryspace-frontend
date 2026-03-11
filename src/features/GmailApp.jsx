@@ -49,7 +49,9 @@ export function GmailApp({
   isDonnaDrafting,
 }) {
 
- const handleDeleteEmail = async (id) => {
+const [emailToDelete, setEmailToDelete] = useState(null);
+
+  const handleDeleteEmail = async (id) => {
     const isPerm = gmailFolder === "TRASH";
     
     // 0ms Latency Optimistic UI
@@ -79,7 +81,41 @@ export function GmailApp({
     }
   };
 
-  const deleteModal = null;
+ const deleteModal = emailToDelete ? (
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "transparent", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setEmailToDelete(null)}>
+      <div style={{ background: "#fff", borderRadius: "8px", width: "400px", maxWidth: "90%", boxShadow: "0 24px 38px 3px rgba(0,0,0,0.14), 0 9px 46px 8px rgba(0,0,0,0.12), 0 11px 15px -7px rgba(0,0,0,0.2)", overflow: "hidden", fontFamily: "'Google Sans', Roboto, Arial, sans-serif" }} onClick={e => e.stopPropagation()}>
+        <div style={{ padding: "24px" }}>
+          <h2 style={{ margin: "0 0 16px 0", fontSize: "22px", color: "#202124", fontWeight: 400 }}>{gmailFolder === "TRASH" ? "Delete permanently?" : "Move to Trash?"}</h2>
+          <p style={{ margin: 0, color: "#5f6368", fontSize: "14px", lineHeight: "1.5" }}>
+            {gmailFolder === "TRASH"
+              ? "This email will be permanently deleted. You won't be able to undo this action."
+              : `Are you sure you want to move this email to the Trash?`}
+          </p>
+        </div>
+        <div style={{ padding: "16px 24px", display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+          <button
+            onClick={() => setEmailToDelete(null)}
+            style={{ background: "transparent", border: "none", color: "#0b57d0", padding: "8px 16px", borderRadius: "4px", fontWeight: 500, cursor: "pointer", fontSize: "14px", transition: "background 0.2s" }}
+            onMouseEnter={e => e.currentTarget.style.background = "#f4f8fe"}
+            onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => {
+              handleDeleteEmail(emailToDelete.id);
+              setEmailToDelete(null);
+            }}
+            style={{ background: "#d93025", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "4px", fontWeight: 500, cursor: "pointer", fontSize: "14px", transition: "background 0.2s" }}
+            onMouseEnter={e => e.currentTarget.style.background = "#b3261e"}
+            onMouseLeave={e => e.currentTarget.style.background = "#d93025"}
+          >
+            {gmailFolder === "TRASH" ? "Delete" : "Move to Trash"}
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
 
 if (currentView.app === "gmail") {
     const allSelected = (filteredEmails || []).length > 0 && selectedEmailIds.size === filteredEmails.length;
@@ -532,8 +568,20 @@ if (currentView.app === "gmail") {
                 gap: "12px",
                 fontSize: "14px"
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "inset 1px 0 0 #dadce0, inset -1px 0 0 #dadce0, 0 1px 2px 0 rgba(60,64,67,.3)"; setHoveredEmailId(msg.id); }}
-              onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "none"; setHoveredEmailId(null); }}
+              onMouseEnter={(e) => { 
+                e.currentTarget.style.boxShadow = "inset 1px 0 0 #dadce0, inset -1px 0 0 #dadce0, 0 1px 2px 0 rgba(60,64,67,.3)"; 
+                const actions = e.currentTarget.querySelector('.email-hover-actions');
+                const date = e.currentTarget.querySelector('.email-hover-date');
+                if (actions) actions.style.display = 'flex';
+                if (date) date.style.display = 'none';
+              }}
+              onMouseLeave={(e) => { 
+                e.currentTarget.style.boxShadow = "none"; 
+                const actions = e.currentTarget.querySelector('.email-hover-actions');
+                const date = e.currentTarget.querySelector('.email-hover-date');
+                if (actions) actions.style.display = 'none';
+                if (date) date.style.display = 'block';
+              }}
               onClick={() => {
                 setGmailEmails(prev => prev.map(e => e.id === msg.id ? { ...e, isUnread: false } : e));
                 if (msg.isUnread) {
@@ -752,61 +800,53 @@ if (currentView.app === "gmail") {
 
               
 {/* Date / Hover Actions */}
-              {hoveredEmailId === msg.id ? (
-                <div style={{ display: "flex", alignItems: "center", gap: "4px", flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-                  {/* Mark as unread */}
-                  <button
-                    title="Mark as unread"
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      setGmailEmails(prev => {
-                        const target = prev.find(x => x.id === msg.id);
-                        if (!target) return prev;
-                        const rest = prev.filter(x => x.id !== msg.id);
-                        return [{ ...target, isUnread: true }, ...rest];
+              <div className="email-hover-actions" style={{ display: "none", alignItems: "center", justifyContent: "flex-end", gap: "4px", width: "80px", flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+              {/* Mark as unread */}
+                <button
+                  title="Mark as unread"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    setGmailEmails(prev => prev.map(x => x.id === msg.id ? { ...x, isUnread: true } : x));
+                    try {
+                      await fetch("/.netlify/functions/gmail-mark-unread", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ messageId: msg.id })
                       });
-                      try {
-                        await fetch("/.netlify/functions/gmail-mark-unread", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ messageId: msg.id })
-                        });
-                      } catch (err) { console.error("Mark unread failed", err); }
-                    }}
-                    style={{ background: "transparent", border: "none", cursor: "pointer", color: "#5f6368", padding: "4px", borderRadius: "50%", display: "grid", placeItems: "center" }}
-                    onMouseEnter={e => e.currentTarget.style.background = "#e8eaed"}
-                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8l8 5 8-5v10zm-8-7L4 6h16l-8 5z"/></svg>
-                  </button>
-                  {/* Delete */}
-                  <button
-                    title={gmailFolder === "TRASH" ? "Delete permanently" : "Move to Trash"}
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      handleDeleteEmail(msg.id);
-                    }}
-                    style={{ background: "transparent", border: "none", cursor: "pointer", color: "#5f6368", padding: "4px", borderRadius: "50%", display: "grid", placeItems: "center" }}
-                    onMouseEnter={e => e.currentTarget.style.background = "#e8eaed"}
-                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
-                  </button>
-                </div>
-              ) : (
-                <div style={{ width: "80px", textAlign: "right", fontSize: "12px", color: msg.isUnread ? "#1a73e8" : "#5f6368", flexShrink: 0 }}>
-                  {msg.date ? (() => {
-                    const d = new Date(msg.date);
-                    const now = new Date();
-                    const isToday = d.getDate() === now.getDate() &&
-                                    d.getMonth() === now.getMonth() &&
-                                    d.getFullYear() === now.getFullYear();
-                    return isToday
-                      ? d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
-                      : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-                  })() : ""}
-                </div>
-              )}
+                    } catch (err) { console.error("Mark unread failed", err); }
+                  }}
+                  style={{ background: "transparent", border: "none", cursor: "pointer", color: "#5f6368", padding: "4px", borderRadius: "50%", display: "grid", placeItems: "center" }}
+                  onMouseEnter={e => e.currentTarget.style.background = "#e8eaed"}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8l8 5 8-5v10zm-8-7L4 6h16l-8 5z"/></svg>
+                </button>
+                {/* Delete */}
+                <button
+                  title={gmailFolder === "TRASH" ? "Delete permanently" : "Move to Trash"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEmailToDelete(msg);
+                  }}
+                  style={{ background: "transparent", border: "none", cursor: "pointer", color: "#5f6368", padding: "4px", borderRadius: "50%", display: "grid", placeItems: "center" }}
+                  onMouseEnter={e => e.currentTarget.style.background = "#e8eaed"}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                </button>
+              </div>
+              <div className="email-hover-date" style={{ display: "block", width: "80px", textAlign: "right", fontSize: "12px", color: msg.isUnread ? "#1a73e8" : "#5f6368", flexShrink: 0 }}>
+                {msg.date ? (() => {
+                  const d = new Date(msg.date);
+                  const now = new Date();
+                  const isToday = d.getDate() === now.getDate() &&
+                                  d.getMonth() === now.getMonth() &&
+                                  d.getFullYear() === now.getFullYear();
+                  return isToday
+                    ? d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+                    : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+                })() : ""}
+              </div>
             </div>
           ))}
         </div>
@@ -1118,7 +1158,7 @@ if (currentView.app === "gmail") {
                 />
               </div>
 
-           <button 
+       <button 
                 title="Discard draft"
                 onClick={() => { 
                   // If we were editing an existing draft, delete it from the server
@@ -1147,11 +1187,10 @@ if (currentView.app === "gmail") {
             </div>
           </div>
         )}
-
+        {deleteModal}
    </div>
     );
   }
-
 if (currentView.app === "email") {
       const att = (email && email.attachments) || [];
       const actions = (email && email.actions) || [];
@@ -1182,10 +1221,10 @@ const emailPane = (
       }}>
         {/* Top Gmail Action Bar */}
         <div className="gmail-action-bar" style={{ padding: "0", borderBottom: "none" }}>
-          <div className="gmail-action-icon" onClick={() => setCurrentView({ app: "gmail", contact: null })} title="Back to inbox">
+         <div className="gmail-action-icon" onClick={() => setCurrentView({ app: "gmail", contact: null })} title="Back to inbox">
             <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
           </div>
-          <div className="gmail-action-icon" onClick={() => handleDeleteEmail(email.id)} title="Delete">
+          <div className="gmail-action-icon" onClick={() => setEmailToDelete(email)} title="Delete">
             <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
           </div>
           <div className="gmail-action-icon" title="Mark as unread" onClick={async () => {
@@ -1964,20 +2003,20 @@ const emailPane = (
                 </div>
 
                 {/* Delete / Discard Icon */}
-                <button 
-                  className="gmail-action-icon" 
-                  title="Discard draft"
-                  onClick={() => {
-                    setSelectedDraftTemplate(null);
-                    setDraftTo("");
-                    setDraftAttachments([]);
-                    setEmail((prev) => prev ? { ...prev, systemNote: undefined } : prev);
-                  }}
-                  style={{ padding: "8px", margin: "-8px" }}
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M15 4V3H9v1H4v2h1v13c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V6h1V4h-5zm2 15H7V6h10v13zM9 8h2v9H9zm4 0h2v9h-2z"/></svg>
-                </button>
-              </div>
+              <button 
+                  className="gmail-action-icon" 
+                  title="Discard draft"
+                  onClick={() => {
+                    setSelectedDraftTemplate(null);
+                    setDraftTo("");
+                    setDraftAttachments([]);
+                    setEmail((prev) => prev ? { ...prev, systemNote: undefined } : prev);
+                  }}
+                  style={{ padding: "8px", margin: "-8px" }}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M15 4V3H9v1H4v2h1v13c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V6h1V4h-5zm2 15H7V6h10v13zM9 8h2v9H9zm4 0h2v9h-2z"/></svg>
+                </button>
+              </div>
             </div>
           )}
           </div>

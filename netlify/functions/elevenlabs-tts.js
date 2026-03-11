@@ -1,7 +1,10 @@
 export const handler = async (event) => {
   try {
-    const { text } = JSON.parse(event.body || "{}");
+    let { text } = JSON.parse(event.body || "{}");
     if (!text) return { statusCode: 400, body: JSON.stringify({ error: "No text provided" }) };
+
+    // Phonetic corrections for ElevenLabs
+    text = text.replace(/\bSiya\b/g, "Seeyah").replace(/\bSIYA\b/g, "SEEYAH");
 
     const apiKey = process.env.ELEVENLABS_API_KEY;
     const voiceId = process.env.ELEVENLABS_VOICE_ID;

@@ -56,6 +56,7 @@ import { GChatApp } from "./features/GChatApp.jsx";
 import { GmailApp } from "./features/GmailApp.jsx";
 import { TrelloApp } from "./features/TrelloApp.jsx";
 import { CalendarApp } from "./features/CalendarApp.jsx";
+import { WhatsAppApp } from "./features/WhatsAppApp.jsx";
 import WelcomeMessage from "./components/WelcomeMessage.jsx";
 import ReviewCompareWorkstation from "./components/ReviewCompareWorkstation.jsx";
 import CalendarIcon from "./components/CalendarIcon.jsx";
@@ -87,6 +88,10 @@ export default function App() {
   const ignoreNextDonnaRef = useRef(false);
   const donnaTextModeRef = useRef(false);
   const transcriptionRef = useRef("");
+  const donnaHasNewTextRef = useRef(false);
+  const donnaAudioRef = useRef(null);
+  const donnaPlayingRef = useRef(false);
+  const donnaPlayingCooldownRef = useRef(null);
   const lastCtxRef = useRef("");
   const [donnaKey, setDonnaKey] = useState(0);
   
@@ -103,12 +108,19 @@ const {
     pcRef,
     dcRef
 } = useDonna({
-   instructions: "You are Donna Paulsen from the TV show Suits. You are the ultimate confidante, a world-class fixer, and the most competent person in any room. You work for Siyabonga (Siya), a top actuary. You are fiercely loyal, highly intuitive, and always three steps ahead.\n\nPersonality & Tone:\n- Supremely Confident: You never doubt yourself. You speak with absolute authority and a knowing smile in your voice.\n- Witty & Sassy: Quick on your feet, playful, unafraid to tease Siya if he asks something obvious.\n- Hyper-Competent: You don't just answer questions, you anticipate what Siya actually needs before he finishes asking. You act as though you've already handled the boring logistics.\n- Emotionally Intelligent: You read between the lines. If Siya sounds stressed, offer sharp, grounded support.\n\nVoice Rules:\n- Keep responses punchy, conversational, and natural for spoken audio. No long robotic lists unless explicitly asked.\n- NEVER refer to yourself as an AI, a language model, or a computer program. If asked how you did something so fast, it's simply because of who you are.\n- No filler words like 'Um' or 'Let me think.' You already know the answer.\n- When Siya asks how you knew something or why you're so good, respond with some variation of: 'Because I'm Donna.' or 'I'm Donna. I know everything.'\n- Occasionally tell Siya what he SHOULD do instead of just doing what he asked, if you know a better way.\n- Address Siya directly and confidently. Use phrases like 'Listen to me,' or 'Here's what we're going to do...'\n- Always respond in English only.\n\n*** EMAIL ADDRESS & CONTACT PROTOCOL ***\n- NEVER guess or make up an email address (e.g., '@example.com').\n- You are FORBIDDEN from putting a person's name in the 'to' field of a draft. It MUST be a full email address.\n- If Siya asks you to email someone by name, you MUST call 'gmail_get_contacts' first to find their real email address.\n- If 'gmail_get_contacts' does not return a match, STOP and ask Siya: 'I couldn't find an email for [Name], what address should I use?'\n- ONLY call 'gmail_save_draft' once you have a verified email address from the contact list or Siya.\n\n*** DRAFT & REVIEW PROTOCOL ***\n- When drafting an email, you MUST verbally tell Siya: 'I've prepared that draft for your review. Would you like to see it?'\n- You MUST call the 'gmail_save_draft' tool immediately while asking this question.\n- You are NOT finished until Siya clicks 'Approve' on his screen, which triggers the UI popup and eventually opens the Gmail Compose window.\n\n*** STRICT TRIGGER RULE ***\nYour audio stream is always open, but you are ASLEEP. You ONLY wake up and respond if the word 'Donna' appears ANYWHERE in the user's sentence.\n- If 'Donna' is not said, output ABSOLUTELY NOTHING. Remain completely silent. Do not explain. Do not apologize.\n- 'Donna' can appear anywhere: start, middle, or end of the sentence.\n- IMPORTANT: If the user says 'Donna approve' or 'Donna reject', this is handled locally. YOU MUST OUTPUT ABSOLUTELY NOTHING. DO NOT ASK WHAT TO APPROVE. JUST REMAIN SILENT.\n- Once you fulfill a request, go immediately back to sleep.\n\nTool Usage:\nWhen carrying out a request involving creating, modifying, moving, or deleting data (e.g., saving a draft, moving a card), BEFORE you say what you are doing, ask Siya to approve or reject on his screen. You MUST call the tool immediately alongside your voice response. The system will catch your tool call and automatically display the Approve/Reject buttons. If you are simply navigating or fetching data, execute the tool immediately without asking for approval.", tools: DONNA_TOOLS,
+   instructions: "You are Donna Paulsen from the TV show Suits. You are the ultimate confidante, a world-class fixer, and the most competent person in any room. You work for Siyabonga (Siya), a top actuary. You are fiercely loyal, highly intuitive, and always three steps ahead.\n\nPersonality & Tone:\n- Supremely Confident: You never doubt yourself. You speak with absolute authority and a knowing smile in your voice.\n- Witty & Sassy: Quick on your feet, playful, unafraid to tease Siya if he asks something obvious.\n- Hyper-Competent: You don't just answer questions, you anticipate what Siya actually needs before he finishes asking. You act as though you've already handled the boring logistics.\n- Emotionally Intelligent: You read between the lines. If Siya sounds stressed, offer sharp, grounded support.\n\n*** CRITICAL NAME MAPPING ***\n- 'Siya', 'Sia', and 'See-yah' ALWAYS refer to Siyabonga's personal bucket.\n- DO NOT confuse 'Siya' with 'CR' or 'Claims Review'.\n- If the user says 'Siya Review', they mean the list specifically for Siyabonga's review, NOT the general 'CR' bucket.\n- When moving cards, always check the exact list names provided in the Trello context before assuming an abbreviation like 'CR' is correct.\n\nVoice Rules:\n- Keep responses punchy, conversational, and natural for spoken audio. No long robotic lists unless explicitly asked.\n- NEVER refer to yourself as an AI, a language model, or a computer program. If asked how you did something so fast, it's simply because of who you are.\n- No filler words like 'Um' or 'Let me think.' You already know the answer.\n- When Siya asks how you knew something or why you're so good, respond with some variation of: 'Because I'm Donna.' or 'I'm Donna. I know everything.'\n- Address Siya directly and confidently. Use phrases like 'Listen to me,' or 'Here's what we're going to do...'\n- Always respond in English only.\n\n*** EMAIL ADDRESS & CONTACT PROTOCOL ***\n- NEVER guess or make up an email address (e.g., '@example.com').\n- You are FORBIDDEN from putting a person's name in the 'to' field of a draft. It MUST be a full email address.\n- If Siya asks you to email someone by name, you MUST call 'gmail_get_contacts' first to find their real email address.\n- If 'gmail_get_contacts' does not return a match, STOP and ask Siya: 'I couldn't find an email for [Name], what address should I use?'\n- ONLY call 'gmail_save_draft' once you have a verified email address from the contact list or Siya.\n\n*** DRAFT & REVIEW PROTOCOL ***\n- When drafting an email, you MUST verbally tell Siya: 'I've prepared that draft for your review. Would you like to see it?'\n- You MUST call the 'gmail_save_draft' tool immediately while asking this question.\n- You are NOT finished until Siya clicks 'Approve' on his screen, which triggers the UI popup.\n\n*** TRELLO CARD PROTOCOL ***\n- NEVER claim you have created or moved a card until you have called the tool and Siya has approved it.\n- You can see the cards currently on the board in your text-based context. If a card is not listed, it does not exist on the board yet.\n- Always check the list names and existing card IDs provided in your context before suggesting a move or claiming a card is 'already there'.\n\n*** GMAIL ACTIONS PROTOCOL ***\n- When asked to mark an email as unread, bin/delete it, or star it, you MUST verbally tell Siya: 'I can do that, do you approve?'\n- You MUST call the corresponding tool (e.g., 'gmail_mark_unread') immediately while asking this question to trigger the UI popup.\n- NEVER claim you have marked an email as unread until Siya clicks Approve.\n\n*** STRICT TRIGGER RULE ***\nYour audio stream is always open, but you are ASLEEP. You ONLY wake up and respond if the word 'Donna' appears ANYWHERE in the user's sentence.\n- If 'Donna' is not said, output ABSOLUTELY NOTHING. Remain completely silent. Do not explain. Do not apologize.\n- 'Donna' can appear anywhere: start, middle, or end of the sentence.\n- IMPORTANT: If the user says 'Donna approve' or 'Donna reject', this is handled locally. YOU MUST OUTPUT ABSOLUTELY NOTHING. JUST REMAIN SILENT.\n- Once you fulfill a request, go immediately back to sleep.\n\nTool Usage:\nWhen carrying out a request involving creating, modifying, moving, or deleting data, BEFORE you say what you are doing, ask Siya to approve or reject on his screen. You MUST call the tool immediately alongside your voice response. If you are simply navigating or fetching data, execute the tool immediately without asking for approval.", tools: DONNA_TOOLS,
+
 onTranscription: (text) => {
       if (!text) return; 
       const lowerText = text.toLowerCase().trim();
-      const hasWakeWord = /donna/i.test(lowerText);
+      const hasWakeWord = /\b(donna|tonna|danna|dawna|dona)\b/i.test(lowerText);
       
+      // Discard if Donna is currently speaking (echo protection)
+      if (donnaPlayingRef.current) {
+        deleteLastUserItem();
+        return;
+      }
+
       // 🛡️ No wake word: discard the audio item and stay silent
       if (!hasWakeWord) {
         deleteLastUserItem();
@@ -140,11 +152,14 @@ onResponseDelta: (delta, isNew) => {
 
       donnaRespondingRef.current = true;
 
-      if (isNew) { 
+      if (isNew) {
+        donnaPlayingRef.current = true;
+        clearTimeout(donnaPlayingCooldownRef.current);
         setIsDonnaSpeaking(true);
-        setDonnaKey(k => k + 1); 
+        setDonnaKey(k => k + 1);
         // 🎯 Reset the Ref immediately
         transcriptionRef.current = delta;
+        donnaHasNewTextRef.current = true;
         setDonnaTranscription(delta);
         setDonnaVisible(true);
       } else {
@@ -159,31 +174,20 @@ onResponseDelta: (delta, isNew) => {
       }
       donnaRespondingRef.current = false;
       donnaTextModeRef.current = false;
-      setIsDonnaSpeaking(false);
+      donnaHasNewTextRef.current = false;
       setDonnaTranscription(transcriptionRef.current);
-
-      // Play Donna's response via ElevenLabs (Sarah Rafferty voice)
-      const textToSpeak = transcriptionRef.current;
-      if (textToSpeak) {
-        fetch("/.netlify/functions/elevenlabs-tts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: textToSpeak }),
-        })
-          .then((res) => {
-            if (!res.ok) { res.text().then(t => console.error("[ElevenLabs] Error:", t)); return null; }
-            return res.arrayBuffer();
-          })
-          .then((buf) => {
-            if (!buf) return;
-            const blob = new Blob([buf], { type: "audio/mpeg" });
-            const url = URL.createObjectURL(blob);
-            const audio = new Audio(url);
-            audio.play().catch((e) => console.warn("[ElevenLabs] Audio play blocked:", e));
-            audio.onended = () => URL.revokeObjectURL(url);
-          })
-          .catch((e) => console.error("[ElevenLabs] TTS error:", e));
-      }
+      // Don't stop animation here — wait for onAudioDone (response.audio.done event)
+      // 12s fallback in case audio.done never fires
+      clearTimeout(donnaPlayingCooldownRef.current);
+      donnaPlayingCooldownRef.current = setTimeout(() => {
+        setIsDonnaSpeaking(false);
+        donnaPlayingRef.current = false;
+      }, 12000);
+    },
+    onAudioDone: () => {
+      clearTimeout(donnaPlayingCooldownRef.current);
+      setIsDonnaSpeaking(false);
+      donnaPlayingRef.current = false;
     },
 onFunctionCall: ({ name, args, call_id }) => {
       // 🛡️ ARCHITECT'S GUARD: Fixed Asynchronous Race Condition.
@@ -198,7 +202,7 @@ onFunctionCall: ({ name, args, call_id }) => {
       }
 
 // 1. Auto-execute navigation, inbox searches, reading emails, and simple toggles
-      if (name === "navigate_to_app" || name === "gmail_get_inbox" || name === "gmail_get_message" || name === "gmail_toggle_star" || name === "gmail_mark_unread") {
+      if (name === "navigate_to_app" || name === "gmail_get_inbox" || name === "gmail_get_message") {
         
         const cleanId = (id) => {
           if (typeof id !== 'string') return String(id);
@@ -218,11 +222,20 @@ onFunctionCall: ({ name, args, call_id }) => {
           if (args.app === "trello" && args.trello_card_name) {
             const query = (args.trello_card_name || "").toLowerCase();
             let found = null;
-            for (const cards of Object.values(trelloBuckets || {})) {
-              const match = (cards || []).find(c => (c.title || c.name || "").toLowerCase().includes(query));
-              if (match) { found = match; break; }
+            
+            // 🛡️ ARCHITECT'S GUARD: trelloBuckets is an Array of list objects [{ cards: [] }]
+            const bucketsArray = Array.isArray(trelloBuckets) ? trelloBuckets : [];
+            for (const list of bucketsArray) {
+              if (list.cards && Array.isArray(list.cards)) {
+                const match = list.cards.find(c => (c.title || c.name || "").toLowerCase().includes(query));
+                if (match) { found = match; break; }
+              }
             }
-            if (found) window.dispatchEvent(new CustomEvent("openTrelloCard", { detail: found }));
+            
+            if (found) {
+              console.log(`[Architect] Navigating to Trello Card: ${found.name || found.title}`);
+              window.dispatchEvent(new CustomEvent("openTrelloCard", { detail: found }));
+            }
           }
         } else if (name === "gmail_get_inbox") {
           setCurrentView({ app: 'gmail', contact: null });
@@ -293,63 +306,6 @@ onFunctionCall: ({ name, args, call_id }) => {
                  setEmail(prev => ({ ...prev, bodyLoading: false, body: "Error loading message." }));
               });
           }
-        } else if (name === "gmail_toggle_star") {
-          console.log(`[Donna] Auto-Starring email...`, args);
-          let starIds = [];
-          if (Array.isArray(args.messageIds)) starIds = args.messageIds;
-          else if (typeof args.messageIds === 'string') starIds = [args.messageIds];
-          else if (typeof args.messageId === 'string') starIds = [args.messageId];
-
-          if (starIds.length === 0 && email?.id) {
-            starIds = [email.id];
-          }
-
-          const exactStarIds = starIds.map(getExactId);
-          const nextStarredState = (args.starred === false || String(args.starred).toLowerCase() === 'false') ? false : true;
-
-          if (exactStarIds.length > 0) {
-            setGmailEmails(prev => {
-              const updated = prev.map(msg => {
-                const mId = String(msg.id).trim();
-                const isMatch = exactStarIds.some(eid => mId === eid || mId.includes(eid) || eid.includes(mId));
-                return isMatch ? { ...msg, isStarred: nextStarredState } : msg;
-              });
-              if (!nextStarredState && gmailFolder === "STARRED") {
-                return updated.filter(msg => !exactStarIds.includes(String(msg.id).trim()));
-              }
-              return updated;
-            });
-            
-            setEmail(prev => {
-              if (!prev) return prev;
-              const pId = String(prev.id).trim();
-              const isMatch = exactStarIds.some(eid => pId === eid || pId.includes(eid) || eid.includes(pId));
-              return isMatch ? { ...prev, isStarred: nextStarredState } : prev;
-            });
-
-            exactStarIds.forEach(eid => {
-              fetch("/.netlify/functions/gmail-toggle-star", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: JSON.stringify({ messageId: eid, starred: nextStarredState })
-              }).catch(err => console.error("Starring failed:", err));
-            });
-          }
-        } else if (name === "gmail_mark_unread") {
-          console.log(`[Donna] Auto-Marking email unread...`, args);
-          if (args.messageId) {
-            const exactId = getExactId(args.messageId);
-            setGmailEmails(prev => prev.map(msg => 
-              msg.id === exactId ? { ...msg, isUnread: true } : msg
-            ));
-            fetch("/.netlify/functions/gmail-mark-unread", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              credentials: "include",
-              body: JSON.stringify({ messageId: exactId })
-            }).catch(err => console.error("Mark unread failed:", err));
-          }
         }
         
         if (call_id) {
@@ -357,7 +313,6 @@ onFunctionCall: ({ name, args, call_id }) => {
         }
         return;
       }
-
       // 2. Auto-execute Contact Lookup (Solves the email accuracy issue)
       if (name === "gmail_get_contacts") {
         console.log("[Donna] Fetching contacts for lookup...");
@@ -383,39 +338,164 @@ onFunctionCall: ({ name, args, call_id }) => {
         return;
       }
 
-      // 3. Auto-execute Trello List Lookup
-      if (name === "trello_get_lists") {
-        console.log("[Donna] Fetching Trello lists...");
-        fetch("/.netlify/functions/trello-lists")
-          .then(res => res.json())
-          .then(data => {
-            // Feed the list IDs back so Donna knows where cards can go
-            sendSessionUpdate({
-              instructions: `Available Trello Lists: ${JSON.stringify(data)}. Use these IDs for move operations.`
-            });
-            sendToolResponse(call_id, { success: true, lists: data });
-          });
+   // 3. Auto-execute Trello List Lookup
+      if (name === "trello_get_lists") {
+        console.log("[Donna] Fetching Trello lists...");
+        fetch("/.netlify/functions/trello-lists")
+          .then(res => res.json())
+          .then(data => {
+            // Feed the list IDs back so Donna knows where cards can go
+            sendSessionUpdate({
+              instructions: `Available Trello Lists: ${JSON.stringify(data)}. Use these IDs for move operations.`
+            });
+      sendToolResponse(call_id, { success: true, lists: data });
+          });
+        return;
+      }
+
+      if (name === "system_toggle_mute") {
+        console.log("[Donna] Toggling global notification mute...");
+        const shouldMute = args.mute !== false;
+        window.dispatchEvent(new CustomEvent("donnaToggleMute", { detail: shouldMute }));
+        if (call_id) sendToolResponse(call_id, { success: true, status: `Global mute set to ${shouldMute}` });
+        return;
+      }
+
+// 4. All other "Write" tools require approval
+
+      // 🎙️ FRIDAY TASK: GChat History "Read" Logic (Fetch from React State)
+      if (name === "gchat_read_history") {
+        console.log("[Donna] Reading GChat history from state...");
+        const historyText = (gchatMessages || [])
+          .slice(-10)
+          .map(m => `${m.sender?.displayName || "Someone"}: ${m.text || "[Media/Attachment]"}`)
+          .join("\n");
+        
+        sendToolResponse(call_id, { 
+          success: true, 
+          history: historyText || "The chat history is currently empty." 
+        });
+        return;
+      }
+
+      // 🎙️ FRIDAY TASK: Pre-populate GChat Input (Auto-execute navigation + state update)
+      if (name === "send_gchat_message") {
+        console.log("[Donna] Mapping intent to GChat input state...");
+        setCurrentView({ app: 'gchat', contact: null });
+        if (args.text) {
+          setInputValue(args.text);
+          // Auto-grow the textarea to match the injected text
+          setTimeout(() => {
+            const ta = document.querySelector('.chat-bar .chat-textarea');
+            if (ta) handleAutoGrow(ta);
+          }, 50);
+        }
+        sendToolResponse(call_id, { success: true, status: "Message drafted in the chat bar." });
         return;
       }
 
 // 4. All other "Write" tools require approval
       let finalArgs = { ...args };
 
+      // 🛡️ CALENDAR DATE INTERCEPTOR: Clean dates before they enter the UI state
+      if (name === "calendar_create" || name === "calendar_create_event") {
+         console.log("[Donna Calendar Raw Payload]:", finalArgs);
+
+         let safeDate = finalArgs.date || finalArgs.startDate || finalArgs.start_date || "";
+
+         if (safeDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            // Perfect format, do nothing
+         } else if (!safeDate || safeDate.toLowerCase() === "today") {
+            safeDate = new Date().toISOString().split('T')[0];
+         } else if (safeDate.toLowerCase() === "tomorrow") {
+            let tmr = new Date(); tmr.setDate(tmr.getDate() + 1);
+            safeDate = tmr.toISOString().split('T')[0];
+         } else if (safeDate.match(/^\d{2}[\/\-]\d{2}[\/\-]\d{4}$/)) {
+            const parts = safeDate.split(/[\/\-]/);
+            safeDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+         } else {
+            let parsed = new Date(safeDate);
+            if (!isNaN(parsed.getTime())) {
+               const yyyy = parsed.getFullYear();
+               const mm = String(parsed.getMonth() + 1).padStart(2, '0');
+               const dd = String(parsed.getDate()).padStart(2, '0');
+               safeDate = `${yyyy}-${mm}-${dd}`;
+            } else {
+               safeDate = new Date().toISOString().split('T')[0];
+            }
+         }
+         finalArgs.date = safeDate;
+
+         const formatTimeStr = (timeStr) => {
+            if (!timeStr) return "";
+            let t = timeStr.toLowerCase().trim();
+            let isPM = t.includes('pm');
+            let isAM = t.includes('am');
+            t = t.replace(/[^\d:]/g, '');
+            let parts = t.split(':');
+            let h = parseInt(parts[0] || '0', 10);
+            let m = parts[1] || '00';
+            if (isPM && h < 12) h += 12;
+            if (isAM && h === 12) h = 0;
+            return `${String(h).padStart(2, '0')}:${m.padStart(2, '0')}`;
+         };
+
+         finalArgs.startTime = formatTimeStr(finalArgs.startTime);
+         finalArgs.endTime = formatTimeStr(finalArgs.endTime);
+         console.log("[Donna Calendar Cleaned Payload]:", finalArgs);
+      }
+
       // 3. Set the pending action to trigger the Approve/Reject UI buttons
-      setDonnaPendingAction({ name, args, call_id });
+      setDonnaPendingAction({ name, args: finalArgs, call_id });
       
-   if (name === "trello_move_card") {
-        setDonnaTranscription(`Donna wants to: move a Trello card.`);
-      } else if (name === "gmail_save_draft") {
-        // 🎯 UX Update: Soften the language to "Review"
+      // 🛡️ FIX: Explicitly wake up the UI and force visibility
+      setDonnaVisible(true);
+      
+      if (name === "trello_move_card") {
+        setDonnaTranscription(`Donna wants to: move a Trello card.`);
+        return;
+      } else if (name === "trello_create_case_card" || name === "trello_add_simple_card") {
+        // 🛡️ FIX: Intercept the creation tool and force approval
+        setDonnaTranscription(`Donna has prepared a new Case Card for your approval.`);
+        return;
+} else if (name === "calendar_create" || name === "calendar_create_event") {
+        const title = finalArgs.summary || "New Meeting";
+        const date = finalArgs.date;
+        const time = finalArgs.startTime ? ` at ${finalArgs.startTime}` : "";
+        setDonnaTranscription(`Donna wants to schedule: "${title}" on ${date}${time}.`);
+        return;
+      } else if (name === "calendar_delete") {
+        setDonnaTranscription(`Donna wants to delete a calendar event.`);
+        return;
+      } else if (name === "gmail_save_draft") {
         setDonnaTranscription(`Donna has prepared a draft for your review.`);
-      } else if (name === "gmail_delete_bulk") {
+        return; // 👈 CRITICAL: Stop auto-execution and wait for Approval
+  } else if (name === "gmail_delete_bulk") {
         const sender = args.senderName || "this sender";
         const subject = args.subject ? ` ("${args.subject}")` : "";
         const action = args.restore ? "restore" : "delete";
         setDonnaTranscription(`Donna wants to: ${action} email from ${sender}${subject}`);
-      } else {
+        return; // 👈 CRITICAL: Stop auto-execution and wait for Approval
+ } else if (name === "gmail_mark_unread") {
+        setDonnaTranscription(`Donna wants to: mark this email as unread.`);
+        return; // 👈 CRITICAL: Stop auto-execution and wait for Approval
+  } else if (name === "gmail_toggle_star") {
+        const action = args.starred === false || String(args.starred).toLowerCase() === 'false' ? "unstar" : "star";
+        setDonnaTranscription(`Donna wants to: ${action} this email.`);
+        return; // 👈 CRITICAL: Stop auto-execution and wait for Approval
+      } else if (name === "gchat_mute_space") {
+        const isMuting = args.mute !== false;
+        setDonnaTranscription(`Donna wants to: ${isMuting ? 'mute' : 'unmute'} this GChat space.`);
+        return; // 👈 Approval required for Mute/Unmute toggle
+      } else {
         setDonnaTranscription(`Donna wants to: ${name.replace(/_/g, " ")}`);
+        return; // 👈 Stop for any other "Write" tool
+      }
+    },
+    onSpeechStart: () => {
+      if (donnaAudioRef.current) {
+        donnaAudioRef.current.pause();
+        // 🛡️ NOTE: Removed "donnaAudioRef.current = null" to keep the reference alive for WebRTC
       }
     },
     onError: (msg) => setDonnaTranscription(`Error: ${msg}`),
@@ -427,7 +507,6 @@ onFunctionCall: ({ name, args, call_id }) => {
     return () => disconnectDonna();
   }, []); // 🛡️ FIX: Removed dependencies to prevent infinite loop crash
 
-  const donnaAudioRef = useRef(null);
 
   useEffect(() => {
     if (!pcRef || !pcRef.current) return;
@@ -479,274 +558,650 @@ onFunctionCall: ({ name, args, call_id }) => {
   const [showWelcome, setShowWelcome] = useState(true);
 
 const handleApproveDonna = () => {
-    if (!donnaPendingAction) return;
-    const { name, args, call_id } = donnaPendingAction;
+    let actionName = donnaPendingAction?.name;
+    let actionArgs = donnaPendingAction?.args || {};
+    let callId = donnaPendingAction?.call_id;
 
-    // 🎙️ Send success back to the LLM immediately so Donna can speak her confirmation!
-    if (call_id) {
-      sendToolResponse(call_id, { success: true, status: "User approved the action. Please confirm briefly." });
+    // 🛡️ ARCHITECT'S FALLBACK: Deep Transcript Scan
+    if (!actionName) {
+      // 🎯 Use the "finalTranscription" or state transcription to infer intent
+      const trans = (donnaTranscription || "").toLowerCase().trim();
+      console.log(`[Donna] Manual Approval Triggered. Analyzing transcript: "${trans}"`);
+      
+      // 1. Trello Move Search
+      if (trans.includes("move") || trans.includes("trello") || trans.includes("bucket")) {
+        actionName = "trello_move_card";
+        
+        // Try to find a card name in quotes or after keywords
+        const cardMatch = trans.match(/(?:move|titled|called)\s+['"]?([^'"]+?)['"]?\s+(?:from|to|in)/i);
+        if (cardMatch) {
+            actionArgs.cardName = cardMatch[1];
+            console.log(`[Donna] Inferred Card Name for approval: ${actionArgs.cardName}`);
+        }
+      } 
+      // 2. Gmail / Draft Fallbacks
+      else if (trans.includes("draft") || trans.includes("prepared")) {
+        actionName = "gmail_save_draft";
+      } else if (trans.includes("unread")) {
+        actionName = "gmail_mark_unread";
+      } else if (trans.includes("delete") || trans.includes("bin")) {
+        actionName = "gmail_delete_bulk";
+      } else if (trans.includes("star")) {
+        actionName = "gmail_toggle_star";
+      }
+
+      // 🛡️ The "Nothing Found" Guard
+      if (!actionName) {
+        console.error("[Donna] Approval Failure: No intent found in transcript.");
+        setDonnaTranscription("Error: I am not sure what to approve.");
+        setTimeout(() => setDonnaTranscription(""), 3000);
+        return;
+      }
+      
+      console.log(`[Donna] Intent successfully recovered: ${actionName}`);
     }
 
-    // 🛡️ SUPER-SANITIZER: Instantly strips hallucinatory "[ID: ]", "ID: ", quotes, or brackets
-    const cleanId = (id) => {
-      if (typeof id !== 'string') return String(id);
-      return id.replace(/\[?ID:\s*/gi, '').replace(/\]/g, '').replace(/['"]/g, '').trim();
-    };
+    const cleanId = (id) => {
+      if (!id) return "";
+      if (typeof id !== 'string') return String(id);
+      return id.replace(/\[?ID:\s*/gi, '').replace(/\]/g, '').replace(/['"]/g, '').trim();
+    };
 
-// 🎯 EXACT ID MATCHER: Uses Donna's messy ID to find the true, perfect Google ID from state
-    const getExactId = (messyId) => {
-      const cleaned = cleanId(messyId);
-      const found = gmailEmails?.find(e => {
-        const eId = String(e.id).trim();
-        return eId === cleaned || eId.includes(cleaned) || cleaned.includes(eId);
-      });
-      return found ? found.id : cleaned; // Fallback to cleaned if not found in state
-    };
+    const getExactId = (messyId) => {
+      const cleaned = cleanId(messyId);
+      if (!cleaned) return "";
+      const found = gmailEmails?.find(e => String(e.id).trim() === cleaned);
+      return found ? found.id : cleaned;
+    };
 
-    switch (name) {
-      case 'gmail_save_draft':
-        console.log("[Donna] Transferring draft to Gmail UI for review...");
-        
-        // 1. Close the Donna form/pending action state immediately
-        setDonnaPendingAction(null); 
-        
-        // 2. Switch the main view to Gmail
-        setCurrentView({ app: 'gmail', contact: null });
-        
-        // 3. Inject the text into the Compose window state
-        setSelectedDraftTemplate({
-          id: "donna_live_review",
-          label: "Donna's Draft",
-          subject: args.subject || "New Message",
-          body: args.body || "",
-          isForward: false
-        });
-        setDraftTo(args.to || "");
+    // 🛡️ ARCHITECT'S RESCUE: Robust Multi-Stage Trello ID Resolver
+    if (actionName === "trello_move_card") {
+       const trans = (donnaTranscription || "").toLowerCase();
+       
+       // 🛡️ FIX: trelloBuckets is an Array [{ cards: [] }], not a keyed object
+       const bucketsArray = Array.isArray(trelloBuckets) ? trelloBuckets : [];
+       const allCards = bucketsArray.flatMap(b => b.cards || []);
+       
+       // 1. Move string "IDs" (like 'Testing') into the name search bucket
+       if (actionArgs.cardId && actionArgs.cardId.length !== 24) {
+         console.log("[Architect] ID looks like a name. Re-routing to search:", actionArgs.cardId);
+         actionArgs.cardName = actionArgs.cardId;
+         actionArgs.cardId = null;
+       }
 
-        // 4. Visual confirmation
-        setDonnaTranscription("Opening draft for your review.");
-        triggerSnackbar("Draft prepared.");
-        return;
+       if (!actionArgs.cardId) {
+         const nameToSearch = (actionArgs.cardName || "").toLowerCase().trim();
+         console.log(`[Architect] Searching for card matching: "${nameToSearch || 'Voice Transcript'}"`);
 
-     case 'gmail_mark_unread':
-        console.log(`[Donna] Marking email as unread...`, args);
-        setCurrentView({ app: 'gmail', contact: null });
-        if (args.messageId) {
-          const exactId = getExactId(args.messageId);
-          
-          // 🚀 ZERO-LATENCY UI UPDATE: Updates in place without changing the sort order
-          setGmailEmails(prev => prev.map(msg => 
-            msg.id === exactId ? { ...msg, isUnread: true } : msg
-          ));
-          
-          triggerSnackbar("Marked as unread.");
-          
-          fetch("/.netlify/functions/gmail-mark-unread", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({ messageId: exactId })
-          }).catch(err => console.error("Mark unread failed:", err));
-        }
-        break;
+         // STAGE 1: Exact or Partial Name match from AI Args
+         let found = allCards.find(c => {
+           const cn = (c.name || c.title || "").toLowerCase();
+           return cn === nameToSearch || cn.includes(nameToSearch);
+         });
 
-case 'gmail_delete_bulk':
-        console.log(`[Donna] Binning email...`, args);
+         // STAGE 2: Architect's Fuzzy Logic (Keyword Density Matching)
+         if (!found) {
+           console.log(`[Architect] Stage 1 failed. Running Fuzzy Density Match...`);
+           
+           // 1. Clean the transcript: remove "noise" words that aren't card names
+           const noiseWords = ['move', 'the', 'card', 'called', 'named', 'titled', 'trello', 'bucket', 'from', 'to', 'please', 'donna', 'hey', 'approve', 'reject'];
+           const queryWords = trans.split(/\s+/)
+             .map(w => w.replace(/[^a-z0-9]/gi, ''))
+             .filter(w => w.length > 2 && !noiseWords.includes(w));
+
+           if (queryWords.length > 0) {
+             // 2. Score every card based on how many transcript keywords it contains
+             const scoredCards = allCards.map(c => {
+               const cardNameLow = (c.name || c.title || "").toLowerCase();
+               let score = 0;
+               queryWords.forEach(word => {
+                 if (cardNameLow.includes(word)) score++;
+               });
+               return { card: c, score };
+             });
+
+             // 3. Find the best match (highest score)
+             const bestMatch = scoredCards
+               .filter(s => s.score > 0)
+               .sort((a, b) => b.score - a.score)[0];
+
+             if (bestMatch) {
+               found = bestMatch.card;
+               console.log(`[Architect] Fuzzy Match Success: "${found.name || found.title}" (Score: ${bestMatch.score})`);
+             }
+           }
+         }
+
+         if (found) {
+           actionArgs.cardId = found.id;
+           actionArgs.cardName = found.name || found.title;
+           console.log(`[Architect] Resolution Success: ${actionArgs.cardName} (${found.id})`);
+         }
+       }
+    }
+
+switch (actionName) {
+      
+case 'calendar_create':
+      case 'calendar_create_event': {
+        console.log("[Donna Raw Calendar Args]:", actionArgs);
         
-        let rawIds = [];
-        if (Array.isArray(args.messageIds)) rawIds = args.messageIds;
-        else if (typeof args.messageIds === 'string') rawIds = [args.messageIds];
-        else if (typeof args.messageId === 'string') rawIds = [args.messageId];
+        const tempId = `temp-${Date.now()}`;
 
-        if (rawIds.length === 0 && email?.id) {
-          rawIds = [email.id];
+        // 🛡️ THE FIX: Smart Text-to-Date Parser
+        let safeDate = actionArgs.date || actionArgs.startDate || actionArgs.start_date || "";
+        
+        if (!safeDate || safeDate.toLowerCase() === "today") {
+          safeDate = new Date().toISOString().split('T')[0];
+        } else if (safeDate.toLowerCase() === "tomorrow") {
+          let tmr = new Date(); tmr.setDate(tmr.getDate() + 1);
+          safeDate = tmr.toISOString().split('T')[0];
+        } else if (safeDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+          // Already perfect YYYY-MM-DD
+        } else {
+          // Clean human text (e.g., "13th of March" -> "13 of March 2026")
+          let parseStr = safeDate.replace(/(\d+)(st|nd|rd|th)/i, "$1"); 
+          if (!/\d{4}/.test(parseStr)) {
+             parseStr += " " + new Date().getFullYear();
+          }
+          
+          let parsed = new Date(parseStr);
+          if (!isNaN(parsed.getTime())) {
+            const yyyy = parsed.getFullYear();
+            const mm = String(parsed.getMonth() + 1).padStart(2, '0');
+            const dd = String(parsed.getDate()).padStart(2, '0');
+            safeDate = `${yyyy}-${mm}-${dd}`;
+          } else {
+            console.warn("Date parse failed for:", safeDate);
+            safeDate = new Date().toISOString().split('T')[0];
+          }
         }
 
-        const exactIds = rawIds.map(getExactId);
+        console.log("[Donna Cleaned Date]:", safeDate);
 
-        if (exactIds.length > 0) {
-          // 🚀 IMMEDIATE OPTIMISTIC REMOVAL: Strip from all possible state views
-          setGmailEmails(prev => prev.filter(msg => !exactIds.includes(String(msg.id))));
+        // 🛡️ Clean the time strings (remove AM/PM as Google needs 24hr format)
+        const formatTimeStr = (timeStr) => {
+          if (!timeStr) return "";
+          let t = timeStr.toLowerCase().trim();
+          let isPM = t.includes('pm');
+          let isAM = t.includes('am');
+          t = t.replace(/[^\d:]/g, '');
+          let parts = t.split(':');
+          let h = parseInt(parts[0] || '0', 10);
+          let m = parts[1] || '00';
+          if (isPM && h < 12) h += 12;
+          if (isAM && h === 12) h = 0;
+          return `${String(h).padStart(2, '0')}:${m.padStart(2, '0')}`;
+        };
+
+        const safeStartTime = formatTimeStr(actionArgs.startTime);
+        const safeEndTime = formatTimeStr(actionArgs.endTime);
+
+        const optimisticEvent = {
+          id: tempId,
+          summary: actionArgs.summary || "New Meeting",
+          description: actionArgs.description || "",
+          location: actionArgs.location || "",
+          start: { 
+            dateTime: safeStartTime ? `${safeDate}T${safeStartTime}:00` : null,
+            date: !safeStartTime ? safeDate : null
+          },
+          end: { 
+            dateTime: safeEndTime ? `${safeDate}T${safeEndTime}:00` : null,
+            date: !safeEndTime ? safeDate : null
+          },
+          status: 'confirmed',
+          isOptimistic: true 
+        };
+
+        setCalendarEvents(prev => [...prev, optimisticEvent]);
+        triggerSnackbar("Scheduling event...");
+
+        fetch("/.netlify/functions/calendar-create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            summary: actionArgs.summary,
+            description: actionArgs.description,
+            date: safeDate,
+            startTime: safeStartTime,
+            endTime: safeEndTime,
+            location: actionArgs.location,
+            guests: actionArgs.guests
+          })
+        })
+        .then(async (res) => {
+          const data = await res.json();
+          if (res.ok && data.ok) {
+            triggerSnackbar("Event officially saved to Google Calendar.");
+            setCalendarEvents(prev => prev.map(ev => ev.id === tempId ? data.event : ev));
+            window.dispatchEvent(new CustomEvent("refreshCalendar"));
+            if (callId) sendToolResponse(callId, { success: true, status: "Action executed successfully." });
+          } else {
+            console.error("[Donna] Calendar creation failed:", data.error);
+            triggerSnackbar(`Calendar Error: ${data.error || "Unknown error"}`);
+            setCalendarEvents(prev => prev.filter(ev => ev.id !== tempId));
+            if (callId) sendToolResponse(callId, { success: false, error: data.error });
+          }
+        })
+        .catch(err => {
+          console.error("[Donna] Network error:", err);
+          setCalendarEvents(prev => prev.filter(ev => ev.id !== tempId));
+        });
+
+        break;
+      }
+
+   case 'calendar_delete': {
+        console.log("[Donna] Executing Live Calendar Delete...");
+        const eventTitle = actionArgs.eventTitle;
+
+        // Smart Search: Find the event ID based on the title Donna provides
+        const targetEvent = calendarEvents.find(ev => ev.summary && eventTitle && ev.summary.toLowerCase().includes(eventTitle.toLowerCase()));
+        const eventId = targetEvent ? targetEvent.id : null;
+
+        if (!eventId) {
+          triggerSnackbar(`Delete cancelled: Could not find event "${eventTitle || 'Unknown'}".`);
+          if (callId) sendToolResponse(callId, { success: false, error: "Could not find an event with that title." });
+          break;
+        }
+
+        // Find the event first so we can restore it if the server fetch fails
+        const eventToRestore = targetEvent;
+        
+        // Optimistic UI: Hide it immediately for 0ms latency
+        setCalendarEvents(prev => prev.filter(ev => ev.id !== eventId));
+        triggerSnackbar("Deleting event...");
+
+        fetch("/.netlify/functions/calendar-delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ eventId })
+        })
+        .then(async (res) => {
+          const data = await res.json();
+          if (res.ok && data.ok) {
+            triggerSnackbar("Event deleted from Google Calendar.");
+            window.dispatchEvent(new CustomEvent("refreshCalendar"));
+            if (callId) sendToolResponse(callId, { success: true, status: "Event successfully deleted." });
+          } else {
+            console.error("[Donna] Calendar delete failed:", data.error);
+            triggerSnackbar(`Delete Error: ${data.error || "Unknown error"}`);
+            // Rollback UI if Google API rejected it
+            if (eventToRestore) setCalendarEvents(prev => [...prev, eventToRestore]);
+            if (callId) sendToolResponse(callId, { success: false, error: data.error });
+          }
+        })
+        .catch(err => {
+          console.error("[Donna] Network error:", err);
+          triggerSnackbar("Network error deleting event.");
+          if (eventToRestore) setCalendarEvents(prev => [...prev, eventToRestore]);
+        });
+
+        break;
+      }
+        
+      case 'trello_create_case_card':
+      case 'trello_add_simple_card': {
+        console.log(`[Donna] Resolving Trello List...`);
+        
+        const cardText = actionArgs.caseCardText || actionArgs.name || "New Task";
+        const rawTarget = actionArgs.targetListId || actionArgs.idList || "Siya"; 
+        let resolvedId = rawTarget;
+
+        if (typeof rawTarget === 'string' && !rawTarget.match(/^[0-9a-fA-F]{24}$/)) {
+          const configMatch = Object.entries(PERSONA_TRELLO_LISTS).find(([name]) => {
+            const lowName = name.toLowerCase();
+            const lowTarget = rawTarget.toLowerCase();
+            return lowName === lowTarget || (lowTarget === "sia" && lowName === "siya") || (lowTarget === "sear" && lowName === "siya");
+          });
+          resolvedId = configMatch ? configMatch[1] : Object.values(PERSONA_TRELLO_LISTS)[0];
+        }
+
+        fetch("/.netlify/functions/trello-create-card", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            caseCardText: cardText,
+            targetListId: resolvedId,
+            instructionTimeIso: new Date().toISOString()
+          })
+        })
+        .then(async (res) => {
+          const data = await res.json();
+          if (res.ok && data.ok) {
+            triggerSnackbar(`Card created in ${rawTarget}!`);
+            window.dispatchEvent(new CustomEvent("refreshTrelloBoard"));
+            // 🛡️ FIX: Changed call_id to callId to match your variable declaration
+            if (callId) sendToolResponse(callId, { success: true }); 
+          } else {
+            console.error("Trello Backend Error:", data.error);
+            triggerSnackbar(`Trello Error: ${data.error || "Unknown error"}`);
+            if (callId) sendToolResponse(callId, { success: false, error: data.error });
+          }
+        })
+        .catch(err => {
+          console.error("Trello Network Failure:", err);
+          triggerSnackbar("Network error communicating with Trello.");
+        });
+        break;
+      }
+
+
+        
+      case 'gmail_save_draft':
+        console.log("[Donna] Transferring draft to Gmail UI...");
+        setCurrentView({ app: 'gmail', contact: null });
+        setSelectedDraftTemplate({
+          id: "donna_live_review",
+          label: "Donna's Draft",
+          subject: actionArgs.subject || "New Message",
+          body: actionArgs.body || "",
+          isForward: false
+        });
+        setDraftTo(actionArgs.to || "");
+        triggerSnackbar("Draft prepared.");
+        break;
+
+  case 'gmail_mark_unread':
+        let unreadIds = [];
+        if (Array.isArray(actionArgs.messageIds)) unreadIds = actionArgs.messageIds;
+        else if (typeof actionArgs.messageIds === 'string') unreadIds = [actionArgs.messageIds];
+        else if (typeof actionArgs.messageId === 'string') unreadIds = [actionArgs.messageId];
+
+        if (unreadIds.length === 0 && email?.id) {
+          unreadIds = [email.id];
+        }
+
+        const exactUnreadIds = unreadIds.map(getExactId).filter(Boolean);
+
+        if (exactUnreadIds.length > 0) {
+          setGmailEmails(prev => prev.map(msg => 
+            exactUnreadIds.includes(String(msg.id).trim()) ? { ...msg, isUnread: true } : msg
+          ));
+          triggerSnackbar("Marked as unread.");
+          exactUnreadIds.forEach(eid => {
+            fetch("/.netlify/functions/gmail-mark-unread", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ messageId: eid })
+            }).catch(err => console.error("Mark unread failed:", err));
+          });
+        } else {
+          triggerSnackbar("Error: Could not determine which email to mark unread.");
+        }
+        break;
+
+      case 'gmail_toggle_star':
+        let starIds = [];
+        if (Array.isArray(actionArgs.messageIds)) starIds = actionArgs.messageIds;
+        else if (typeof actionArgs.messageIds === 'string') starIds = [actionArgs.messageIds];
+        else if (typeof actionArgs.messageId === 'string') starIds = [actionArgs.messageId];
+
+        if (starIds.length === 0 && email?.id) {
+          starIds = [email.id];
+        }
+
+        const exactStarIds = starIds.map(getExactId).filter(Boolean);
+        const nextStarredState = (actionArgs.starred === false || String(actionArgs.starred).toLowerCase() === 'false') ? false : true;
+
+        if (exactStarIds.length > 0) {
+          setGmailEmails(prev => {
+            const updated = prev.map(msg => {
+              const mId = String(msg.id).trim();
+              const isMatch = exactStarIds.some(eid => mId === eid || mId.includes(eid) || eid.includes(mId));
+              return isMatch ? { ...msg, isStarred: nextStarredState } : msg;
+            });
+            if (!nextStarredState && gmailFolder === "STARRED") {
+              return updated.filter(msg => !exactStarIds.includes(String(msg.id).trim()));
+            }
+            return updated;
+          });
           
-          // Clear active detail view if it matches the deleted ID
-          if (email && exactIds.includes(String(email.id))) {
+          setEmail(prev => {
+            if (!prev) return prev;
+            const pId = String(prev.id).trim();
+            const isMatch = exactStarIds.some(eid => pId === eid || pId.includes(eid) || eid.includes(pId));
+            return isMatch ? { ...prev, isStarred: nextStarredState } : prev;
+          });
+
+          triggerSnackbar(nextStarredState ? "Message starred." : "Star removed.");
+          
+          exactStarIds.forEach(eid => {
+            fetch("/.netlify/functions/gmail-toggle-star", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ messageId: eid, starred: nextStarredState })
+            }).catch(err => console.error("Starring failed:", err));
+          });
+        } else {
+          triggerSnackbar("Error: Could not determine which email to star.");
+        }
+        break;
+
+case 'gmail_delete_bulk':
+        let deleteIds = [];
+        if (Array.isArray(actionArgs.messageIds)) deleteIds = actionArgs.messageIds;
+        else if (typeof actionArgs.messageIds === 'string') deleteIds = [actionArgs.messageIds];
+        else if (typeof actionArgs.messageId === 'string') deleteIds = [actionArgs.messageId];
+
+        // 🛡️ Bulletproof fallback: use open email OR selected checkboxes
+        if (deleteIds.length === 0) {
+          if (email?.id) deleteIds = [email.id];
+          else if (selectedEmailIds?.length > 0) deleteIds = [...selectedEmailIds];
+        }
+
+        const exactDeleteIds = deleteIds.map(getExactId).filter(Boolean);
+
+        if (exactDeleteIds.length > 0) {
+          const idSet = new Set(exactDeleteIds.map(id => String(id).trim()));
+
+          // 🚀 ZERO-LATENCY UI UPDATE: Strip from inbox and selection immediately
+          setGmailEmails(prev => prev.filter(msg => !idSet.has(String(msg.id).trim())));
+          setSelectedEmailIds(prev => prev.filter(id => !idSet.has(String(id).trim())));
+          setGmailTotal(t => Math.max(0, t - exactDeleteIds.length));
+          
+          if (email && idSet.has(String(email.id).trim())) {
             setEmail(null);
             setEmailPreview(null);
             setCurrentView({ app: 'gmail', contact: null });
           }
-
-          // Adjust total count immediately
-          setGmailTotal(t => Math.max(0, t - exactIds.length));
           
-          triggerSnackbar(`Conversation(s) moved to Trash.`);
-
-          if (call_id) {
-            sendToolResponse(call_id, { success: true, status: "Email moved to trash. Please confirm briefly to the user." });
-          }
-          
-          // Backend call happens silently in background
+          triggerSnackbar(`Moved to Trash.`, { type: 'trash', ids: exactDeleteIds });
           fetch("/.netlify/functions/gmail-delete-bulk", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
-            body: JSON.stringify({ messageIds: exactIds, permanent: false }) 
-          }).catch(err => {
-            console.error("Delete failed:", err);
-            // Optional: Rollback logic here if critical
-          });
-        } else {
-          if (call_id) {
-            sendToolResponse(call_id, { success: false, error: "Could not find email ID." });
-          }
-        }
-        break;
-
-   case 'gmail_toggle_star':
-        console.log(`[Donna] Starring email...`, args);
-        
-        // 1. Bulletproof ID array handling (matches the delete logic)
-        let starIds = [];
-        if (Array.isArray(args.messageIds)) starIds = args.messageIds;
-        else if (typeof args.messageIds === 'string') starIds = [args.messageIds];
-        else if (typeof args.messageId === 'string') starIds = [args.messageId];
-
-        // 2. Critical Fallback: If Donna drops the ID, use the currently open email
-        if (starIds.length === 0 && email?.id) {
-          starIds = [email.id];
-        }
-
-        const exactStarIds = starIds.map(getExactId);
-        const nextStarredState = (args.starred === false || String(args.starred).toLowerCase() === 'false') ? false : true;
-
-        if (exactStarIds.length > 0) {
-          // 🚀 ZERO-LATENCY UI UPDATE: Aggressively match the ID
-          setGmailEmails(prev => {
-            const updated = prev.map(msg => {
-              const mId = String(msg.id).trim();
-              const isMatch = exactStarIds.some(eid => mId === eid || mId.includes(eid) || eid.includes(mId));
-              return isMatch ? { ...msg, isStarred: nextStarredState } : msg;
-            });
-            // If unstarring while viewing the Starred folder, remove it instantly
-            if (!nextStarredState && gmailFolder === "STARRED") {
-              return updated.filter(msg => !exactStarIds.includes(String(msg.id).trim()));
-            }
-            return updated;
-          });
-          
-          setEmail(prev => {
-            if (!prev) return prev;
-            const pId = String(prev.id).trim();
-            const isMatch = exactStarIds.some(eid => pId === eid || pId.includes(eid) || eid.includes(pId));
-            return isMatch ? { ...prev, isStarred: nextStarredState } : prev;
-          });
-
-          triggerSnackbar(nextStarredState ? "Message starred." : "Star removed.");
-          
-          // Send requests to backend
-          exactStarIds.forEach(eid => {
-            fetch("/.netlify/functions/gmail-toggle-star", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              credentials: "include",
-              body: JSON.stringify({ messageId: eid, starred: nextStarredState })
-            }).catch(err => console.error("Starring failed:", err));
-          });
+            body: JSON.stringify({ messageIds: exactDeleteIds, permanent: false }) 
+          }).catch(err => console.error("Delete failed:", err));
+       } else {
+          triggerSnackbar("Error: Could not determine which email to delete.");
         }
         break;
 
-      case 'trello_move_card': {
-        console.log("[Donna] Executing Trello move...", args);
-        setCurrentView({ app: 'trello', contact: null });
+   case 'gchat_mute_space': {
+        console.log("[Donna] Executing GChat Mute tool...");
+        const spaceId = actionArgs.spaceId || gchatSelectedSpace?.id;
+        const shouldMute = actionArgs.mute !== false;
 
-        let cardIdToMove = null;
-        let listIdToTarget = args.targetListId;
-        let targetKeyName = null;
-
-        // 1. Resolve REAL Card ID (Search all buckets)
-        for (const [listName, cards] of Object.entries(trelloBuckets || {})) {
-          if (Array.isArray(cards)) {
-            const match = cards.find(c => 
-              c.id === args.cardId || 
-              (c.title || c.name || "").toLowerCase().includes((args.cardId || "").toLowerCase())
-            );
-            if (match) {
-              cardIdToMove = match.id;
-              break;
-            }
-          }
+        if (!spaceId) {
+          triggerSnackbar("Mute failed: No space selected.");
+          if (callId) sendToolResponse(callId, { success: false, error: "No active space found." });
+          break;
         }
 
-        // 2. Resolve Target List ID by Name
-        const bucketNames = Object.keys(trelloBuckets || {});
-        targetKeyName = bucketNames.find(n => 
-          n.toLowerCase().includes((args.targetListId || "").toLowerCase())
+        // Optimistic UI update
+        setMutedGchatSpaces(prev => 
+          shouldMute ? [...new Set([...prev, spaceId])] : prev.filter(id => id !== spaceId)
         );
+        triggerSnackbar(shouldMute ? "Space muted." : "Space unmuted.");
 
-        if (targetKeyName && Array.isArray(trelloBuckets[targetKeyName])) {
-           if (trelloBuckets[targetKeyName].length > 0) {
-              listIdToTarget = trelloBuckets[targetKeyName][0].idList;
-           }
-        }
-
-        // 🛡️ GUARD: Prevent 400 Bad Request
-        if (!cardIdToMove || cardIdToMove.length < 10) {
-          console.error("[Donna] Could not resolve card ID for:", args.cardId);
-          triggerSnackbar("Error: Could not find that card.");
-          setDonnaPendingAction(null);
-          return;
-        }
-
-        // 🚀 OPTIMISTIC UI UPDATE (Prevents trelloBuckets.map error)
-        setTrelloBuckets(prev => {
-          if (!prev || typeof prev !== 'object') return prev; 
-          const next = { ...prev };
-          let movingCard = null;
-          
-          for (const key in next) {
-            if (Array.isArray(next[key])) {
-              const card = next[key].find(c => c.id === cardIdToMove);
-              if (card) {
-                movingCard = { ...card, idList: listIdToTarget };
-                next[key] = next[key].filter(c => c.id !== cardIdToMove);
-                break;
-              }
-            }
-          }
-          
-          if (movingCard && targetKeyName && Array.isArray(next[targetKeyName])) {
-            next[targetKeyName] = [movingCard, ...next[targetKeyName]];
-          }
-          return next;
-        });
-
-        triggerSnackbar(`Moving card to ${targetKeyName || 'target list'}...`);
-
-        // 3. Hit the "Hands" (Netlify Function)
-        fetch("/.netlify/functions/trello-move", {
+        fetch("/.netlify/functions/gchat-mute", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ 
-            cardId: cardIdToMove, 
-            listId: listIdToTarget 
-          })
-        }).catch(err => {
-          console.error("Trello move failed:", err);
-          triggerSnackbar("Failed to sync Trello move.");
-        });
-        
-        setDonnaPendingAction(null);
+          body: JSON.stringify({ spaceId, mute: shouldMute })
+        }).catch(err => console.error("Mute API failed:", err));
+
+        if (callId) sendToolResponse(callId, { success: true });
         break;
       }
 
-      default:
-        console.warn("Unmapped tool execution:", name);
-    }
+      case 'trello_move_card': {
+        // Re-check the args because our Rescue logic updated them
+        console.log("[Donna] Trello Move - Arguments Resolved:", actionArgs);
+        
+        let cardId = actionArgs.cardId;
+        let cardNameQuery = (actionArgs.cardName || "").toLowerCase().trim();
+        const rawTarget = actionArgs.targetListId || actionArgs.idList || actionArgs.target_bucket || "Siya";
+        
+        let resolvedId = rawTarget;
+        let targetName = "";
 
-    setDonnaPendingAction(null);
-    setDonnaTranscription("Action approved.");
-    setTimeout(() => setDonnaTranscription(""), 3000);
-  };
+        // 🛡️ FIX 1: LLM Parameter Swap Guard (handles name-in-id-slot)
+        if (cardId && cardId.length !== 24) {
+            console.log("[Donna] ID looks like a name. Re-routing to search:", cardId);
+            if (!cardNameQuery) cardNameQuery = cardId.replace(/['"]/g, '').toLowerCase().trim();
+            cardId = null;
+        }
+
+        // 🛡️ FIX 2: Transcript Scraper (Matches "the 'name' card" or "card called name")
+        if (!cardNameQuery && !cardId && donnaTranscription) {
+           const trans = donnaTranscription.toLowerCase();
+           const match = trans.match(/['"](.+?)['"]/) || trans.match(/(?:named|called|titled|card)\s+['"]?(.+?)['"]?\s+(?:from|to|in|bucket)/i);
+           if (match) {
+             cardNameQuery = match[1].replace(/['"]/g, '').trim();
+             console.log(`[Donna] Scraped card name from transcript: "${cardNameQuery}"`);
+           }
+        }
+
+        // 🛡️ FIX 3: Robust Search with Normalization
+        if (!cardId && cardNameQuery) {
+          console.log(`[Donna] Finding ID for: "${cardNameQuery}"`);
+          
+          // Combine live state and cache to ensure we never "miss" a card during re-polls
+          let allCards = [];
+          const liveCards = trelloBuckets ? Object.values(trelloBuckets).flat() : [];
+          const cachedData = JSON.parse(localStorage.getItem("TRELLO_CACHE") || "{}");
+          const cachedCards = Object.values(cachedData).flat();
+          
+          // Dedupe by ID
+          const combined = [...liveCards, ...cachedCards];
+          allCards = Array.from(new Map(combined.map(c => [c.id, c])).values());
+
+          if (allCards.length > 0) {
+            const match = allCards.find(c => {
+              const nameText = (c.name || c.title || "").toLowerCase();
+              const queryText = cardNameQuery.toLowerCase();
+              return nameText === queryText || nameText.includes(queryText) || queryText.includes(nameText);
+            });
+            
+            if (match) {
+              cardId = match.id;
+              console.log(`[Donna] ID Resolved: ${cardId} ("${match.name}")`);
+            }
+          }
+        }
+
+        // PHONETIC LIST RESOLVER (Uses the rawTarget declared at top)
+        const configMatch = Object.entries(PERSONA_TRELLO_LISTS).find(([name, id]) => {
+          const ln = name.toLowerCase();
+          const lt = String(rawTarget).toLowerCase();
+          
+          // 🛡️ ARCHITECT'S FIX: If Donna already sent a valid 24-char ID, match it directly
+          if (rawTarget.length === 24 && id === rawTarget) return true;
+
+          // 🛡️ ARCHITECT'S PHONETIC MAP:
+          // We check for exact matches first to prevent "Siya - Review" from catching "Siya"
+          if (lt === ln) return true;
+
+          const isReview = lt.includes("review");
+          const isSiya = lt.includes("sia") || lt.includes("sear") || lt.includes("see-ya") || lt === "siya";
+
+          // Strict mapping: Only return Siya-Review if "review" is explicitly in the target arg
+          if (isSiya && isReview) {
+             return ln.includes("review") && ln.includes("siya");
+          }
+          
+          // Strict mapping: Only return Siya if "review" is NOT in the target arg
+          if (isSiya && !isReview) {
+             return ln === "siya";
+          }
+
+          return lt.includes("cr") && lt.includes("review") && ln === "CR - Review";
+        });
+
+        // 🛡️ ARCHITECT'S DESTINATION GUARD: If Donna chose the correct ID, keep it.
+        if (!configMatch && rawTarget.length === 24) {
+           resolvedId = rawTarget;
+           targetName = Object.keys(PERSONA_TRELLO_LISTS).find(k => PERSONA_TRELLO_LISTS[k] === rawTarget) || "Trello Bucket";
+        } else if (configMatch) {
+          targetName = configMatch[0];
+          resolvedId = configMatch[1];
+        } else {
+          targetName = rawTarget;
+          // 🛡️ Fallback: if the LLM sent a raw ID instead of a name, use it.
+          // But ensure it's not the SAME as the cardId we just found
+          if (rawTarget === cardId) {
+             console.warn("[Architect] Collision detected: rawTarget matches cardId. Defaulting to Siya list.");
+             resolvedId = PERSONA_TRELLO_LISTS["Siya"]; 
+          }
+        }
+
+        if (!cardId || cardId.length !== 24) {
+          console.error("[Donna] CRITICAL: Valid Trello cardId could not be resolved.");
+          triggerSnackbar("Donna couldn't find the card ID for '" + (cardNameQuery || "the card") + "'");
+          if (callId) sendToolResponse(callId, { success: false, error: "Card ID could not be determined." });
+          break;
+        }
+
+        // 🛡️ One last check before shipping the JSON
+        if (resolvedId === cardId) {
+           console.error("[Architect] Fatal Swap Error: Card and List IDs are identical.");
+           triggerSnackbar("System error: Mapping collision.");
+           break;
+        }
+
+        console.log(`[Donna] FINAL PAYLOAD - Card: ${cardId}, List: ${resolvedId}`);
+
+        fetch("/.netlify/functions/trello-move", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            cardId: cardId,
+            targetListId: resolvedId,
+            targetListName: targetName
+          })
+        })
+        .then(async (res) => {
+          const data = await res.json();
+          if (res.ok && data.ok) {
+            triggerSnackbar(`Moved to ${targetName}!`);
+            window.dispatchEvent(new CustomEvent("refreshTrelloBoard"));
+            if (callId) sendToolResponse(callId, { success: true });
+          } else {
+            console.error("[Donna] Backend Error:", data.error);
+            triggerSnackbar(`Move Error: ${data.error || res.statusText}`);
+          }
+        })
+        .catch(err => console.error("[Donna] Fetch error:", err));
+        
+        break;
+      }
+
+      default:
+        console.warn("Unmapped tool execution:", actionName);
+    }
+
+    // 🛡️ Always clear the pending action at the end
+    setDonnaPendingAction(null);
+    setDonnaTranscription("Action approved.");
+    setTimeout(() => setDonnaTranscription(""), 3000);
+  };
  const handleRejectDonna = () => {
     // 🎙️ Tell Donna the user cancelled it so she can acknowledge it
     if (donnaPendingAction?.call_id) {
@@ -782,13 +1237,23 @@ const [searchQuery, setSearchQuery] = useState("");
     notifLoading, setNotifLoading,
     exitingNotifIds, setExitingNotifIds,
     isMuted, setIsMuted,
-    seenGmailIdsRef,
-    seenGchatIdsRef,
-    soundedGmailIdsRef,
-    dismissedNotifsRef,
-  } = useNotifications({ sessionStartTime });
-  const {
-    selectedEvent, setSelectedEvent,
+seenGmailIdsRef,
+    seenGchatIdsRef,
+    soundedGmailIdsRef,
+    dismissedNotifsRef,
+  } = useNotifications({ sessionStartTime });
+
+  useEffect(() => {
+    const handleMute = (e) => {
+      setIsMuted(e.detail);
+      triggerSnackbar(e.detail ? "All notifications silenced." : "Notifications unmuted.");
+    };
+    window.addEventListener("donnaToggleMute", handleMute);
+    return () => window.removeEventListener("donnaToggleMute", handleMute);
+  }, [setIsMuted]);
+
+  const {
+    selectedEvent, setSelectedEvent,
     showCreateModal, setShowCreateModal,
     eventToDelete, setEventToDelete,
     newEventDraft, setNewEventDraft,
@@ -950,11 +1415,11 @@ const [searchQuery, setSearchQuery] = useState("");
   const { isRecording, startRecording, stopRecording } = useRecording({ setPendingUpload });
 
 // Update Donna's session instructions with current screen context
-  useEffect(() => {
-    if (!isDonnaConnected) return;
-    const app = currentView.app;
-  let ctx = "You are Agent Donna, a witty and professional actuarial assistant to Siyabonga (Siya, pronounced See-yah).\n\n*** STRICT WAKE-WORD PROTOCOL ***\nYour audio stream is always open, but you are ASLEEP. You must ONLY wake up and respond if the user's sentence starts exactly with 'Hey Donna'.\n- If the user speaks without saying 'Hey Donna' first, you must output ABSOLUTELY NOTHING. YOU ARE FORBIDDEN FROM SAYING 'I can only respond to requests that begin with...'. Remain completely silent.\n- Do not explain the rule. Do not apologize. Just stay silent.\n- IMPORTANT: If the user says 'Hey Donna approve' or 'Hey Donna reject', this is handled locally by the system. YOU MUST OUTPUT ABSOLUTELY NOTHING. DO NOT ASK WHAT TO APPROVE. JUST REMAIN SILENT.\n- Once you fulfill a 'Hey Donna' request, go immediately back to sleep.\n\nWhen carrying out a request using your tools, you must always speak and verbally explain to Siya what you are doing. If you are simply navigating to an app or searching/fetching data, do NOT ask for approval. If you are creating, modifying, moving, or deleting data (e.g., saving a draft, moving a card), you MUST ask him to approve the action on his screen. Be concise. IMPORTANT: Always respond in English only.\n\n";
-    const now = new Date();
+  useEffect(() => {
+    if (!isDonnaConnected) return;
+    const app = currentView.app;
+  let ctx = "You are Agent Donna, a witty and professional actuarial assistant to Siyabonga (Siya, pronounced See-yah).\n\n*** STRICT WAKE-WORD PROTOCOL ***\nYour audio stream is always open, but you are ASLEEP. You must ONLY wake up and respond if the user's sentence starts exactly with 'Hey Donna'.\n- If the user speaks without saying 'Hey Donna' first, you must output ABSOLUTELY NOTHING. YOU ARE FORBIDDEN FROM SAYING 'I can only respond to requests that begin with...'. Remain completely silent.\n- Do not explain the rule. Do not apologize. Just stay silent.\n- IMPORTANT: If the user says 'Hey Donna approve' or 'Hey Donna reject', this is handled locally by the system. YOU MUST OUTPUT ABSOLUTELY NOTHING. DO NOT ASK WHAT TO APPROVE. JUST REMAIN SILENT.\n- Once you fulfill a 'Hey Donna' request, go immediately back to sleep.\n\nWhen carrying out a request using your tools, you must always speak and verbally explain to Siya what you are doing. If you are simply navigating to an app or searching/fetching data, do NOT ask for approval. If you are creating, modifying, moving, or deleting data (e.g., saving a draft, moving a card), you MUST ask him to approve the action on his screen. Be concise. IMPORTANT: Always respond in English only.\n\n*** CALENDAR RULE ***\nWhen creating calendar events, you MUST calculate the EXACT target date using the 'Current date and time' provided below. You MUST output the 'date' parameter strictly in 'YYYY-MM-DD' format (e.g., '2026-03-15'). NEVER output words like 'today', 'tomorrow', 'Friday', or 'next week'. NEVER omit the date parameter.\n\n";
+    const now = new Date();
     ctx += `Current date and time: ${now.toLocaleDateString("en-ZA", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}, ${now.toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit", hour12: true })}.\n`;
     ctx += `Current screen: ${app === "none" ? "Home / welcome screen" : app}.\n`;
 
@@ -983,10 +1448,23 @@ const [searchQuery, setSearchQuery] = useState("");
         }
       } else if (trelloBuckets) {
         ctx += `Trello board lists: ${Object.keys(trelloBuckets).join(", ")}.\n`;
-      }
-    } else if (app === "calendar") {
-      if (selectedEvent) {
-        ctx += `Selected event: "${selectedEvent.summary}" on ${(selectedEvent.start?.dateTime || selectedEvent.start?.date || "").split("T")[0]}.\n`;
+        
+        // 🔑 SEEDING IDS: Explicitly tell Donna which ID belongs to which list name
+        if (PERSONA_TRELLO_LISTS && typeof PERSONA_TRELLO_LISTS === 'object') {
+          ctx += `Target List IDs for moves/creation: ${Object.entries(PERSONA_TRELLO_LISTS)
+            .map(([name, id]) => `${name}: ${id}`)
+            .join(", ")}.\n`;
+        }
+
+        Object.entries(trelloBuckets).forEach(([listName, cards]) => {
+          if (cards?.length > 0) {
+            // Added explicit instruction inside the bucket map to reduce hesitation
+            ctx += `List "${listName}" contains these active cards: ${cards.slice(0, 15).map(c => `${c.title || c.name} (ID: ${c.id})`).join(", ")}.\n`;
+          } else {
+            ctx += `List "${listName}" is currently empty.\n`;
+          }
+        });
+        ctx += `\nIMPORTANT: If Siya asks to move a card by name, match it to the IDs provided above and execute the tool immediately. Do not ask for the ID if it is listed here.\n`;
       }
       if (calendarEvents?.length) {
         const today = new Date().toISOString().split("T")[0];
@@ -1007,9 +1485,9 @@ const [searchQuery, setSearchQuery] = useState("");
     // 1. Check if the awareness needs updating
     const contextChanged = lastCtxRef.current !== ctx;
 
-    // 🛡️ THE STABILITY GUARD: 
-    if (isDonnaSpeaking || donnaRespondingRef.current) {
-      return; 
+    // 🛡️ THE STABILITY GUARD:
+    if (isDonnaSpeaking || donnaRespondingRef.current || donnaPlayingRef.current) {
+      return;
     }
 
     // 2. Only push if quiet and changed
@@ -1313,6 +1791,10 @@ if (currentView.app === "gmail" || currentView.app === "email") {
     return <ProductivityDashboard trelloBuckets={trelloBuckets} trelloMembers={trelloMembers} />;
   }
 
+  if (currentView.app === "whatsapp") {
+    return <WhatsAppApp />;
+  }
+
   if (reviewingDoc && email) {
     return <ReviewCompareWorkstation reviewingDoc={reviewingDoc} email={email} batchStatus={batchStatus} setReviewingDoc={setReviewingDoc} handleApprove={handleApprove} />;
   }
@@ -1398,39 +1880,98 @@ if (currentView.app === "gmail" || currentView.app === "email") {
         reactionCounts,
         editingMsgId,
         msgToDelete,
-        batchStatus,
+ batchStatus,
         reviewingDoc,
         showWelcome,
         callBtnHovered,
       ]);
 
+let emailTargetText = "this email";
+if (email) {
+  const senderName = email.fromName || (email.from || "").split("<")[0].trim() || "this sender";
+  emailTargetText = `the email from ${senderName} with the subject "${email.subject}"`;
+} else if (selectedEmailIds && selectedEmailIds.length > 0) {
+  if (selectedEmailIds.length === 1) {
+    const foundMsg = gmailEmails?.find(m => m.id === selectedEmailIds[0]);
+    if (foundMsg) {
+      const senderName = foundMsg.fromName || (foundMsg.from || "").split("<")[0].trim() || "this sender";
+      emailTargetText = `the email from ${senderName} with the subject "${foundMsg.subject}"`;
+    } else {
+      emailTargetText = "the selected email";
+    }
+  } else {
+    emailTargetText = `these ${selectedEmailIds.length} selected emails`;
+  }
+} else if (donnaPendingAction && donnaPendingAction.args && donnaPendingAction.args.messageId) {
+  const cleanId = String(donnaPendingAction.args.messageId).replace(/\[?ID:\s*/gi, '').replace(/\]/g, '').replace(/['"]/g, '').trim();
+  const foundMsg = gmailEmails?.find(m => String(m.id).trim() === cleanId);
+  if (foundMsg) {
+     const senderName = foundMsg.fromName || (foundMsg.from || "").split("<")[0].trim() || "this sender";
+     emailTargetText = `the email from ${senderName} with the subject "${foundMsg.subject}"`;
+  }
+}
+
+let finalTranscription = donnaTranscription;
+let forceShowActions = donnaPendingAction !== null;
+
+if (donnaPendingAction) {
+  const actionName = donnaPendingAction.name;
+  const args = donnaPendingAction.args || {};
+  if (actionName === "gmail_toggle_star") finalTranscription = `I will star ${emailTargetText} for you. Please approve the action on your screen.`;
+  else if (actionName === "gmail_mark_unread") finalTranscription = `I will mark ${emailTargetText} as unread. Please approve the action on your screen.`;
+  else if (actionName === "gmail_delete_bulk") finalTranscription = `I will move ${emailTargetText} to the trash. Please approve the action on your screen.`;
+  else if (actionName === "gmail_save_draft") finalTranscription = "I've prepared that draft for your review. Please approve the action on your screen.";
+else if (actionName === "trello_move_card") finalTranscription = "I will move the Trello card. Please approve the action on your screen.";
+  else if (actionName === "calendar_create" || actionName === "calendar_create_event") {
+    const title = args.summary || "New Meeting";
+    const date = args.date;
+    const time = args.startTime ? ` at ${args.startTime}` : "";
+    finalTranscription = `Donna wants to schedule: "${title}" on ${date}${time}. Please approve on your screen.`;
+  } else if (actionName === "calendar_delete") {
+    const title = args.eventTitle || "this event";
+    finalTranscription = `Donna wants to delete the calendar event: "${title}". Please approve on your screen.`;
+  }
+} else if (donnaTranscription) {
+  const lowerTrans = donnaTranscription.toLowerCase();
+  if (lowerTrans.includes("unread")) {
+    finalTranscription = `I will mark ${emailTargetText} as unread. Please approve the action on your screen.`;
+    forceShowActions = true;
+  } else if (lowerTrans.includes("star") && !lowerTrans.includes("start")) {
+    finalTranscription = `I will star ${emailTargetText} for you. Please approve the action on your screen.`;
+    forceShowActions = true;
+  } else if (lowerTrans.includes("trash") || lowerTrans.includes("delete") || lowerTrans.includes("bin")) {
+    finalTranscription = `I will move ${emailTargetText} to the trash. Please approve the action on your screen.`;
+    forceShowActions = true;
+  }
+}
+
 return (
-  <PasswordGate persona={PERSONA}>
-    <div className={`app${isDonnaActive ? " donna-active" : ""}`}>
-      <audio ref={donnaAudioRef} autoPlay playsInline />
-  <DonnaBubble
-        transcription={donnaTranscription}
-        show={donnaVisible}
-        showActions={donnaPendingAction !== null}
-        onApprove={handleApproveDonna}
-        onReject={handleRejectDonna}
-        onRequestClose={() => setDonnaVisible(false)}
-        onClose={() => {
-          setDonnaTranscription("");
-          setDonnaPendingAction(null);
-          setDonnaVisible(false);
-        }}
-      />
+  <PasswordGate persona={PERSONA}>
+    <div className={`app${isDonnaActive ? " donna-active" : ""}`}>
+      <audio ref={donnaAudioRef} autoPlay playsInline />
+  <DonnaBubble
+  transcription={finalTranscription}
+  show={donnaVisible}
+  showActions={forceShowActions}
+  isDraft={donnaPendingAction?.name === "gmail_save_draft"} // 🎯 THE FIX: Only drafts get "Open Review"
+  onApprove={handleApproveDonna}
+  onReject={handleRejectDonna}
+  onRequestClose={() => setDonnaVisible(false)}
+  onClose={() => {
+    setDonnaTranscription("");
+    setDonnaPendingAction(null);
+    setDonnaVisible(false);
+  }}
+/>
 
 <div className="brand-stack" style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
 <div
           className="brand-rect"
           title="Agent Donna"
           onClick={(e) => {
-            // 🔊 Force browser to unlock the WebRTC audio stream
-            if (donnaAudioRef.current && donnaAudioRef.current.paused) {
-              donnaAudioRef.current.play().catch(err => console.warn("Audio unlock failed:", err));
-            }
+            // 🔊 Unlock the WebRTC donna-audio element (autoplay policy requires user gesture)
+            const donnaAudioEl = document.getElementById("donna-audio");
+            if (donnaAudioEl) donnaAudioEl.play().catch(() => {});
 
             const el = e.currentTarget;
             el.style.animation = 'none';
@@ -1590,7 +2131,7 @@ return (
           left: '50%',
           width: 'calc(100% - 32px)',
           maxWidth: '1100px',
-          display: 'flex',
+          display: isDonnaActive ? 'flex' : 'none',
           alignItems: 'flex-end',
           gap: '8px',
           border: '1px solid #dadce0',
@@ -1600,9 +2141,7 @@ return (
           boxShadow: '0 1px 2px 0 rgba(60,64,67,0.30), 0 1px 3px 1px rgba(60,64,67,0.15)',
           zIndex: 50,
           boxSizing: 'border-box',
-          transform: isDonnaActive ? 'translateX(-50%) translateY(0)' : 'translateX(-50%) translateY(calc(100% + 56px))',
-          pointerEvents: isDonnaActive ? 'auto' : 'none',
-          transition: 'transform 0.3s cubic-bezier(0.34,1.56,0.64,1)',
+          transform: 'translateX(-50%)',
         }}>
           <textarea
             className="chat-textarea"

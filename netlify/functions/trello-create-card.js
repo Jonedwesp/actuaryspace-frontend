@@ -91,32 +91,40 @@ export async function handler(event) {
       caseCardText = "",
       instructionTimeIso,
       fallbackDescription = "",
+      targetListId, 
     } = body;
 
-    const { claimant, matter, acRef, description } =
-      parseCaseCardText(caseCardText);
+    // 🛡️ PARSE AND CAPTURE ALL FIELDS
+    const parsed = parseCaseCardText(caseCardText);
+    const { claimant, matter, acRef, description } = parsed; // ✅ Extracting them to the handler scope
+    
+    // 🛡️ Fallback Logic
+    const finalClaimant = claimant || caseCardText || "New Voice Task";
+    const finalDescription = description || (claimant ? "" : "Created via Donna voice command.");
 
-    const shortName = makeShortName(claimant || "Unknown Claimant");
+    const shortName = makeShortName(finalClaimant);
     const { due, display: dueDisplay } = buildDue(instructionTimeIso);
 
     const cardName = `${shortName} (${dueDisplay})`;
 
     const lines = [];
-    if (description) lines.push(description);
-    if (acRef)       lines.push(`AC REF: ${acRef}`);
-    if (matter)      lines.push(`Matter: ${matter}`);
-    if (fallbackDescription && fallbackDescription !== description) {
+    if (finalDescription) lines.push(finalDescription);
+    if (acRef) lines.push(`AC REF: ${acRef}`);    // ✅ Now defined
+    if (matter) lines.push(`Matter: ${matter}`);  // ✅ Now defined
+    if (fallbackDescription && fallbackDescription !== finalDescription) {
       lines.push("");
       lines.push(`Email subject: ${fallbackDescription}`);
     }
 
     const cardDesc = lines.join("\n");
 
-    // --- Create card on Trello ---
+    // 🛡️ Fallback to environment variable if no ID was provided
+    const finalIdList = targetListId || TRELLO_INBOX_LIST_ID;
+
     const params = new URLSearchParams({
       key: TRELLO_KEY,
       token: TRELLO_TOKEN,
-      idList: TRELLO_INBOX_LIST_ID,
+      idList: finalIdList,
       ...(TRELLO_BOARD_ID ? { idBoard: TRELLO_BOARD_ID } : {}),
       name: cardName,
       desc: cardDesc,

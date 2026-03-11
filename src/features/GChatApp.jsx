@@ -555,31 +555,30 @@ export function GChatApp({
                     onMouseEnter={e => !isActive && (e.currentTarget.style.background = isUnread ? "#f0f4ff" : "#e8eaed")}
                     onMouseLeave={e => !isActive && (e.currentTarget.style.background = isUnread ? "#ffffff" : "#f1f3f4")}
                   >
-                 <div className="gchat-item-text" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, paddingRight: '8px' }}>
-                      <div className="gchat-item-title" style={{ fontWeight: (isActive || isUnread) ? "700" : "500", color: isUnread && !isActive ? "#000000" : undefined, fontStyle: mutedGchatSpaces.includes(sid) ? "italic" : undefined }}>
-                        {title}
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-                      {isUnread && !isActive && (
-                        // 🔵 Authentic GChat Blue Notification Bubble
-                        <div className="unread-dot" style={{
-                          background: '#0b57d0',
-                          width: '12px',
-                          height: '12px',
-                          borderRadius: '50%',
-                          boxShadow: '0 0 4px rgba(11, 87, 208, 0.4)',
-                          flexShrink: 0
-                        }} />
-                      )}
-                      {mutedGchatSpaces.includes(sid) && (
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9aa0a6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" title="Muted" style={{ flexShrink: 0 }}>
-                          <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/>
-                          <line x1="4" y1="4" x2="20" y2="20"/>
-                        </svg>
-                      )}
+                <div className="gchat-item-text" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, paddingRight: '8px' }}>
+                      <div className="gchat-item-title" style={{ fontWeight: (isActive || isUnread) ? "700" : "500", color: mutedGchatSpaces.includes(sid) ? "#5f6368" : (isUnread && !isActive ? "#000000" : undefined), fontStyle: mutedGchatSpaces.includes(sid) ? "italic" : undefined }}>
+                        {title}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                      {isUnread && !isActive && (
+                        // 🔵 Authentic GChat Blue Notification Bubble
+                        <div className="unread-dot" style={{
+                          background: '#0b57d0',
+                          width: '12px',
+                          height: '12px',
+                          borderRadius: '50%',
+                          boxShadow: '0 0 4px rgba(11, 87, 208, 0.4)',
+                          flexShrink: 0
+                        }} />
+                      )}
+                      {mutedGchatSpaces.includes(sid) && (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="#9aa0a6" title="Muted" style={{ flexShrink: 0 }}>
+                          <path d="M20 18.69L7.84 6.14 5.27 3.49 4 4.76l2.8 2.8v.01c-.52.99-.8 2.16-.8 3.42v5l-2 2v1h13.73l2 2L21 19.72l-1-1.03zM12 22c1.11 0 2-.89 2-2h-4c0 1.11.89 2 2 2zm6-7.32V11c0-3.08-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v.37l2 2V11c0-2.48 1.51-4.5 4-4.5s4 2.02 4 4.5v5.73l2 2V18h-2.32l-1.68-1.68z"/>
+                        </svg>
+                      )}
 
-        <GChatSidebarMenu
+        <GChatSidebarMenu
               sid={sid}
               s={s}
               showArchivedChats={showArchivedChats}

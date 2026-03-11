@@ -62,7 +62,7 @@ export function ChatBar({
           <textarea
             ref={chatTextareaRef}
             className="chat-textarea"
-            placeholder={isRecording ? "Recording audio..." : "Message..."}
+            placeholder={isRecording ? "Recording audio..." : "History is on"}
             rows={1}
             value={inputValue}
             disabled={isRecording}

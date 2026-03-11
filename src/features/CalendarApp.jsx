@@ -28,12 +28,14 @@ export function CalendarApp({
     const currentMonthName = calendarViewDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
     const today = new Date();
 
-    // ⚡ PERFORMANCE FIX: Map events into a fast dictionary instantly
+// ⚡ PERFORMANCE FIX: Map events into a fast dictionary instantly
     const eventsByDate = {};
     calendarEvents.forEach(ev => {
       if (!ev || !ev.start) return;
       const startStr = ev.start.dateTime || ev.start.date;
       if (!startStr) return;
+      
+      // Fix: Ensure we use local date parts for the key to match calendarGrid cells
       const d = new Date(startStr);
       const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
       
@@ -177,16 +179,40 @@ return (
                           const isAllDay = !ev.start.dateTime;
                           const timeStr = isAllDay ? "" : new Date(ev.start.dateTime).toLocaleTimeString("en-US", { hour: 'numeric', minute: '2-digit' }).toLowerCase().replace(' ', '');
                           
-                          if (isAllDay) {
+                       if (isAllDay) {
                             return (
-                              <div key={ev.id} onClick={(e) => { e.stopPropagation(); setSelectedEvent(ev); }} title={ev.summary} style={{ background: '#1a73e8', color: '#fff', padding: '2px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer', flexShrink: 0 }}> {/* 👈 NEW: flexShrink: 0 */}
+                              <div 
+                                key={ev.id} 
+                                onClick={(e) => { e.stopPropagation(); setSelectedEvent(ev); }} 
+                                title={ev.summary} 
+                                style={{ 
+                                  background: ev.isOptimistic ? 'transparent' : '#1a73e8', 
+                                  color: ev.isOptimistic ? '#1a73e8' : '#fff', 
+                                  border: ev.isOptimistic ? '1px dashed #1a73e8' : 'none',
+                                  opacity: ev.isOptimistic ? 0.7 : 1,
+                                  padding: '2px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer', flexShrink: 0 
+                                }}
+                              >
                                 {ev.summary}
                               </div>
                             );
                           } 
                           else {
                             return (
-                              <div key={ev.id} onClick={(e) => { e.stopPropagation(); setSelectedEvent(ev); }} title={`${timeStr} ${ev.summary}`} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#3c4043', padding: '2px 4px', borderRadius: '4px', cursor: 'pointer', flexShrink: 0 }} onMouseEnter={e => e.currentTarget.style.background = '#f1f3f4'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}> {/* 👈 NEW: flexShrink: 0 */}
+                              <div 
+                                key={ev.id} 
+                                onClick={(e) => { e.stopPropagation(); setSelectedEvent(ev); }} 
+                                title={`${timeStr} ${ev.summary}`} 
+                                style={{ 
+                                  display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', 
+                                  color: '#3c4043', padding: '2px 4px', borderRadius: '4px', cursor: 'pointer', 
+                                  flexShrink: 0,
+                                  border: ev.isOptimistic ? '1px dashed #dadce0' : 'none',
+                                  opacity: ev.isOptimistic ? 0.7 : 1
+                                }} 
+                                onMouseEnter={e => e.currentTarget.style.background = '#f1f3f4'} 
+                                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                              >
                                 <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#039be5', flexShrink: 0 }}></div>
                                 <span style={{ fontWeight: 500, flexShrink: 0 }}>{timeStr}</span>
                                 <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.summary}</span>

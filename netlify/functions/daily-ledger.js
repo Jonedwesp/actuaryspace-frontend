@@ -33,6 +33,8 @@ async function processLedger(event) {
 
     // Find the new IdleLog field ID safely
     const idleFieldId = customFields.find(f => f.name && f.name.includes("IdleLog"))?.id;
+    const workLogFieldId = customFields.find(f => f.name && f.name.includes("WorkLog"))?.id;
+    const workTimerStartFieldId = customFields.find(f => f.name && (f.name.includes("WorkTimerStart") || f.name.includes("WorkStartTime")))?.id;
 
     // 3. TRACK EXACT MOVEMENTS
     const cardCredits = {};
@@ -44,13 +46,16 @@ async function processLedger(event) {
 
        if (!cardCredits[cardId]) cardCredits[cardId] = new Set();
 
-       if (destName === "Siya - Review" && sourceName) {
-           const standardizedName = sourceName.includes("Bonis") ? "Bonisa" : sourceName;
-           cardCredits[cardId].add(standardizedName); 
-       }
-       if (destName === "Yolandie to Send" && sourceName === "Siya - Review") {
-           cardCredits[cardId].add("Siya - Review");
-       }
+       // A. If card lands in Siya - Review, credit the analyst who sent it
+       if (destName === "Siya - Review" && sourceName) {
+           const standardizedName = sourceName.includes("Bonis") ? "Bonisa" : sourceName;
+           cardCredits[cardId].add(standardizedName); 
+       }
+
+       // B. If card lands in any Yolandie list FROM Siya - Review, credit Siya - Review
+       if (destName.toLowerCase().includes("yolandie") && sourceName === "Siya - Review") {
+           cardCredits[cardId].add("Siya - Review");
+       }
     });
 
     const targetUsers = ["Siya", "Enock", "Songeziwe", "Bonisa", "Siya - Review"];
@@ -62,6 +67,8 @@ async function processLedger(event) {
     targetUsers.forEach(user => {
       let completedCards = [];
       let totalIdleMins = 0; // Track idle time across all cards for the day
+      let totalActiveMins = 0; // Track active WorkFlow time
+      const bucketKey = user === "Siya - Review" ? "SRV" : user.substring(0, 3).toUpperCase();
 
       cards.forEach(c => {
         // --- A. Calculate Idle Time using the new [SYSTEM]IdleLog field ---
@@ -82,39 +89,146 @@ async function processLedger(event) {
         }
 
         // --- B. Calculate Movement ---
-        if (!c.name || c.name.toLowerCase().includes("out of office")) return;
-
-        if (cardCredits[c.id] && cardCredits[c.id].has(user)) {
+        if (!c.name || c.name.toLowerCase().includes("out of office")) {
+            // Keep going, but don't count it for completed cards
+        } else if (cardCredits[c.id] && cardCredits[c.id].has(user)) {
            const currentListName = lists.find(l => l.id === c.idList)?.name;
            if (currentListName !== user) {
                completedCards.push(c);
            }
         }
+
+        // --- C. Calculate Active Time ---
+        if (workLogFieldId) {
+            const workItem = c.customFieldItems?.find(i => i.idCustomField === workLogFieldId);
+            try {
+                const parsed = JSON.parse(workItem?.value?.text || "{}");
+                const durFromName = parseFloat(parsed[user] || "0");
+                const durFromKey = parseFloat(parsed[bucketKey] || "0");
+                totalActiveMins += (durFromName > 0 ? durFromName : durFromKey) || 0;
+            } catch(e) {}
+        }
+
+        if (workTimerStartFieldId) {
+             const startItem = c.customFieldItems?.find(i => i.idCustomField === workTimerStartFieldId);
+             if (startItem?.value?.text) {
+                 const [startTsStr, startList] = startItem.value.text.split("|");
+                 const startTs = parseFloat(startTsStr);
+                 if (startTs > 1000000000000 && (startList === user || (startList && startList.substring(0, 3).toUpperCase() === bucketKey))) {
+                     totalActiveMins += Math.max(0, new Date().getTime() - startTs) / 1000 / 60;
+                 }
+             }
+        }
       });
 
       liveStats[user] = completedCards.length;
       liveStats[`${user}_cards`] = completedCards.map(c => c.id);
-      const cardNamesStr = completedCards.map(c => c.name).join("  |  ");
-      const formattedIdleTime = `${Math.floor(totalIdleMins / 60)}h ${Math.floor(totalIdleMins % 60)}m`;
+      
+      const cardNamesStr = completedCards.length > 0 ? completedCards.map(c => c.name).join("  |  ") : "-";
+      const formattedIdleTime = totalIdleMins > 0 ? `${Math.floor(totalIdleMins / 60)}h ${Math.floor(totalIdleMins % 60)}m` : "0h 0m";
+      const formattedActiveTime = totalActiveMins > 0 ? `${Math.floor(totalActiveMins / 60)}h ${Math.floor(totalActiveMins % 60)}m` : "0h 0m";
 
       // Build the row exactly matching the 6 Google Sheet columns: [Date, Name, Cases, Active Time, Idle Time, Card Names]
-      snapshotRows.push([todayStr, user, completedCards.length, "N/A", formattedIdleTime, cardNamesStr]);
+      snapshotRows.push([todayStr, user, completedCards.length, formattedActiveTime, formattedIdleTime, cardNamesStr]);
     });
 
     // 5. If called by React UI, return stats instantly and DO NOT write to Google Sheets
     if (isLiveUI) {
        return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: JSON.stringify(liveStats) };
     }
+  // --- NEW: CHUNKED HISTORY MODE ---
+    const isWeekly = event.queryStringParameters && event.queryStringParameters.mode === "weekly";
+    if (isWeekly) {
+        try {
+            let formattedKey = GOOGLE_PRIVATE_KEY;
+            if (formattedKey.startsWith('"') && formattedKey.endsWith('"')) formattedKey = formattedKey.slice(1, -1);
+            formattedKey = formattedKey.replace(/\\n/g, '\n');
+
+            const authClient = new google.auth.JWT({
+              email: GOOGLE_SERVICE_ACCOUNT_EMAIL,
+              key: formattedKey,
+              scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly']
+            });
+            await authClient.authorize();
+            const sheets = google.sheets({ version: 'v4', auth: authClient });
+
+            const response = await sheets.spreadsheets.values.get({
+                spreadsheetId: process.env.DAILY_LEDGER_SHEET_ID,
+                range: 'A:F'
+            });
+
+            const rows = response.data.values || [];
+            const allData = {};
+            targetUsers.forEach(u => allData[u] = []);
+
+            // Safely parse the requested date boundaries (default to fetching everything if missing)
+            const qStart = event.queryStringParameters.start;
+            const qEnd = event.queryStringParameters.end;
+            const startDate = qStart ? new Date(`${qStart}T00:00:00`) : new Date(0);
+            const endDate = qEnd ? new Date(`${qEnd}T23:59:59`) : new Date(8640000000000000);
+
+            for (let i = 1; i < rows.length; i++) {
+                const [dateStr, name, casesStr, activeStr, idleStr] = rows[i] || [];
+                if (!dateStr || !name || !targetUsers.includes(name)) continue;
+                
+                const parts = dateStr.split('/');
+                if (parts.length !== 3) continue;
+                
+                // Set to noon to safely avoid any midnight timezone shifts
+                const rowDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T12:00:00`); 
+                
+                // Only send back the data if it falls within the requested 6-week window
+                if (rowDate >= startDate && rowDate <= endDate) {
+                    const cases = parseInt(casesStr) || 0;
+                    const parseTime = (t) => {
+                        if (!t || t === "-" || t === "N/A") return 0;
+                        let m = 0;
+                        const hMatch = t.match(/(\d+)h/);
+                        const mMatch = t.match(/(\d+)m/);
+                        if (hMatch) m += parseInt(hMatch[1]) * 60;
+                        if (mMatch) m += parseInt(mMatch[1]);
+                        return m;
+                    };
+
+                    // Format back to string for the React frontend
+                    allData[name].push({
+                        date: `${parts[2]}-${parts[1]}-${parts[0]}T00:00:00`,
+                        cases: cases,
+                        activeMins: parseTime(activeStr),
+                        idleMins: parseTime(idleStr)
+                    });
+                }
+            }
+
+            return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: JSON.stringify(allData) };
+        } catch (error) {
+            return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
+        }
+    }
+    // ------------------------------
 
     // 6. IF MIDNIGHT: Write to Google Sheets
     if (!DAILY_LEDGER_SHEET_ID || !GOOGLE_SERVICE_ACCOUNT_EMAIL || !GOOGLE_PRIVATE_KEY) {
        return { statusCode: 500, body: JSON.stringify({ error: "Missing Google Sheets Env Vars" }) };
     }
 
-    const formattedKey = GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n');
-    const authClient = new google.auth.JWT(
-      GOOGLE_SERVICE_ACCOUNT_EMAIL, null, formattedKey, ['https://www.googleapis.com/auth/spreadsheets']
-    );
+    // 1. Strip literal quotes from the .env string, then fix the newlines
+    let formattedKey = GOOGLE_PRIVATE_KEY;
+    if (formattedKey.startsWith('"') && formattedKey.endsWith('"')) {
+        formattedKey = formattedKey.slice(1, -1);
+    }
+    formattedKey = formattedKey.replace(/\\n/g, '\n');
+
+    // 2. Use the strict object-based configuration required by newer Google APIs
+    const authClient = new google.auth.JWT({
+      email: GOOGLE_SERVICE_ACCOUNT_EMAIL,
+      key: formattedKey,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets']
+    });
+    
+    // Explicitly force authorization to prevent silent token failures
+    await authClient.authorize();
+    
     const sheets = google.sheets({ version: 'v4', auth: authClient });
 
     await sheets.spreadsheets.values.append({

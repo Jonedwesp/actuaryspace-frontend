@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from "react";
 
-export default function DonnaBubble({ transcription, show, showActions, onApprove, onReject, onClose, onRequestClose }) {
+export default function DonnaBubble({ transcription, show, showActions, isDraft, onApprove, onReject, onClose, onRequestClose }) {
   const containerRef = useRef(null);
   const phaseRef = useRef("hidden"); // hidden | entering | visible | exiting
   const [phase, setPhase] = useState("hidden");
@@ -71,14 +71,14 @@ export default function DonnaBubble({ transcription, show, showActions, onApprov
         }
       `}</style>
 
-      <div style={styles.transcription}>{transcription}</div>
+ <div style={styles.transcription}>{transcription}</div>
 
-      {showActions && (
+      {(showActions || (transcription || "").toLowerCase().includes("approve")) && (
         <div style={styles.actionContainer}>
           <button onClick={onReject} style={{ ...styles.button, ...styles.rejectButton }}>Reject</button>
           <button onClick={onApprove} style={{ ...styles.button, ...styles.approveButton }}>
-            {(transcription || "").toLowerCase().includes("review") ? "Open Review" : "Approve"}
-          </button>
+      {isDraft ? "Open Review" : "Approve"}
+    </button>
         </div>
       )}
     </div>

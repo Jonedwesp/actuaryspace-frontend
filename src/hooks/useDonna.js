@@ -6,7 +6,9 @@ export function useDonna({
   onTranscription,
   onResponseDelta,
   onResponseEnd,
+  onAudioDone,
   onFunctionCall,
+  onSpeechStart,
   onError,
 }) {
   const [isConnected, setIsConnected] = useState(false);
@@ -15,12 +17,14 @@ export function useDonna({
   const isConnectingRef = useRef(false);
   const lastResponseIdRef = useRef(null);
   const lastUserItemIdRef = useRef(null);
+  const audioAnalyserRef = useRef(null);
+  const silenceRafRef = useRef(null);
 
   // Keep callbacks and config current without causing reconnects
   const callbacksRef = useRef({});
   useEffect(() => {
-    callbacksRef.current = { onTranscription, onResponseDelta, onResponseEnd, onFunctionCall, onError };
-  }, [onTranscription, onResponseDelta, onResponseEnd, onFunctionCall, onError]);
+    callbacksRef.current = { onTranscription, onResponseDelta, onResponseEnd, onAudioDone, onFunctionCall, onSpeechStart, onError };
+  }, [onTranscription, onResponseDelta, onResponseEnd, onFunctionCall, onSpeechStart, onError]);
 
   const configRef = useRef({ instructions, tools });
   useEffect(() => {
@@ -28,10 +32,12 @@ export function useDonna({
   }, [instructions, tools]);
 
   const disconnectDonna = useCallback(() => {
+    cancelAnimationFrame(silenceRafRef.current);
     dcRef.current?.close();
     pcRef.current?.close();
     pcRef.current = null;
     dcRef.current = null;
+    audioAnalyserRef.current = null;
     setIsConnected(false);
     isConnectingRef.current = false;
   }, []);
@@ -65,6 +71,20 @@ export function useDonna({
         const stream = (e.streams && e.streams[0]) ? e.streams[0] : new MediaStream([e.track]);
         audioEl.srcObject = stream;
         audioEl.play().catch(err => console.warn("[Donna] Audio play blocked:", err));
+
+        // Set up Web Audio analyser so we can detect actual playback silence
+        try {
+          const ctx = new AudioContext();
+          ctx.resume().catch(() => {});
+          const src = ctx.createMediaStreamSource(stream);
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 256;
+          analyser.smoothingTimeConstant = 0.3;
+          src.connect(analyser);
+          audioAnalyserRef.current = analyser;
+        } catch (err) {
+          console.warn("[Donna] Analyser setup failed:", err);
+        }
       };
 
       // 4. Add mic track — falls back to silent track if mic is denied (OpenAI requires audio in SDP)
@@ -106,7 +126,10 @@ export function useDonna({
           type: "session.update",
           session: {
             instructions: inst || "You are Agent Donna, a professional actuarial assistant.",
-            modalities: ["text"],
+            modalities: ["text", "audio"],
+            voice: "marin",
+            speed: 1.4,
+            // alloy, sage, shimmer, marin.
             input_audio_transcription: { model: "gpt-4o-mini-transcribe" },
             turn_detection: {
               type: "server_vad",
@@ -131,6 +154,10 @@ export function useDonna({
           console.log("[Donna Event]:", t, event);
         }
 
+        if (t === "input_audio_buffer.speech_started") {
+          cb.onSpeechStart?.();
+        }
+
         // Track the latest user audio item ID so we can delete it if no wake word
         if (t === "conversation.item.created" && event.item?.role === "user") {
           lastUserItemIdRef.current = event.item.id;
@@ -151,6 +178,31 @@ export function useDonna({
             args,
             call_id: event.call_id
           });
+        } else if (t === "response.audio.done") {
+          // Audio transmission finished — poll the actual stream for silence before firing onAudioDone
+          cancelAnimationFrame(silenceRafRef.current);
+          const analyser = audioAnalyserRef.current;
+          if (!analyser) {
+            setTimeout(() => callbacksRef.current.onAudioDone?.(), 800);
+          } else {
+            const buf = new Uint8Array(analyser.frequencyBinCount);
+            let silentSince = null;
+            const poll = () => {
+              analyser.getByteFrequencyData(buf);
+              const peak = Math.max(...buf);
+              if (peak < 6) {
+                if (!silentSince) silentSince = Date.now();
+                else if (Date.now() - silentSince > 400) {
+                  callbacksRef.current.onAudioDone?.();
+                  return;
+                }
+              } else {
+                silentSince = null;
+              }
+              silenceRafRef.current = requestAnimationFrame(poll);
+            };
+            silenceRafRef.current = requestAnimationFrame(poll);
+          }
         } else if (t === "response.done") {
           // Clear any audio buffered during Donna's response (prevents echo re-submission)
           setTimeout(() => {

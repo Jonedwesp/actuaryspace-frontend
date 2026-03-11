@@ -26,14 +26,24 @@ export const handler = async (event) => {
     const topCardsMap = new Map();
 
     lists.forEach(list => {
-       const listName = list.name.trim();
-       const matchedUser = targetUsers.find(u => u.toLowerCase() === listName.toLowerCase());
-       if (matchedUser) {
-           const listCards = allCards.filter(c => c.idList === list.id).sort((a, b) => a.pos - b.pos);
-           const activeCards = listCards.filter(c => !c.name.toLowerCase().includes("out of office") && !c.name.toLowerCase().includes("away from cases"));
-           if (activeCards.length > 0) topCardsMap.set(activeCards[0].id, matchedUser);
-       }
-    });
+       const listName = list.name.trim();
+       const matchedUser = targetUsers.find(u => u.toLowerCase() === listName.toLowerCase());
+       if (matchedUser) {
+           const listCards = allCards.filter(c => c.idList === list.id).sort((a, b) => a.pos - b.pos);
+           if (listCards.length > 0) {
+               const absoluteTopCard = listCards[0];
+               const isAwayCard = absoluteTopCard.name.toLowerCase().includes("out of office") || absoluteTopCard.name.toLowerCase().includes("away from cases");
+               
+               // If the top card is NOT an away card, assign it the idle tracker
+               if (!isAwayCard) {
+                   topCardsMap.set(absoluteTopCard.id, matchedUser);
+               }
+               // If it IS an away card, NO card gets the tracker. 
+               // The backend will naturally close out the previous card's session, 
+               // save its accumulated time, and delete its arrival timestamp!
+           }
+       }
+    });
     const apiUpdates = [];
     const nowTs = Date.now();
 

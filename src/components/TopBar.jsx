@@ -98,7 +98,14 @@ export function TopBar({
               })()}
             </div>
 
-            <button className="connect-google-btn" type="button">
+            <button
+              className={`connect-google-btn${currentView.app === "whatsapp" ? " nav-active" : ""}`}
+              onClick={() => {
+                if (currentView.app === "whatsapp") { setCurrentView({ app: "none", contact: null }); }
+                else { setCurrentView({ app: "whatsapp", contact: null }); }
+              }}
+              type="button"
+            >
               <img src={whatsappIcon} alt="WhatsApp" />
               WhatsApp
             </button>

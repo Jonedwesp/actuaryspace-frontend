@@ -13,27 +13,46 @@ export const handler = async (event) => {
 
     let realTargetId = targetListId;
 
-    // 🌟 THE INTERCEPTOR: If frontend sent a fake ID, look up the real one dynamically!
-    if (realTargetId.startsWith("list-") || realTargetId.length !== 24) {
-        if (!targetListName) return { statusCode: 400, body: JSON.stringify({ error: "Missing list name to resolve fake ID" }) };
-        
-        // 1. Ask Trello which board this card belongs to
-        const cardRes = await fetch(`https://api.trello.com/1/cards/${cardId}?fields=idBoard&${auth}`);
+    // 🌟 ARCHITECT'S UPGRADE: Trust the targetListName over the ID if provided.
+    // This allows Donna to survive phonetic hallucinations like "Sia" or "Sear".
+    if (targetListName || realTargetId.startsWith("list-") || realTargetId.length !== 24) {
+        
+        // 1. Ask Trello which board this card belongs to
+        const cardRes = await fetch(`https://api.trello.com/1/cards/${cardId}?fields=idBoard&${auth}`);
+        if (!cardRes.ok) return { statusCode: 404, body: JSON.stringify({ error: "Card not found on Trello." }) };
         const cardData = await cardRes.json();
 
-        // 2. Fetch all lists on that board
-        const listsRes = await fetch(`https://api.trello.com/1/boards/${cardData.idBoard}/lists?fields=id,name&${auth}`);
-        const listsData = await listsRes.json();
+        // 2. Fetch all lists on that board
+        const listsRes = await fetch(`https://api.trello.com/1/boards/${cardData.idBoard}/lists?fields=id,name&${auth}`);
+        const listsData = await listsRes.json();
 
-        // 3. Find the real list ID by matching the name
-        const realList = listsData.find(l => l.name.toLowerCase().trim() === targetListName.toLowerCase().trim());
-        
-        if (realList) {
-            realTargetId = realList.id;
-        } else {
-            return { statusCode: 404, body: JSON.stringify({ error: `Could not find real ID for list named ${targetListName}` }) };
-        }
-    }
+        // 3. Find the real list ID by matching the name
+        console.log(`[Backend] Resolving list for: "${targetListName || realTargetId}"`);
+        
+        const searchStr = (targetListName || "").toLowerCase().trim();
+        const realList = listsData.find(l => {
+            const listName = l.name.toLowerCase().trim();
+            // If we don't have a name, match by the ID we were given
+            if (!searchStr) return l.id === realTargetId;
+            
+            return listName === searchStr || 
+                   listName.includes(searchStr) || 
+                   searchStr.includes(listName) ||
+                   ((searchStr === "sia" || searchStr === "sear") && listName === "siya"); 
+        });
+        
+        if (realList) {
+            console.log(`[Backend] Resolved to: ${realList.name} (${realList.id})`);
+            realTargetId = realList.id;
+        } else if (realTargetId.length !== 24) {
+            // Only fail if we couldn't find a name match AND the ID is garbage
+            console.error(`[Backend] RESOLUTION FAILED. Available lists:`, listsData.map(l => l.name));
+            return { 
+              statusCode: 400, 
+              body: JSON.stringify({ ok: false, error: `Trello bucket "${targetListName || realTargetId}" not found.` }) 
+            };
+        }
+    }
 
     // Now proceed with normal position math using the realTargetId
     const listRes = await fetch(`https://api.trello.com/1/lists/${realTargetId}/cards?fields=id,pos&${auth}`);

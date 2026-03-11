@@ -25,64 +25,41 @@ export const DONNA_TOOLS = [
     }
   },
 
-  // calendar-create.js
-  {
-    "type": "function",
-    "function": {
-      "name": "calendar_create",
-      "description": "Creates a new event in the Google Calendar and automatically generates a Google Meet link. Use this when the user asks to schedule a meeting or block out time.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "summary": { "type": "string", "description": "The title of the calendar event." },
-          "description": { "type": "string", "description": "Detailed notes or description for the event." },
-          "location": { "type": "string", "description": "The physical location of the event, if applicable." },
-          "start": {
-            "type": "object",
-            "description": "The start time of the event. Must include 'dateTime' (ISO 8601 format) and 'timeZone' (e.g., 'Africa/Johannesburg').",
-            "properties": {
-              "dateTime": { "type": "string", "description": "ISO 8601 formatted date and time, e.g., '2026-03-10T09:00:00+02:00'" },
-              "timeZone": { "type": "string", "description": "The IANA timezone ID, e.g., 'Africa/Johannesburg'" }
-            },
-            "required": ["dateTime", "timeZone"]
-          },
-          "end": {
-            "type": "object",
-            "description": "The end time of the event. Must include 'dateTime' (ISO 8601 format) and 'timeZone'.",
-            "properties": {
-              "dateTime": { "type": "string", "description": "ISO 8601 formatted date and time, e.g., '2026-03-10T10:00:00+02:00'" },
-              "timeZone": { "type": "string", "description": "The IANA timezone ID, e.g., 'Africa/Johannesburg'" }
-            },
-            "required": ["dateTime", "timeZone"]
-          },
-          "attendees": {
-            "type": "array",
-            "description": "List of attendees to invite to the event.",
-            "items": {
-              "type": "object",
-              "properties": { "email": { "type": "string", "description": "The email address of the attendee." } },
-              "required": ["email"]
-            }
-          }
-        },
-        "required": ["summary", "start", "end"]
-      }
-    }
-  },
+// calendar-create.js
+  {
+    "type": "function",
+    "function": {
+      "name": "calendar_create",
+      "description": "Creates a new event in the Google Calendar and automatically generates a Google Meet link. Use this when the user asks to schedule a meeting or block out time.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "summary": { "type": "string", "description": "The title of the calendar event." },
+          "description": { "type": "string", "description": "Detailed notes or description for the event." },
+          "location": { "type": "string", "description": "The physical location of the event, if applicable." },
+          "date": { "type": "string", "description": "REQUIRED. The exact date of the event strictly in YYYY-MM-DD format. Do not use words like 'today' or 'tomorrow'." },
+          "startTime": { "type": "string", "description": "The start time of the event in 24-hour format, e.g. '09:00' or '14:30'." },
+          "endTime": { "type": "string", "description": "The end time of the event in 24-hour format, e.g. '10:00' or '15:30'." },
+          "guests": { "type": "string", "description": "Comma-separated list of guest email addresses." }
+        },
+        "required": ["summary", "date"]
+      }
+    }
+  },
 
-  // calendar-delete.js
-  {
-    "type": "function",
-    "function": {
-      "name": "calendar_delete",
-      "description": "Deletes an existing event from the user's Google Calendar. Use this when the user asks to cancel, remove, or delete a scheduled meeting or event.",
-      "parameters": {
-        "type": "object",
-        "properties": { "eventId": { "type": "string", "description": "The unique Google Calendar ID of the event to be deleted." } },
-        "required": ["eventId"]
-      }
-    }
-  },
+ // calendar-delete.js
+  {
+    "type": "function",
+    "function": {
+      "name": "calendar_delete",
+      "description": "Deletes an existing event from the user's Google Calendar. Use this when the user asks to cancel, remove, or delete a scheduled meeting or event.",
+      "parameters": {
+        "type": "object",
+        "properties": { "eventTitle": { "type": "string", "description": "The exact title or summary of the event to be deleted (e.g., 'Donna Test')." } },
+        "required": ["eventTitle"]
+      }
+    }
+  },
 
   // calendar-events.js
   {
@@ -191,21 +168,38 @@ export const DONNA_TOOLS = [
     }
   },
 
-  // gchat-mark-read.js
-  {
-    "type": "function",
-    "function": {
-      "name": "gchat_mark_read_status",
-      "description": "Marks a Google Chat space as read. Use this when the user asks to clear notifications or mark a chat as seen.",
-      "parameters": {
-        "type": "object",
-        "properties": { "spaceId": { "type": "string", "description": "The Google Chat space ID to mark as read." } },
-        "required": ["spaceId"]
-      }
-    }
-  },
+// gchat-mark-read.js
+  {
+    "type": "function",
+    "function": {
+      "name": "gchat_mark_read_status",
+      "description": "Marks a Google Chat space as read. Use this when the user asks to clear notifications or mark a chat as seen.",
+      "parameters": {
+        "type": "object",
+        "properties": { "spaceId": { "type": "string", "description": "The Google Chat space ID to mark as read." } },
+        "required": ["spaceId"]
+      }
+    }
+  },
 
-  // gchat-messages.js
+  // gchat-mute.js
+  {
+    "type": "function",
+    "function": {
+      "name": "gchat_mute_space",
+      "description": "Mutes or unmutes a specific Google Chat space or direct message. Use this when the user asks to mute a chat, silence a conversation, or unmute someone.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "spaceId": { "type": "string", "description": "The Google Chat space ID to mute or unmute. If the user doesn't specify, you can omit this to target the currently open chat." },
+          "mute": { "type": "boolean", "description": "True to mute the space, false to unmute it." }
+        },
+        "required": ["mute"]
+      }
+    }
+  },
+
+  // gchat-messages.js
   {
     "type": "function",
     "function": {
@@ -543,23 +537,22 @@ export const DONNA_TOOLS = [
     }
   },
 
-  // trello-create-card.js
-  {
-    "type": "function",
-    "function": {
-      "name": "trello_create_case_card",
-      "description": "Creates a new Trello Case Card based on instruction text.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "caseCardText": { "type": "string", "description": "The raw text block containing the case instructions." },
-          "instructionTimeIso": { "type": "string", "description": "Optional. The ISO timestamp of when the instruction was received." },
-          "fallbackDescription": { "type": "string", "description": "Optional. Fallback text for the description if parsing fails." }
-        },
-        "required": ["caseCardText"]
-      }
-    }
-  },
+  // trello-add-card.js
+  {
+    "type": "function",
+    "function": {
+      "name": "trello_add_simple_card",
+      "description": "Creates a basic, generic Trello card. You MUST provide the numerical targetListId (idList). If you do not have the ID for the list Siya mentioned, call 'trello_get_lists' first.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "description": "The title of the task or card." },
+          "idList": { "type": "string", "description": "The unique numerical ID of the Trello list. Do not use the name (e.g., 'Siya'); use the ID from your context or trello_get_lists." }
+        },
+        "required": ["name", "idList"]
+      }
+    }
+  },
 
   // trello-set-description.js
   {
@@ -820,21 +813,37 @@ export const DONNA_TOOLS = [
     }
   },
 
-  // trello-attachments.js
-  {
-    "type": "function",
-    "function": {
-      "name": "trello_manage_attachments",
-      "description": "Lists all attachments on a Trello card, or deletes a specific attachment.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "action": { "type": "string", "enum": ["list", "delete"], "description": "'list' to fetch all attachments on a card, 'delete' to remove a specific one." },
-          "cardId": { "type": "string", "description": "The ID of the Trello card." },
-          "idAttachment": { "type": "string", "description": "Required for 'delete'. The ID of the specific attachment to remove." }
-        },
-        "required": ["action", "cardId"]
-      }
-    }
-  }
+// trello-attachments.js
+  {
+    "type": "function",
+    "function": {
+      "name": "trello_manage_attachments",
+      "description": "Lists all attachments on a Trello card, or deletes a specific attachment.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": { "type": "string", "enum": ["list", "delete"], "description": "'list' to fetch all attachments on a card, 'delete' to remove a specific one." },
+          "cardId": { "type": "string", "description": "The ID of the Trello card." },
+          "idAttachment": { "type": "string", "description": "Required for 'delete'. The ID of the specific attachment to remove." }
+        },
+        "required": ["action", "cardId"]
+      }
+    }
+  },
+
+  // system-toggle-mute
+  {
+    "type": "function",
+    "function": {
+      "name": "system_toggle_mute",
+      "description": "Mutes or unmutes all system-wide notifications across all apps (Gmail, GChat, Trello, Calendar). Use this when the user asks to mute everything, silence notifications, or turn off sounds.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "mute": { "type": "boolean", "description": "True to mute all notifications, false to unmute them." }
+        },
+        "required": ["mute"]
+      }
+    }
+  }
 ];

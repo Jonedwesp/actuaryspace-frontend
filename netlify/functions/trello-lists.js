@@ -26,6 +26,10 @@ export const handler = async (event) => {
        // Fetch every list on the board
        const listsRes = await trelloRequest(`/1/boards/${board.id}/lists?fields=id,name&key=${key}&token=${token}`);
        if (listsRes.status === 200 && Array.isArray(listsRes.data)) {
+           // 🔍 RUAN'S ID CAPTURE: Prints every list name and ID to your console
+           listsRes.data.forEach(list => {
+             console.log(`[Trello ID Map] Board: ${board.name} | List: ${list.name} | ID: ${list.id}`);
+           });
            allLists = allLists.concat(listsRes.data);
        }
     }
