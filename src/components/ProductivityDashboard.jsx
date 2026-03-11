@@ -137,9 +137,9 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
       const allCardsOnBoard = trelloBuckets.flatMap(b => b.cards);
 
       allCardsOnBoard.forEach(c => {
-        let savedDurations = {};
-        const rawDur = c.customFields?.WorkLog || "{}";
-        try {
+        let savedDurations = {};
+        const rawDur = c.customFields?.WorkLog || "{}";
+        try {
           if (!rawDur.startsWith("{")) {
             savedDurations = { [c.list]: parseFloat(rawDur) || 0 };
           } else {
@@ -164,10 +164,10 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
       });
 
       if (totalMinutes === 0) return "0h 0m";
-        const hours = Math.floor(totalMinutes / 60);
-        const mins = Math.floor(totalMinutes % 60);
-        return `${hours}h ${mins}m`;
-      };
+      const hours = Math.floor(totalMinutes / 60);
+      const mins = Math.floor(totalMinutes % 60);
+      return `${hours}h ${mins}m`;
+    };
 
       const isAway = status === "🔴";
       return { 

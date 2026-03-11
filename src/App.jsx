@@ -170,8 +170,12 @@ onResponseDelta: (delta, isNew) => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: textToSpeak }),
         })
-          .then((res) => res.arrayBuffer())
+          .then((res) => {
+            if (!res.ok) { res.text().then(t => console.error("[ElevenLabs] Error:", t)); return null; }
+            return res.arrayBuffer();
+          })
           .then((buf) => {
+            if (!buf) return;
             const blob = new Blob([buf], { type: "audio/mpeg" });
             const url = URL.createObjectURL(blob);
             const audio = new Audio(url);
