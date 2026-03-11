@@ -1,29 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { avatarFor } from "../utils/avatarUtils.js";
 
-// 🌟 NEW: Standalone summary banner for the top of the dashboard
-const LiveDailyStatsBanner = ({ stats, loading }) => {
-   if (loading) return <div style={{ marginBottom: '24px', color: '#5e6c84', fontStyle: 'italic' }}>Loading today's live pipeline stats...</div>;
-   if (!stats || Object.keys(stats).length === 0) return null;
-
-   return (
-      <div style={{ background: '#f4f5f7', padding: '16px', borderRadius: '8px', marginBottom: '24px', border: '1px solid #dfe1e6' }}>
-         <h3 style={{ margin: '0 0 12px 0', fontSize: '16px', color: '#172b4d', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            🚀 Cards Sent Today
-         </h3>
-         <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-            {Object.entries(stats).map(([user, count]) => (
-               <div key={user} style={{ background: '#fff', padding: '8px 16px', borderRadius: '4px', border: '1px solid #091e4224', boxShadow: '0 1px 2px rgba(9,30,66,0.08)', minWidth: '100px' }}>
-                  <div style={{ fontSize: '12px', color: '#5e6c84', fontWeight: 600, textTransform: 'uppercase', marginBottom: '4px' }}>
-                    {user === "Siya - Review" ? "Siya (Review)" : user}
-                  </div>
-                  <div style={{ fontSize: '24px', color: '#0052cc', fontWeight: 'bold' }}>{count}</div>
-               </div>
-            ))}
-         </div>
-      </div>
-   );
-};
 
 const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
   const [selectedUser, setSelectedUser] = useState(null);
@@ -160,9 +137,9 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
       const allCardsOnBoard = trelloBuckets.flatMap(b => b.cards);
 
       allCardsOnBoard.forEach(c => {
-        let savedDurations = {};
-        const rawDur = c.customFields?.IdleLog || "{}";
-        try {
+        let savedDurations = {};
+        const rawDur = c.customFields?.WorkLog || "{}";
+        try {
           if (!rawDur.startsWith("{")) {
             savedDurations = { [c.list]: parseFloat(rawDur) || 0 };
           } else {
@@ -187,14 +164,22 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
       });
 
       if (totalMinutes === 0) return "0h 0m";
-      const hours = Math.floor(totalMinutes / 60);
-      const mins = Math.floor(totalMinutes % 60);
-      return `${hours}h ${mins}m`;
-    };
+        const hours = Math.floor(totalMinutes / 60);
+        const mins = Math.floor(totalMinutes % 60);
+        return `${hours}h ${mins}m`;
+      };
 
-   return { status, currentTask, reviewCount, cardCount: activeCards.length, timeLogged: calculateArrivalTime(), activeTimer: calculateActiveTimer(), allUserCards: allAssignedCards };
+      const isAway = status === "🔴";
+      return { 
+        status, 
+        currentTask, 
+        reviewCount: isAway ? "-" : reviewCount, 
+        cardCount: isAway ? "-" : activeCards.length, 
+        timeLogged: isAway ? "-" : calculateArrivalTime(), 
+        activeTimer: isAway ? "-" : calculateActiveTimer(), 
+        allUserCards: allAssignedCards 
+      };
   };
-
   const metrics = selectedUser ? getUserMetrics(selectedUser) : null;
   const allUserCards = metrics?.allUserCards || [];
 
@@ -216,7 +201,7 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
             <div style={{ display: "flex", gap: "24px" }}>
               <div className="prod-metric">
                 <span className="prod-metric-label">Output</span>
-                <span className="prod-metric-value highlight" style={{ color: "#1f1f1f" }}>{metrics.reviewCount} Cases</span>
+                <span className="prod-metric-value highlight" style={{ color: "#1f1f1f" }}>{metrics.reviewCount === "-" ? "-" : `${metrics.reviewCount} Cases`}</span>
               </div>
               <div className="prod-metric">
                 <span className="prod-metric-label">Logged</span>
@@ -249,10 +234,11 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
                 ) : (
                   allUserCards.map(c => {
                     // 🌟 NEW: Calculate accumulated + currently ticking Idle Time
-                    let idleMins = 0;
-                    try {
-                        const durObj = JSON.parse(topCard.customFields?.IdleLog || "{}");
-                        idleMins += parseFloat(durObj[`${selectedUser}_idle`] || 0);
+                    // 🌟 NEW: Calculate accumulated + currently ticking Idle Time
+                    let idleMins = 0;
+                    try {
+                        const durObj = JSON.parse(c.customFields?.IdleLog || "{}");
+                        idleMins += parseFloat(durObj[`${selectedUser}_idle`] || 0);
                         
                         // Add live ticking time if it is CURRENTLY at the top
                         if (durObj._topReachedAt && durObj._topUser === selectedUser) {
@@ -288,8 +274,7 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
         </div>
       ) : (
         <>
-          {/* 🌟 NEW: The Live Summary Banner Drop-in! */}
-          <LiveDailyStatsBanner stats={dailySentStats} loading={isLoadingStats} />
+        
 
           <div className="prod-grid">
             {TARGET_USERS.map(user => {

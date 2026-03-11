@@ -1520,17 +1520,6 @@ const isWord = ["doc", "docx"].includes(ext);
           </button>
         )}
 
-        {/* Gradient shadow above chat bar */}
-        <div style={{
-          position: "absolute",
-          bottom: chatBarHeight,
-          left: 0,
-          right: 0,
-          height: "52px",
-          background: "linear-gradient(to bottom, transparent, #fff)",
-          pointerEvents: "none",
-          zIndex: 9,
-        }} />
 
       </div>
 

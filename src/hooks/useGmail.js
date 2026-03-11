@@ -118,42 +118,48 @@ export function useGmail({ currentView, triggerSnackbar, reportSystemError, clea
   };
 
   const handleToggleStar = async (e, msgId, currentStarred) => {
-    if (!msgId) {
-      console.error("Starring failed: messageId is missing or undefined.");
-      return;
-    }
-    if (e) {
-      e.stopPropagation();
-      e.preventDefault();
-    }
-    const nextStarredState = !currentStarred;
-    setGmailEmails(prev => prev.map(msg =>
-      (msg && msg.id === msgId) ? { ...msg, isStarred: nextStarredState } : msg
-    ));
-    setEmail(prev => {
-      if (prev && prev.id === msgId) return { ...prev, isStarred: nextStarredState };
-      return prev;
-    });
-    try {
-      const response = await fetch("/.netlify/functions/gmail-toggle-star", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messageId: msgId, starred: nextStarredState })
-      });
-      if (!response.ok) throw new Error("Sync failed");
-      if (!nextStarredState && gmailFolder === "STARRED") {
-        setGmailEmails(prev => prev.filter(msg => msg.id !== msgId));
-      }
-    } catch (err) {
-      console.error("Starring sync failed:", err);
-      setGmailEmails(prev => prev.map(msg =>
-        (msg && msg.id === msgId) ? { ...msg, isStarred: currentStarred } : msg
-      ));
-      setEmail(prev => (prev && prev.id === msgId) ? { ...prev, isStarred: currentStarred } : prev);
-      triggerSnackbar("Failed to update star status");
-    }
-  };
+    if (!msgId) {
+      console.error("Starring failed: messageId is missing or undefined.");
+      return;
+    }
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    const nextStarredState = !currentStarred;
+    
+    // 🎯 FIX: Cast both IDs to strings for a bulletproof match
+    const targetId = String(msgId).trim();
+
+    setGmailEmails(prev => (prev || []).map(msg =>
+      (msg && String(msg.id).trim() === targetId) ? { ...msg, isStarred: nextStarredState } : msg
+    ));
+    
+    setEmail(prev => {
+      if (prev && String(prev.id).trim() === targetId) return { ...prev, isStarred: nextStarredState };
+      return prev;
+    });
+
+    try {
+      const response = await fetch("/.netlify/functions/gmail-toggle-star", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId: targetId, starred: nextStarredState })
+      });
+      if (!response.ok) throw new Error("Sync failed");
+      if (!nextStarredState && gmailFolder === "STARRED") {
+        setGmailEmails(prev => (prev || []).filter(msg => String(msg.id).trim() !== targetId));
+      }
+    } catch (err) {
+      console.error("Starring sync failed:", err);
+      setGmailEmails(prev => (prev || []).map(msg =>
+        (msg && String(msg.id).trim() === targetId) ? { ...msg, isStarred: currentStarred } : msg
+      ));
+      setEmail(prev => (prev && String(prev.id).trim() === targetId) ? { ...prev, isStarred: currentStarred } : prev);
+      triggerSnackbar("Failed to update star status");
+    }
+  };
 
   const handleEmailAction = (actionKey) => {
     if (!email) return;

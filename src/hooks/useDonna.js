@@ -14,6 +14,7 @@ export function useDonna({
   const dcRef = useRef(null);
   const isConnectingRef = useRef(false);
   const lastResponseIdRef = useRef(null);
+  const lastUserItemIdRef = useRef(null);
 
   // Keep callbacks and config current without causing reconnects
   const callbacksRef = useRef({});
@@ -105,14 +106,13 @@ export function useDonna({
           type: "session.update",
           session: {
             instructions: inst || "You are Agent Donna, a professional actuarial assistant.",
-            modalities: ["text", "audio"],
-            voice: "marin",
-            speed: 1.4,
+            modalities: ["text"],
             input_audio_transcription: { model: "gpt-4o-mini-transcribe" },
             turn_detection: {
               type: "server_vad",
               threshold: 0.96,
               silence_duration_ms: 1000,
+              create_response: false, // 🛡️ NEVER auto-respond — we manually trigger after wake-word check
             },
             tools: flatTools,
             tool_choice: "auto",
@@ -131,6 +131,11 @@ export function useDonna({
           console.log("[Donna Event]:", t, event);
         }
 
+        // Track the latest user audio item ID so we can delete it if no wake word
+        if (t === "conversation.item.created" && event.item?.role === "user") {
+          lastUserItemIdRef.current = event.item.id;
+        }
+
         if (t === "conversation.item.input_audio_transcription.completed") {
           cb.onTranscription?.(event.transcript);
         } else if (t === "response.audio_transcript.delta" || t === "response.text.delta") {
@@ -139,20 +144,15 @@ export function useDonna({
           lastResponseIdRef.current = event.response_id;
           cb.onResponseDelta?.(event.delta, isNew);
         } else if (t === "response.function_call_arguments.done") {
-          // IMPORTANT: OpenAI sends the 'name' in a separate 'item' event. 
-          // We need to find the name using the call_id or track the active function.
-          // For now, let's fix the immediate parsing and add a safety check.
           let args = {};
           try { args = JSON.parse(event.arguments); } catch {}
-          
-          // Use the event.name if present, but usually we need to map the ID.
-          cb.onFunctionCall?.({ 
-            name: event.name, 
-            args, 
-            call_id: event.call_id 
+          cb.onFunctionCall?.({
+            name: event.name,
+            args,
+            call_id: event.call_id
           });
-        } else if (t === "output_audio_buffer.stopped") {
-          // Clear any audio that leaked into the buffer during playback
+        } else if (t === "response.done") {
+          // Clear any audio buffered during Donna's response (prevents echo re-submission)
           setTimeout(() => {
             if (dcRef.current?.readyState === "open") {
               dcRef.current.send(JSON.stringify({ type: "input_audio_buffer.clear" }));
@@ -246,5 +246,35 @@ export function useDonna({
     }
   }, []);
 
-  return { isConnected, connectDonna, disconnectDonna, sendSessionUpdate, sendToolResponse, sendText };
+  // 🛡️ Manually trigger a response — called only after wake-word is confirmed
+  const sendResponseCreate = useCallback(() => {
+    if (dcRef.current?.readyState === "open") {
+      dcRef.current.send(JSON.stringify({ type: "response.create" }));
+    }
+  }, []);
+
+  // 🗑️ Delete the last user audio item — called when no wake word detected (keeps conversation clean)
+  const deleteLastUserItem = useCallback(() => {
+    const itemId = lastUserItemIdRef.current;
+    if (itemId && dcRef.current?.readyState === "open") {
+      dcRef.current.send(JSON.stringify({
+        type: "conversation.item.delete",
+        item_id: itemId,
+      }));
+      lastUserItemIdRef.current = null;
+    }
+  }, []);
+
+  return {
+    isConnected,
+    connectDonna,
+    disconnectDonna,
+    sendSessionUpdate,
+    sendToolResponse,
+    sendText,
+    sendResponseCreate,
+    deleteLastUserItem,
+    pcRef,
+    dcRef,
+  };
 }

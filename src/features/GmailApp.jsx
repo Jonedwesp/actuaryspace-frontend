@@ -6,49 +6,83 @@ import { timeAgo } from "../components/ActivityPane.jsx";
 import { EmailMetadata, EmailSignature } from "../components/RightPanel.jsx";
 
 export function GmailApp({
-  // --- Computed ---
-  filteredEmails,
-  combinedContacts,
-  // --- State ---
-  gmailEmails, setGmailEmails,
-  gmailLoading, setGmailLoading,
-  gmailError, setGmailError,
-  gmailFolder, setGmailFolder,
-  gmailRefreshTrigger, setGmailRefreshTrigger,
-  gmailPage, setGmailPage,
-  gmailTotal, setGmailTotal,
-  gmailPageTokens, setGmailPageTokens,
-  selectedEmailIds, setSelectedEmailIds,
-  hoveredEmailId, setHoveredEmailId,
-  email, setEmail,
-  emailPreview, setEmailPreview,
-  showEmailDetails, setShowEmailDetails,
-  selectedDraftTemplate, setSelectedDraftTemplate,
-  draftTo, setDraftTo,
-  draftAttachments, setDraftAttachments,
-  isDraftEnlarged, setIsDraftEnlarged,
-  showDraftPicker, setShowDraftPicker,
-  searchQuery, setSearchQuery,
-  otherContacts, setOtherContacts,
-  historyContacts, setHistoryContacts,
-  draftPos, setDraftPos,
-  currentView, setCurrentView,
-  batchStatus,
-  setReviewingDoc,
-  setIsLiveCallActive,
-  setSnackbar,
-  // --- Refs ---
-  draftFileInputRef,
-  draftWindowRef,
-  isDraggingDraft,
-  htmlTooltipRef,
+  // --- Computed ---
+  filteredEmails,
+  combinedContacts,
+  // --- State ---
+  gmailEmails, setGmailEmails,
+  gmailLoading, setGmailLoading,
+  gmailError, setGmailError,
+  gmailFolder, setGmailFolder,
+  gmailRefreshTrigger, setGmailRefreshTrigger,
+  gmailPage, setGmailPage,
+  gmailTotal, setGmailTotal,
+  gmailPageTokens, setGmailPageTokens,
+  selectedEmailIds, setSelectedEmailIds,
+  hoveredEmailId, setHoveredEmailId,
+  email, setEmail,
+  emailPreview, setEmailPreview,
+  showEmailDetails, setShowEmailDetails,
+  selectedDraftTemplate, setSelectedDraftTemplate,
+  draftTo, setDraftTo,
+  draftAttachments, setDraftAttachments,
+  isDraftEnlarged, setIsDraftEnlarged,
+  showDraftPicker, setShowDraftPicker,
+  searchQuery, setSearchQuery,
+  otherContacts, setOtherContacts,
+  historyContacts, setHistoryContacts,
+  draftPos, setDraftPos,
+  currentView, setCurrentView,
+  batchStatus,
+  setReviewingDoc,
+  setIsLiveCallActive,
+  setSnackbar,
+  handleToggleStar,
+  // --- Refs ---
+  draftFileInputRef,
+  draftWindowRef,
+  isDraggingDraft,
+  htmlTooltipRef,
 // --- Handlers ---
   handleDraftMouseDown, // ⚡ Component can now "see" this function
   triggerSnackbar,
   isDonnaDrafting,
 }) {
+
+ const handleDeleteEmail = async (id) => {
+    const isPerm = gmailFolder === "TRASH";
+    
+    // 0ms Latency Optimistic UI
+    setGmailEmails(prev => prev.filter(e => e.id !== id));
+    setGmailTotal(prev => Math.max(0, prev - 1));
+    
+    if (currentView.app === "email" && email?.id === id) {
+      setCurrentView({ app: "gmail", contact: null });
+      setEmail(null);
+    }
+    
+    triggerSnackbar(
+      isPerm ? "Message permanently deleted." : "Conversation moved to Trash.",
+      isPerm ? null : { type: "delete", ids: [id] }
+    );
+
+    try {
+      await fetch("/.netlify/functions/gmail-delete-bulk", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageIds: [id], permanent: isPerm })
+      });
+      // Intentionally omitting setGmailRefreshTrigger here so deleting multiple emails quickly doesn't cause screen flickering
+    } catch (err) {
+      console.error("Delete failed", err);
+    }
+  };
+
+  const deleteModal = null;
+
 if (currentView.app === "gmail") {
-    const allSelected = (filteredEmails || []).length > 0 && selectedEmailIds.size === filteredEmails.length;
+    const allSelected = (filteredEmails || []).length > 0 && selectedEmailIds.size === filteredEmails.length;
 
     const toggleSelectAll = () => {
       if (allSelected) setSelectedEmailIds(new Set());
@@ -56,24 +90,25 @@ if (currentView.app === "gmail") {
     };
 
  const handleDeleteSelected = async () => {
-      const snapshotIds = Array.from(selectedEmailIds);
-      if (snapshotIds.length === 0) return;
-      
-      const isPerm = gmailFolder === "TRASH";
-      const countToRemove = snapshotIds.length;
-      
-      // 1. OPTIMISTIC COUNT REDUCTION: Subtract from the total immediately
-      setGmailTotal(prev => Math.max(0, prev - countToRemove));
-      setGmailLoading(true);
-      
-      try {
-        const bulkResponse = await fetch("/.netlify/functions/gmail-delete-bulk", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messageIds: snapshotIds, permanent: isPerm })
-        });
+      const snapshotIds = Array.from(selectedEmailIds);
+      if (snapshotIds.length === 0) return;
+      
+      const isPerm = gmailFolder === "TRASH";
+      const countToRemove = snapshotIds.length;
+      
+      // 1. OPTIMISTIC COUNT REDUCTION: Subtract from the total immediately
+      setGmailTotal(prev => Math.max(0, prev - countToRemove));
+      setGmailLoading(true);
+      
+      try {
+        const bulkResponse = await fetch("/.netlify/functions/gmail-delete-bulk", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messageIds: snapshotIds, permanent: isPerm })
+        });
 
-        const bulkResult = await bulkResponse.json().catch(() => ({ ok: bulkResponse.ok }));
+        const bulkResult = await bulkResponse.json().catch(() => ({ ok: bulkResponse.ok }));
 
         if (bulkResponse.ok && bulkResult.ok) {
           setSelectedEmailIds(new Set());
@@ -600,26 +635,25 @@ if (currentView.app === "gmail") {
               </div>
 
               {/* ⭐ STAR ICON CONTAINER */}
-<div 
-  style={{ 
-    cursor: "pointer", 
-    fontSize: "20px", 
-    display: "grid", 
-    placeItems: "center",
-    color: msg.isStarred ? "#f2d600" : "#c1c7d0",
-    transition: "transform 0.1s ease"
-  }}
-  onMouseEnter={e => e.currentTarget.style.transform = "scale(1.2)"}
-  onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
-  onClick={(e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    // ⚡ FIX: Use 'msg' from the .map iterator, not the global 'email' state
-    handleToggleStar(e, msg.id, msg.isStarred);
-  }}
->
-  {msg.isStarred ? "★" : "☆"}
-</div>
+              <div 
+                style={{ 
+                  cursor: "pointer", 
+                  fontSize: "20px", 
+                  display: "grid", 
+                  placeItems: "center",
+                  color: msg.isStarred ? "#f2d600" : "#c1c7d0",
+                  transition: "transform 0.1s ease"
+                }}
+                onMouseEnter={e => e.currentTarget.style.transform = "scale(1.2)"}
+                onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleToggleStar(e, msg.id, msg.isStarred);
+                }}
+              >
+                {msg.isStarred ? "★" : "☆"}
+              </div>
        {/* Sender Name */}
               <div style={{ width: "200px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: "#202124" }}>
                 {(() => {
@@ -1118,69 +1152,11 @@ if (currentView.app === "gmail") {
     );
   }
 
-  if (currentView.app === "email") {
+if (currentView.app === "email") {
       const att = (email && email.attachments) || [];
       const actions = (email && email.actions) || [];
-    
-
-  const handleDeleteEmail = async (id) => {
-        if (!window.confirm("Delete this message?")) return;
-        try {
-          await fetch("/.netlify/functions/gmail-delete", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ messageId: id })
-          });
-          setGmailEmails(prev => prev.filter(e => e.id !== id));
-          setCurrentView({ app: "gmail", contact: null });
-        } catch (err) {
-          console.error("Delete failed", err);
-        }
-      };
-      const handleToggleStar = async (e, msgId, currentStarred) => {
-    if (e) {
-      e.stopPropagation(); 
-      e.preventDefault();  
-    }
-    
-    const nextStarredState = !currentStarred;
-
-    // 1. Update the main list immediately
-    setGmailEmails(prev => prev.map(msg => 
-      msg.id === msgId ? { ...msg, isStarred: nextStarredState } : msg
-    ));
-
-    // 2. Update the individual email view immediately
-    setEmail(prev => {
-      if (prev && prev.id === msgId) {
-        return { ...prev, isStarred: nextStarredState };
-      }
-      return prev;
-    });
-
-    try {
-      const response = await fetch("/.netlify/functions/gmail-toggle-star", {
-        method: "POST",
-        credentials: "include", 
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messageId: msgId, starred: nextStarredState })
-      });
-
-      // If the request fails, the catch block will handle the revert
-      if (!response.ok) throw new Error("Sync failed");
-
-      if (!nextStarredState && gmailFolder === "STARRED") {
-        setGmailEmails(prev => prev.filter(msg => msg.id !== msgId));
-      }
-    } catch (err) {
-      console.error("Starring sync failed:", err);
-      // Revert both states on failure
-      setGmailEmails(prev => prev.map(msg => 
-        msg.id === msgId ? { ...msg, isStarred: currentStarred } : msg
-      ));
-      setEmail(prev => (prev && prev.id === msgId) ? { ...prev, isStarred: currentStarred } : prev);
-    }
-  };
+    
+      
 
 const emailPane = (
   <div className="email-pane" style={{ position: "relative", border: "1px solid #e6e6e6", borderRadius: "12px", boxSizing: "border-box", padding: "0 24px", background: "#fff", display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -1988,25 +1964,26 @@ const emailPane = (
                 </div>
 
                 {/* Delete / Discard Icon */}
-                <button 
-                  className="gmail-action-icon" 
-                  title="Discard draft"
-                  onClick={() => {
-                    setSelectedDraftTemplate(null);
-                    setDraftTo("");
-                    setDraftAttachments([]);
-                    setEmail((prev) => prev ? { ...prev, systemNote: undefined } : prev);
-                  }}
-                  style={{ padding: "8px", margin: "-8px" }}
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M15 4V3H9v1H4v2h1v13c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V6h1V4h-5zm2 15H7V6h10v13zM9 8h2v9H9zm4 0h2v9h-2z"/></svg>
-                </button>
-              </div>
-            </div>
-          )}
-          </div>
-        </div>
-      );
+                <button 
+                  className="gmail-action-icon" 
+                  title="Discard draft"
+                  onClick={() => {
+                    setSelectedDraftTemplate(null);
+                    setDraftTo("");
+                    setDraftAttachments([]);
+                    setEmail((prev) => prev ? { ...prev, systemNote: undefined } : prev);
+                  }}
+                  style={{ padding: "8px", margin: "-8px" }}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M15 4V3H9v1H4v2h1v13c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V6h1V4h-5zm2 15H7V6h10v13zM9 8h2v9H9zm4 0h2v9h-2z"/></svg>
+                </button>
+              </div>
+            </div>
+          )}
+          </div>
+          {deleteModal}
+        </div>
+      );
 
       const previewPane = emailPreview ? (
         <div className="email-preview">
@@ -2027,17 +2004,21 @@ const emailPane = (
         </div>
       ) : null;
 
-      // Full width until an attachment is clicked, then split view
-      return emailPreview ? (
-        <div className="email-split">
+   // Full width until an attachment is clicked, then split view
+      return emailPreview ? (
+        <div className="email-split">
+          {emailPane}
+          {previewPane}
+          {deleteModal}
+        </div>
+      ) : (
+        <div className="email-full">
           {emailPane}
-          {previewPane}
+          {deleteModal}
         </div>
-      ) : (
-        <div className="email-full">{emailPane}</div>
-      );
-    }
-  return null;
+      );
+    }
+  return null;
 }
 
 export default GmailApp;

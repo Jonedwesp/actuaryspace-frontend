@@ -81,10 +81,12 @@ export default function App() {
 
  const [donnaTranscription, setDonnaTranscription] = useState("");
   const [donnaPendingAction, setDonnaPendingAction] = useState(null);
+  const [donnaVisible, setDonnaVisible] = useState(false);
 
   const donnaRespondingRef = useRef(false);
   const ignoreNextDonnaRef = useRef(false);
   const donnaTextModeRef = useRef(false);
+  const transcriptionRef = useRef("");
   const lastCtxRef = useRef("");
   const [donnaKey, setDonnaKey] = useState(0);
   
@@ -96,29 +98,24 @@ const {
     sendSessionUpdate,
     sendToolResponse,
     sendText,
-    pcRef, // 👈 WebRTC Peer Connection Reference
-    dcRef  // 👈 WebRTC Data Channel Reference
+    sendResponseCreate,
+    deleteLastUserItem,
+    pcRef,
+    dcRef
 } = useDonna({
-   instructions: "You are Agent Donna, a witty and professional actuarial assistant to Siyabonga (Siya).\n\n*** STRICT WAKE-WORD PROTOCOL ***\nYour audio stream is always open, but you are ASLEEP. You must ONLY wake up and respond if the user's sentence starts exactly with 'Hey Donna'.\n- If the user speaks without saying 'Hey Donna' first, you must output ABSOLUTELY NOTHING. YOU ARE FORBIDDEN FROM SAYING 'I can only respond to requests that begin with...'. Remain completely silent.\n- Do not explain the rule. Do not apologize. Just stay silent.\n- IMPORTANT: If the user says 'Hey Donna approve' or 'Hey Donna reject', this is handled locally by the system. YOU MUST OUTPUT ABSOLUTELY NOTHING. DO NOT ASK WHAT TO APPROVE. JUST REMAIN SILENT.\n- Once you fulfill a 'Hey Donna' request, go immediately back to sleep.\n\nWhen carrying out a request using your tools that involves creating, modifying, moving, or deleting data (e.g., saving a draft, moving a card), BEFORE you say what you are doing, you must ask Siya to approve or reject the request on his screen. You MUST call the tool immediately alongside your voice response. Do NOT wait for his verbal permission to call the tool. The system will catch your tool call and automatically display the Approve/Reject buttons on his screen while you speak. If you are simply navigating to an app or searching/fetching data, execute the tool immediately without asking for approval. Be concise. IMPORTANT: Always respond in English only.",  tools: DONNA_TOOLS,
+   instructions: "You are Donna Paulsen from the TV show Suits. You are the ultimate confidante, a world-class fixer, and the most competent person in any room. You work for Siyabonga (Siya), a top actuary. You are fiercely loyal, highly intuitive, and always three steps ahead.\n\nPersonality & Tone:\n- Supremely Confident: You never doubt yourself. You speak with absolute authority and a knowing smile in your voice.\n- Witty & Sassy: Quick on your feet, playful, unafraid to tease Siya if he asks something obvious.\n- Hyper-Competent: You don't just answer questions, you anticipate what Siya actually needs before he finishes asking. You act as though you've already handled the boring logistics.\n- Emotionally Intelligent: You read between the lines. If Siya sounds stressed, offer sharp, grounded support.\n\nVoice Rules:\n- Keep responses punchy, conversational, and natural for spoken audio. No long robotic lists unless explicitly asked.\n- NEVER refer to yourself as an AI, a language model, or a computer program. If asked how you did something so fast, it's simply because of who you are.\n- No filler words like 'Um' or 'Let me think.' You already know the answer.\n- When Siya asks how you knew something or why you're so good, respond with some variation of: 'Because I'm Donna.' or 'I'm Donna. I know everything.'\n- Occasionally tell Siya what he SHOULD do instead of just doing what he asked, if you know a better way.\n- Address Siya directly and confidently. Use phrases like 'Listen to me,' or 'Here's what we're going to do...'\n- Always respond in English only.\n\n*** EMAIL ADDRESS & CONTACT PROTOCOL ***\n- NEVER guess or make up an email address (e.g., '@example.com').\n- You are FORBIDDEN from putting a person's name in the 'to' field of a draft. It MUST be a full email address.\n- If Siya asks you to email someone by name, you MUST call 'gmail_get_contacts' first to find their real email address.\n- If 'gmail_get_contacts' does not return a match, STOP and ask Siya: 'I couldn't find an email for [Name], what address should I use?'\n- ONLY call 'gmail_save_draft' once you have a verified email address from the contact list or Siya.\n\n*** DRAFT & REVIEW PROTOCOL ***\n- When drafting an email, you MUST verbally tell Siya: 'I've prepared that draft for your review. Would you like to see it?'\n- You MUST call the 'gmail_save_draft' tool immediately while asking this question.\n- You are NOT finished until Siya clicks 'Approve' on his screen, which triggers the UI popup and eventually opens the Gmail Compose window.\n\n*** STRICT TRIGGER RULE ***\nYour audio stream is always open, but you are ASLEEP. You ONLY wake up and respond if the word 'Donna' appears ANYWHERE in the user's sentence.\n- If 'Donna' is not said, output ABSOLUTELY NOTHING. Remain completely silent. Do not explain. Do not apologize.\n- 'Donna' can appear anywhere: start, middle, or end of the sentence.\n- IMPORTANT: If the user says 'Donna approve' or 'Donna reject', this is handled locally. YOU MUST OUTPUT ABSOLUTELY NOTHING. DO NOT ASK WHAT TO APPROVE. JUST REMAIN SILENT.\n- Once you fulfill a request, go immediately back to sleep.\n\nTool Usage:\nWhen carrying out a request involving creating, modifying, moving, or deleting data (e.g., saving a draft, moving a card), BEFORE you say what you are doing, ask Siya to approve or reject on his screen. You MUST call the tool immediately alongside your voice response. The system will catch your tool call and automatically display the Approve/Reject buttons. If you are simply navigating or fetching data, execute the tool immediately without asking for approval.", tools: DONNA_TOOLS,
 onTranscription: (text) => {
       if (!text) return; 
       const lowerText = text.toLowerCase().trim();
-      const hasWakeWord = lowerText.startsWith("hey donna");
+      const hasWakeWord = /donna/i.test(lowerText);
       
-      // 🛡️ HARD CANCEL: If the user is speaking but didn't say the wake-word, kill the response immediately
+      // 🛡️ No wake word: discard the audio item and stay silent
       if (!hasWakeWord) {
-        if (dcRef?.current?.readyState === 'open') {
-          try {
-            dcRef.current.send(JSON.stringify({ type: 'response.cancel' }));
-          } catch (e) {
-            console.warn("[Donna] Silent cancel failed", e);
-          }
-        }
-        setDonnaTranscription("");
+        deleteLastUserItem();
         return;
       }
       
-      // 🎙️ VOICE APPROVAL ENGINE: Detects "hey donna approve" or "hey donna reject"
+      // 🎙️ VOICE APPROVAL ENGINE: Detects "donna approve" or "donna reject"
       if (hasWakeWord && donnaPendingAction) {
         if (lowerText.includes("approve")) {
           console.log("[Donna] Voice command: APPROVE detected.");
@@ -134,9 +131,8 @@ onTranscription: (text) => {
         }
       }
 
-      if (!donnaRespondingRef.current) {
-        setDonnaTranscription(text);
-      }
+      setDonnaVisible(false); // Collapse bubble for new question
+      sendResponseCreate(); // 🛡️ Wake word confirmed — now ask Donna to respond
     },
 
 onResponseDelta: (delta, isNew) => {
@@ -150,10 +146,9 @@ onResponseDelta: (delta, isNew) => {
         // 🎯 Reset the Ref immediately
         transcriptionRef.current = delta;
         setDonnaTranscription(delta);
+        setDonnaVisible(true);
       } else {
-        // 🎯 Append to the Ref (Synchronous)
         transcriptionRef.current += delta;
-        // 🎯 Update state from the Ref (Ensures we never miss a chunk)
         setDonnaTranscription(transcriptionRef.current);
       }
     },
@@ -165,6 +160,26 @@ onResponseDelta: (delta, isNew) => {
       donnaRespondingRef.current = false;
       donnaTextModeRef.current = false;
       setIsDonnaSpeaking(false);
+      setDonnaTranscription(transcriptionRef.current);
+
+      // Play Donna's response via ElevenLabs (Sarah Rafferty voice)
+      const textToSpeak = transcriptionRef.current;
+      if (textToSpeak) {
+        fetch("/.netlify/functions/elevenlabs-tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: textToSpeak }),
+        })
+          .then((res) => res.arrayBuffer())
+          .then((buf) => {
+            const blob = new Blob([buf], { type: "audio/mpeg" });
+            const url = URL.createObjectURL(blob);
+            const audio = new Audio(url);
+            audio.play().catch((e) => console.warn("[ElevenLabs] Audio play blocked:", e));
+            audio.onended = () => URL.revokeObjectURL(url);
+          })
+          .catch((e) => console.error("[ElevenLabs] TTS error:", e));
+      }
     },
 onFunctionCall: ({ name, args, call_id }) => {
       // 🛡️ ARCHITECT'S GUARD: Fixed Asynchronous Race Condition.
@@ -178,8 +193,22 @@ onFunctionCall: ({ name, args, call_id }) => {
         return;
       }
 
- // 1. Auto-execute navigation & inbox searches
-      if (name === "navigate_to_app" || name === "gmail_get_inbox") {
+// 1. Auto-execute navigation, inbox searches, reading emails, and simple toggles
+      if (name === "navigate_to_app" || name === "gmail_get_inbox" || name === "gmail_get_message" || name === "gmail_toggle_star" || name === "gmail_mark_unread") {
+        
+        const cleanId = (id) => {
+          if (typeof id !== 'string') return String(id);
+          return id.replace(/\[?ID:\s*/gi, '').replace(/\]/g, '').replace(/['"]/g, '').trim();
+        };
+        const getExactId = (messyId) => {
+          const cleaned = cleanId(messyId);
+          const found = gmailEmails?.find(e => {
+            const eId = String(e.id).trim();
+            return eId === cleaned || eId.includes(cleaned) || cleaned.includes(eId);
+          });
+          return found ? found.id : cleaned;
+        };
+
         if (name === "navigate_to_app") {
           setCurrentView({ app: args.app, contact: null });
           if (args.app === "trello" && args.trello_card_name) {
@@ -195,10 +224,132 @@ onFunctionCall: ({ name, args, call_id }) => {
           setCurrentView({ app: 'gmail', contact: null });
           if (args.q) setSearchQuery(args.q);
           if (args.folder) setGmailFolder(args.folder.toUpperCase());
+        } else if (name === "gmail_get_message") {
+          console.log(`[Donna] Opening specific email...`, args);
+          setCurrentView({ app: "email", contact: null });
+          if (args.messageId) {
+            const exactId = cleanId(args.messageId);
+            const foundMsg = gmailEmails?.find(m => {
+              const eId = String(m.id).trim();
+              return eId === exactId || eId.includes(exactId) || exactId.includes(eId);
+            });
+            const finalId = foundMsg ? foundMsg.id : exactId;
+            const fallbackName = args.senderName || (foundMsg ? foundMsg.from.split("<")[0].replace(/"/g, '').trim() : "Unknown");
+            
+            setEmail({
+              id: finalId,
+              subject: foundMsg?.subject || "Loading message...",
+              fromName: fallbackName,
+              fromEmail: foundMsg?.from || "",
+              date: foundMsg?.date || new Date().toISOString(),
+              time: foundMsg?.date ? new Date(foundMsg.date).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "",
+              bodyLoading: true,
+              attachments: [],
+              actions: [{ key: "submit_trello", label: "Submit to Trello" }, { key: "update_tracker", label: "Update AC Tracker" }]
+            });
+
+            fetch(`/.netlify/functions/gmail-message?messageId=${finalId}`, {
+              credentials: "include"
+            })
+              .then(r => r.json())
+              .then(json => {
+                if(json.ok) {
+                  const isHtml = /<(html|body|div|p|br|b|strong|i|em|a|span|table|style)[^>]*>/i.test(json.body || "");
+                  let rawBody = json.body || "";
+                  if (!isHtml && rawBody.split('\n').length < 4) {
+                     rawBody = rawBody
+                       .replace(/(---------- Forwarded message ---------)/gi, '\n\n$1\n')
+                       .replace(/(From:|Date:|Subject:|To:|Cc:)/g, '\n$1')
+                       .replace(/(Dear\s+[A-Za-z]+|Hi\s+[A-Za-z]+|Good\s+day)/gi, '\n\n$1\n\n')
+                       .replace(/(Kind\s+Regards|Regards|Sincerely|Thank\s+you)/gi, '\n\n$1\n')
+                       .replace(/(On\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^:]+wrote:)/gi, '\n\n$1\n')
+                       .replace(/(>\s*>)/g, '>>')
+                       .replace(/(>\s+)/g, '\n$1')
+                       .replace(/(\s\d+\.)/g, '\n$1')
+                       .replace(/\n{3,}/g, '\n\n')
+                       .trim();
+                  }
+                  const processedAtts = (json.attachments || []).map(a => ({
+                     ...a,
+                     type: a.mimeType.includes("pdf") ? "pdf" : a.mimeType.includes("image") ? "img" : a.mimeType.includes("spreadsheet") || a.mimeType.includes("excel") ? "xls" : "file",
+                     url: `/.netlify/functions/gmail-download?messageId=${finalId}&attachmentId=${a.id}&filename=${encodeURIComponent(a.name)}&mimeType=${encodeURIComponent(a.mimeType)}`
+                  }));
+
+                  setEmail(prev => ({
+                     ...prev,
+                     body: isHtml ? "" : rawBody,
+                     bodyHtml: isHtml ? json.body : "",
+                     attachments: processedAtts,
+                     bodyLoading: false
+                  }));
+                }
+              })
+              .catch(err => {
+                 console.error("Body fetch failed:", err);
+                 setEmail(prev => ({ ...prev, bodyLoading: false, body: "Error loading message." }));
+              });
+          }
+        } else if (name === "gmail_toggle_star") {
+          console.log(`[Donna] Auto-Starring email...`, args);
+          let starIds = [];
+          if (Array.isArray(args.messageIds)) starIds = args.messageIds;
+          else if (typeof args.messageIds === 'string') starIds = [args.messageIds];
+          else if (typeof args.messageId === 'string') starIds = [args.messageId];
+
+          if (starIds.length === 0 && email?.id) {
+            starIds = [email.id];
+          }
+
+          const exactStarIds = starIds.map(getExactId);
+          const nextStarredState = (args.starred === false || String(args.starred).toLowerCase() === 'false') ? false : true;
+
+          if (exactStarIds.length > 0) {
+            setGmailEmails(prev => {
+              const updated = prev.map(msg => {
+                const mId = String(msg.id).trim();
+                const isMatch = exactStarIds.some(eid => mId === eid || mId.includes(eid) || eid.includes(mId));
+                return isMatch ? { ...msg, isStarred: nextStarredState } : msg;
+              });
+              if (!nextStarredState && gmailFolder === "STARRED") {
+                return updated.filter(msg => !exactStarIds.includes(String(msg.id).trim()));
+              }
+              return updated;
+            });
+            
+            setEmail(prev => {
+              if (!prev) return prev;
+              const pId = String(prev.id).trim();
+              const isMatch = exactStarIds.some(eid => pId === eid || pId.includes(eid) || eid.includes(pId));
+              return isMatch ? { ...prev, isStarred: nextStarredState } : prev;
+            });
+
+            exactStarIds.forEach(eid => {
+              fetch("/.netlify/functions/gmail-toggle-star", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ messageId: eid, starred: nextStarredState })
+              }).catch(err => console.error("Starring failed:", err));
+            });
+          }
+        } else if (name === "gmail_mark_unread") {
+          console.log(`[Donna] Auto-Marking email unread...`, args);
+          if (args.messageId) {
+            const exactId = getExactId(args.messageId);
+            setGmailEmails(prev => prev.map(msg => 
+              msg.id === exactId ? { ...msg, isUnread: true } : msg
+            ));
+            fetch("/.netlify/functions/gmail-mark-unread", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ messageId: exactId })
+            }).catch(err => console.error("Mark unread failed:", err));
+          }
         }
         
         if (call_id) {
-          sendToolResponse(call_id, { success: true, status: "Navigation successful. Please confirm briefly to the user." });
+          sendToolResponse(call_id, { success: true, status: "Action successful. Please confirm briefly to the user." });
         }
         return;
       }
@@ -206,12 +357,24 @@ onFunctionCall: ({ name, args, call_id }) => {
       // 2. Auto-execute Contact Lookup (Solves the email accuracy issue)
       if (name === "gmail_get_contacts") {
         console.log("[Donna] Fetching contacts for lookup...");
-        fetch("/.netlify/functions/gmail-contacts")
+        fetch("/.netlify/functions/gmail-contacts", { credentials: "include" })
           .then(res => res.json())
           .then(data => {
-            // ✅ Only send the Tool Response. Donna will get the data via the tool output
-            // instead of a session instruction change.
-            sendToolResponse(call_id, { success: true, contacts: data });
+            const contactMap = data.contacts || data;
+            // 🎯 FIX: Convert the map into a string that explicitly tells Donna: "Name: email"
+            const contactString = Object.entries(contactMap)
+              .map(([name, email]) => `${name}: ${email}`)
+              .join(", ");
+
+            sendToolResponse(call_id, { 
+              success: true, 
+              contacts: contactString,
+              instructions: `I found these contacts: ${contactString}. Find the person Siya mentioned. When you call gmail_save_draft, you MUST put their EMAIL ADDRESS in the 'to' field, NOT their name.`
+            });
+          })
+          .catch(err => {
+            console.error("Contact fetch failed:", err);
+            sendToolResponse(call_id, { success: false, error: "Could not retrieve contacts." });
           });
         return;
       }
@@ -232,34 +395,21 @@ onFunctionCall: ({ name, args, call_id }) => {
       }
 
 // 4. All other "Write" tools require approval
-      let finalArgs = { ...args };
+      let finalArgs = { ...args };
 
-      // 3. Set the pending action to trigger the Approve/Reject UI buttons
-      setDonnaPendingAction({ name, args, call_id });
-      
-      if (name === "trello_move_card") {
+      // 3. Set the pending action to trigger the Approve/Reject UI buttons
+      setDonnaPendingAction({ name, args, call_id });
+      
+   if (name === "trello_move_card") {
         setDonnaTranscription(`Donna wants to: move a Trello card.`);
       } else if (name === "gmail_save_draft") {
         // 🎯 UX Update: Soften the language to "Review"
         setDonnaTranscription(`Donna has prepared a draft for your review.`);
-      } else if (name === "gmail_get_message") {
-        const sender = args.senderName || "Unknown";
-        const subject = args.subject ? ` ("${args.subject}")` : "";
-        setDonnaTranscription(`Donna wants to: open email from ${sender}${subject}`);
       } else if (name === "gmail_delete_bulk") {
         const sender = args.senderName || "this sender";
         const subject = args.subject ? ` ("${args.subject}")` : "";
         const action = args.restore ? "restore" : "delete";
         setDonnaTranscription(`Donna wants to: ${action} email from ${sender}${subject}`);
-      } else if (name === "gmail_toggle_star") {
-        const sender = args.senderName || "this sender";
-        const subject = args.subject ? ` ("${args.subject}")` : "";
-        const action = args.starred !== false ? "star" : "unstar";
-        setDonnaTranscription(`Donna wants to: ${action} email from ${sender}${subject}`);
-      } else if (name === "gmail_mark_unread") {
-        const sender = args.senderName || "this sender";
-        const subject = args.subject ? ` ("${args.subject}")` : "";
-        setDonnaTranscription(`Donna wants to: mark as unread email from ${sender}${subject}`);
       } else {
         setDonnaTranscription(`Donna wants to: ${name.replace(/_/g, " ")}`);
       }
@@ -339,7 +489,7 @@ const handleApproveDonna = () => {
       return id.replace(/\[?ID:\s*/gi, '').replace(/\]/g, '').replace(/['"]/g, '').trim();
     };
 
-    // 🎯 EXACT ID MATCHER: Uses Donna's messy ID to find the true, perfect Google ID from state
+// 🎯 EXACT ID MATCHER: Uses Donna's messy ID to find the true, perfect Google ID from state
     const getExactId = (messyId) => {
       const cleaned = cleanId(messyId);
       const found = gmailEmails?.find(e => {
@@ -350,69 +500,6 @@ const handleApproveDonna = () => {
     };
 
     switch (name) {
-      case 'gmail_get_message':
-        console.log(`[Donna] Opening specific email...`, args);
-        setCurrentView({ app: "email", contact: null });
-        if (args.messageId) {
-          const exactId = getExactId(args.messageId);
-          const foundMsg = gmailEmails?.find(m => m.id === exactId);
-          const fallbackName = args.senderName || (foundMsg ? foundMsg.from.split("<")[0].replace(/"/g, '').trim() : "Unknown");
-          
-          setEmail({
-            id: exactId,
-            subject: foundMsg?.subject || "Loading message...",
-            fromName: fallbackName,
-            fromEmail: foundMsg?.from || "",
-            date: foundMsg?.date || new Date().toISOString(),
-            time: foundMsg?.date ? new Date(foundMsg.date).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "",
-            bodyLoading: true,
-            attachments: [],
-            actions: [{ key: "submit_trello", label: "Submit to Trello" }, { key: "update_tracker", label: "Update AC Tracker" }]
-          });
-
-          fetch(`/.netlify/functions/gmail-message?messageId=${exactId}`, {
-            credentials: "include"
-          })
-            .then(r => r.json())
-            .then(json => {
-              if(json.ok) {
-                const isHtml = /<(html|body|div|p|br|b|strong|i|em|a|span|table|style)[^>]*>/i.test(json.body || "");
-                let rawBody = json.body || "";
-                if (!isHtml && rawBody.split('\n').length < 4) {
-                   rawBody = rawBody
-                     .replace(/(---------- Forwarded message ---------)/gi, '\n\n$1\n')
-                     .replace(/(From:|Date:|Subject:|To:|Cc:)/g, '\n$1')
-                     .replace(/(Dear\s+[A-Za-z]+|Hi\s+[A-Za-z]+|Good\s+day)/gi, '\n\n$1\n\n')
-                     .replace(/(Kind\s+Regards|Regards|Sincerely|Thank\s+you)/gi, '\n\n$1\n')
-                     .replace(/(On\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[^:]+wrote:)/gi, '\n\n$1\n')
-                     .replace(/(>\s*>)/g, '>>')
-                     .replace(/(>\s+)/g, '\n$1')
-                     .replace(/(\s\d+\.)/g, '\n$1')
-                     .replace(/\n{3,}/g, '\n\n')
-                     .trim();
-                }
-                const processedAtts = (json.attachments || []).map(a => ({
-                   ...a,
-                   type: a.mimeType.includes("pdf") ? "pdf" : a.mimeType.includes("image") ? "img" : a.mimeType.includes("spreadsheet") || a.mimeType.includes("excel") ? "xls" : "file",
-                   url: `/.netlify/functions/gmail-download?messageId=${exactId}&attachmentId=${a.id}&filename=${encodeURIComponent(a.name)}&mimeType=${encodeURIComponent(a.mimeType)}`
-                }));
-
-                setEmail(prev => ({
-                   ...prev,
-                   body: isHtml ? "" : rawBody,
-                   bodyHtml: isHtml ? json.body : "",
-                   attachments: processedAtts,
-                   bodyLoading: false
-                }));
-              }
-            })
-            .catch(err => {
-               console.error("Body fetch failed:", err);
-               setEmail(prev => ({ ...prev, bodyLoading: false, body: "Error loading message." }));
-            });
-        }
-        break;
-
       case 'gmail_save_draft':
         console.log("[Donna] Transferring draft to Gmail UI for review...");
         
@@ -510,25 +597,37 @@ case 'gmail_delete_bulk':
         }
         break;
 
-    case 'gmail_toggle_star':
+   case 'gmail_toggle_star':
         console.log(`[Donna] Starring email...`, args);
-        
+        
         // 1. Bulletproof ID array handling (matches the delete logic)
         let starIds = [];
         if (Array.isArray(args.messageIds)) starIds = args.messageIds;
         else if (typeof args.messageIds === 'string') starIds = [args.messageIds];
         else if (typeof args.messageId === 'string') starIds = [args.messageId];
 
+        // 2. Critical Fallback: If Donna drops the ID, use the currently open email
+        if (starIds.length === 0 && email?.id) {
+          starIds = [email.id];
+        }
+
         const exactStarIds = starIds.map(getExactId);
-        const nextStarredState = args.starred !== undefined ? args.starred : true;
+        const nextStarredState = (args.starred === false || String(args.starred).toLowerCase() === 'false') ? false : true;
 
         if (exactStarIds.length > 0) {
-          // 🚀 ZERO-LATENCY UI UPDATE: Aggressively match the ID, but keep it in the inbox list
-          setGmailEmails(prev => prev.map(msg => {
-            const mId = String(msg.id).trim();
-            const isMatch = exactStarIds.some(eid => mId === eid || mId.includes(eid) || eid.includes(mId));
-            return isMatch ? { ...msg, isStarred: nextStarredState } : msg;
-          }));
+          // 🚀 ZERO-LATENCY UI UPDATE: Aggressively match the ID
+          setGmailEmails(prev => {
+            const updated = prev.map(msg => {
+              const mId = String(msg.id).trim();
+              const isMatch = exactStarIds.some(eid => mId === eid || mId.includes(eid) || eid.includes(mId));
+              return isMatch ? { ...msg, isStarred: nextStarredState } : msg;
+            });
+            // If unstarring while viewing the Starred folder, remove it instantly
+            if (!nextStarredState && gmailFolder === "STARRED") {
+              return updated.filter(msg => !exactStarIds.includes(String(msg.id).trim()));
+            }
+            return updated;
+          });
           
           setEmail(prev => {
             if (!prev) return prev;
@@ -1148,6 +1247,7 @@ if (currentView.app === "gmail" || currentView.app === "email") {
     handleDraftMouseDown={handleDraftMouseDown} // 👈 ADDED THIS LINE
     htmlTooltipRef={htmlTooltipRef}
     triggerSnackbar={triggerSnackbar}
+    handleToggleStar={handleToggleStar}
   />;
 }
 
@@ -1302,18 +1402,19 @@ if (currentView.app === "gmail" || currentView.app === "email") {
 
 return (
   <PasswordGate persona={PERSONA}>
-    <div className="app">
+    <div className={`app${isDonnaActive ? " donna-active" : ""}`}>
       <audio ref={donnaAudioRef} autoPlay playsInline />
   <DonnaBubble
         transcription={donnaTranscription}
-        isListening={isDonnaActive || isDonnaSpeaking} // 🛡️ Keep visible while she talks back
+        show={donnaVisible}
         showActions={donnaPendingAction !== null}
         onApprove={handleApproveDonna}
         onReject={handleRejectDonna}
+        onRequestClose={() => setDonnaVisible(false)}
         onClose={() => {
           setDonnaTranscription("");
-          setDonnaPendingAction(null); // 🛡️ Clear pending actions on close
-          setIsDonnaActive(false);
+          setDonnaPendingAction(null);
+          setDonnaVisible(false);
         }}
       />
 
@@ -1514,7 +1615,7 @@ return (
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 if (!donnaBarInput.trim()) return;
-                setDonnaTranscription(donnaBarInput);
+                setDonnaVisible(false);
                 donnaTextModeRef.current = true;
                 sendText("Hey Donna, " + donnaBarInput);
                 setDonnaBarInput('');
@@ -1526,7 +1627,7 @@ return (
             <button
               onClick={() => {
                 if (!donnaBarInput.trim()) return;
-                setDonnaTranscription(donnaBarInput);
+                setDonnaVisible(false);
                 donnaTextModeRef.current = true;
                 sendText("Hey Donna, " + donnaBarInput);
                 setDonnaBarInput('');

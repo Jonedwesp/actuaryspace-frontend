@@ -6,33 +6,34 @@ export const handler = async (event) => {
     const base = "https://api.trello.com/1";
     const auth = `key=${TRELLO_KEY}&token=${TRELLO_TOKEN}`;
 
-    const [listsRes, customFieldsRes] = await Promise.all([
-      fetch(`${base}/boards/${TRELLO_BOARD_ID}/lists?cards=open&card_customFieldItems=true&${auth}`),
-      fetch(`${base}/boards/${TRELLO_BOARD_ID}/customFields?${auth}`)
-    ]);
+        const [listsRes, cardsRes, customFieldsRes] = await Promise.all([
+      fetch(`${base}/boards/${TRELLO_BOARD_ID}/lists?${auth}`),
+      fetch(`${base}/boards/${TRELLO_BOARD_ID}/cards?customFieldItems=true&${auth}`),
+      fetch(`${base}/boards/${TRELLO_BOARD_ID}/customFields?${auth}`)
+    ]);
 
-    const lists = await listsRes.json();
-    const customFields = await customFieldsRes.json();
+    const lists = await listsRes.json();
+    const allCards = await cardsRes.json();
+    const customFields = await customFieldsRes.json();
 
-    const idleFieldId = customFields.find(f => f.name.includes("IdleLog"))?.id;
+    const idleFieldId = customFields.find(f => f.name.includes("IdleLog"))?.id;
 
-    if (!idleFieldId) {
-      return { statusCode: 400, body: JSON.stringify({ error: "Could not find IdleLog Custom Field" }) };
-    }
+    if (!idleFieldId) {
+      return { statusCode: 400, body: JSON.stringify({ error: "Could not find IdleLog Custom Field" }) };
+    }
 
-    const targetUsers = ["Siya", "Enock", "Songeziwe", "Bonisa", "Siya - Review"];
-    const topCardsMap = new Map();
+    const targetUsers = ["Siya", "Enock", "Songeziwe", "Bonisa", "Siya - Review"];
+    const topCardsMap = new Map();
 
-    lists.forEach(list => {
-       const listName = list.name.trim();
-       const matchedUser = targetUsers.find(u => u.toLowerCase() === listName.toLowerCase());
-       if (matchedUser) {
-           const activeCards = list.cards.filter(c => !c.name.toLowerCase().includes("out of office") && !c.name.toLowerCase().includes("away from cases"));
-           if (activeCards.length > 0) topCardsMap.set(activeCards[0].id, matchedUser);
-       }
-    });
-
-    const allCards = lists.flatMap(l => l.cards);
+    lists.forEach(list => {
+       const listName = list.name.trim();
+       const matchedUser = targetUsers.find(u => u.toLowerCase() === listName.toLowerCase());
+       if (matchedUser) {
+           const listCards = allCards.filter(c => c.idList === list.id).sort((a, b) => a.pos - b.pos);
+           const activeCards = listCards.filter(c => !c.name.toLowerCase().includes("out of office") && !c.name.toLowerCase().includes("away from cases"));
+           if (activeCards.length > 0) topCardsMap.set(activeCards[0].id, matchedUser);
+       }
+    });
     const apiUpdates = [];
     const nowTs = Date.now();
 

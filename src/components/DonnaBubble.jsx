@@ -1,58 +1,63 @@
-import React, { useRef, useEffect, useState, useCallback } from "react";
+import React, { useRef, useEffect, useState } from "react";
 
-export default function DonnaBubble({ transcription, isListening, showActions, onApprove, onReject, onClose }) {
+export default function DonnaBubble({ transcription, show, showActions, onApprove, onReject, onClose, onRequestClose }) {
   const containerRef = useRef(null);
-  const [isExiting, setIsExiting] = useState(false);
-  const [animDone, setAnimDone] = useState(false);
-  const exitTimerRef = useRef(null);
+  const phaseRef = useRef("hidden"); // hidden | entering | visible | exiting
+  const [phase, setPhase] = useState("hidden");
+  const timerRef = useRef(null);
 
-  // 🛡️ STICKY LOGIC: Show if there is text OR if Donna is currently active/listening.
-  const shouldShow = !!transcription || isListening;
-
-  const dismiss = useCallback(() => {
-    if (isExiting) return;
-    setIsExiting(true);
-    setAnimDone(false);
-    exitTimerRef.current = setTimeout(() => {
-      setIsExiting(false);
-      onClose();
-    }, 320);
-  }, [isExiting, onClose]);
+  const setP = (p) => {
+    phaseRef.current = p;
+    setPhase(p);
+  };
 
   useEffect(() => {
+    if (show) {
+      clearTimeout(timerRef.current);
+      if (phaseRef.current === "hidden" || phaseRef.current === "exiting") {
+        setP("entering");
+      }
+    } else {
+      if (phaseRef.current !== "hidden") {
+        clearTimeout(timerRef.current);
+        setP("exiting");
+        timerRef.current = setTimeout(() => {
+          setP("hidden");
+          onClose?.();
+        }, 280);
+      }
+    }
+    return () => clearTimeout(timerRef.current);
+  }, [show]);
+
+  useEffect(() => {
+    if (phase === "hidden") return;
     const handleClick = (e) => {
       if (containerRef.current && !containerRef.current.contains(e.target)) {
-        if (showActions) {
-          console.log("[DonnaBubble] Outside click blocked to preserve pending action.");
-          return;
-        }
-        dismiss();
+        if (showActions) return;
+        onRequestClose?.();
       }
     };
-    const reg = setTimeout(() => {
-      document.addEventListener("mousedown", handleClick);
-    }, 300);
+    const reg = setTimeout(() => document.addEventListener("mousedown", handleClick), 300);
     return () => {
       clearTimeout(reg);
       document.removeEventListener("mousedown", handleClick);
-      clearTimeout(exitTimerRef.current);
     };
-  }, [dismiss, showActions]);
+  }, [phase, showActions, onRequestClose]);
 
-  if (!shouldShow && !isExiting) return null;
+  if (phase === "hidden") return null;
 
   return (
     <div
       ref={containerRef}
-      onAnimationEnd={() => { if (!isExiting) setAnimDone(true); }}
+      onAnimationEnd={() => { if (phaseRef.current === "entering") setP("visible"); }}
       style={{
         ...styles.container,
         transformOrigin: "top left",
-        animation: isExiting
-          ? "donnaCollapse 0.25s cubic-bezier(0.4, 0, 1, 1) forwards"
-          : animDone
-            ? "none"
-            : "donnaExpand 0.45s cubic-bezier(0.34, 1.5, 0.64, 1) forwards",
+        animation:
+          phase === "entering" ? "donnaExpand 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) forwards" :
+          phase === "exiting"  ? "donnaCollapse 0.28s cubic-bezier(0.4, 0, 1, 1) forwards" :
+          "none",
       }}
     >
       <style>{`
@@ -66,18 +71,12 @@ export default function DonnaBubble({ transcription, isListening, showActions, o
         }
       `}</style>
 
-      <div style={styles.transcription}>
-        {/* 🎯 Visual Placeholder: Ensures the bubble isn't a blank white box while she 'thinks' */}
-        {transcription || (isListening ? "Donna is listening..." : "")}
-      </div>
+      <div style={styles.transcription}>{transcription}</div>
 
       {showActions && (
         <div style={styles.actionContainer}>
           <button onClick={onReject} style={{ ...styles.button, ...styles.rejectButton }}>Reject</button>
-          <button 
-            onClick={onApprove} 
-            style={{ ...styles.button, ...styles.approveButton }}
-          >
+          <button onClick={onApprove} style={{ ...styles.button, ...styles.approveButton }}>
             {(transcription || "").toLowerCase().includes("review") ? "Open Review" : "Approve"}
           </button>
         </div>

@@ -192,14 +192,15 @@ export const handler = async (event) => {
             /// Timer fields are number type, not dropdowns
             /// Canonical mapping: "[SYSTEM] WorkDuration" → "WorkDuration", "[SYSTEM] WorkStartTime" → "WorkTimerStart"
             let canonName = name;
-            if (name.includes("WorkDuration")) canonName = "WorkDuration";
-            else if (name.includes("WorkStartTime") || name.includes("WorkTimerStart")) canonName = "WorkTimerStart";
-            else if (name.includes("WorkLog")) canonName = "WorkLog";
-            if (canonName === "TimerStart" || canonName === "Duration" || canonName === "WorkTimerStart" || canonName === "WorkDuration" || canonName === "WorkLog") {
-              const val = item.value?.number ?? item.value?.text ?? "";
-              if (val !== "" && val !== null && val !== undefined) customFields[canonName] = String(val);
-              return;
-            }
+            if (name.includes("WorkDuration")) canonName = "WorkDuration";
+            else if (name.includes("WorkStartTime") || name.includes("WorkTimerStart")) canonName = "WorkTimerStart";
+            else if (name.includes("WorkLog")) canonName = "WorkLog";
+            else if (name.includes("IdleLog")) canonName = "IdleLog";
+            if (canonName === "TimerStart" || canonName === "Duration" || canonName === "WorkTimerStart" || canonName === "WorkDuration" || canonName === "WorkLog" || canonName === "IdleLog") {
+              const val = item.value?.number ?? item.value?.text ?? "";
+              if (val !== "" && val !== null && val !== undefined) customFields[canonName] = String(val);
+              return;
+            }
             if (!["Priority", "Active", "Status"].includes(name)) return;
             const text = item.idValue ? (optionTextById.get(item.idValue) || "") : "";
             if (text) customFields[name] = text;
