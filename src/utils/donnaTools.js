@@ -281,22 +281,22 @@ export const DONNA_TOOLS = [
   },
 
 // gmail-message.js
-  {
-    "type": "function",
-    "function": {
-      "name": "gmail_get_message",
-      "description": "Fetches the full content and body of a specific email. Use this when the user asks to open or read a specific email.",
-      "parameters": {
-        "type": "object",
-        "properties": { 
-          "messageId": { "type": "string", "description": "The unique ID of the Gmail message." },
-          "senderName": { "type": "string", "description": "The name of the person who sent the email. Used to display context to the user." },
-          "subject": { "type": "string", "description": "The subject line of the email." }
-        },
-        "required": ["messageId", "senderName", "subject"]
-      }
-    }
-  },
+  {
+    "type": "function",
+    "function": {
+      "name": "gmail_get_message",
+      "description": "Fetches the full content, body, and attachment details of a specific email. Use this when the user asks to open, read, check for attachments, summarize, or explain a specific email.",
+      "parameters": {
+        "type": "object",
+        "properties": { 
+          "messageId": { "type": "string", "description": "The unique ID of the Gmail message." },
+          "senderName": { "type": "string", "description": "The name of the person who sent the email. Used to display context to the user." },
+          "subject": { "type": "string", "description": "The subject line of the email." }
+        },
+        "required": ["messageId", "senderName", "subject"]
+      }
+    }
+  },
 
   // gmail-send-email.js
   {
@@ -831,19 +831,35 @@ export const DONNA_TOOLS = [
     }
   },
 
-  // system-toggle-mute
-  {
-    "type": "function",
-    "function": {
-      "name": "system_toggle_mute",
-      "description": "Mutes or unmutes all system-wide notifications across all apps (Gmail, GChat, Trello, Calendar). Use this when the user asks to mute everything, silence notifications, or turn off sounds.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "mute": { "type": "boolean", "description": "True to mute all notifications, false to unmute them." }
-        },
-        "required": ["mute"]
-      }
-    }
-  }
+ // system-toggle-mute
+  {
+    "type": "function",
+    "function": {
+      "name": "system_toggle_mute",
+      "description": "Mutes or unmutes all system-wide notifications across all apps (Gmail, GChat, Trello, Calendar). Use this when the user asks to mute everything, silence notifications, or turn off sounds.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "mute": { "type": "boolean", "description": "True to mute all notifications, false to unmute them." }
+        },
+        "required": ["mute"]
+      }
+    }
+  },
+
+// system-read-notifications
+  {
+    "type": "function",
+    "function": {
+      "name": "system_read_notifications",
+      "description": "Reads the exact number and details of unread notifications for Gmail, Google Chat, Trello, Calendar, or WhatsApp. Use this whenever the user asks 'how many notifications do I have', 'check my messages', 'read my notifications', or asks to list notifications from a specific person or timeframe.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "senderName": { "type": "string", "description": "Optional. The name of the specific person the user is asking about (e.g., 'Bonolo', 'Jonathan')." },
+          "timeframeMinutes": { "type": "number", "description": "Optional. The timeframe in minutes to filter notifications. For example, for 'past 2 hours' pass 120, for 'last 30 minutes' pass 30." }
+        }
+      }
+    }
+  }
 ];

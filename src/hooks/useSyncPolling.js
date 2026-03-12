@@ -1,7 +1,8 @@
 import { useEffect } from "react";
 import { GCHAT_ID_MAP } from "../utils/gchatUtils.js";
 import { formatNotificationDate } from "../utils/dateTime.js";
-import { GMAIL_SOUND_DATA, GCHAT_SOUND_DATA } from "../utils/soundData.js";
+// 🎯 FIX: Included WHATSAPP_SOUND_DATA to prevent ReferenceError during notification sync
+import { GMAIL_SOUND_DATA, GCHAT_SOUND_DATA, WHATSAPP_SOUND_DATA } from "../utils/soundData.js";
 import gmailIcon from "../assets/Gmail pic.png";
 import gchatIcon from "../assets/Google Chat.png";
 
@@ -25,14 +26,17 @@ export function useSyncPolling({
       if (isFetching) return;
       isFetching = true;
       try {
-        clearSystemError("Notifications");
-        const [emailRes, chatRes] = await Promise.all([
-          fetch("/.netlify/functions/gmail-inbox?limit=25"),
-          fetch("/.netlify/functions/gchat-sync")
-        ]);
+        clearSystemError("Notifications");
+        // 🎯 FIX: Added WhatsApp sync to the parallel fetch pool
+        const [emailRes, chatRes, waRes] = await Promise.all([
+          fetch("/.netlify/functions/gmail-inbox?limit=25"),
+          fetch("/.netlify/functions/gchat-sync"),
+          fetch("/.netlify/functions/whatsapp-sync") // 👈 Ensure this function exists
+        ]);
 
-        const emailData = emailRes.ok ? await emailRes.json().catch(() => null) : null;
-        const chatData = chatRes.ok ? await chatRes.json().catch(() => null) : null;
+        const emailData = emailRes.ok ? await emailRes.json().catch(() => null) : null;
+        const chatData = chatRes.ok ? await chatRes.json().catch(() => null) : null;
+        const waData = waRes.ok ? await waRes.json().catch(() => null) : null;
 
         let combined = [];
 
@@ -189,20 +193,39 @@ export function useSyncPolling({
           }
 
           combined = [...combined, ...chatNotifs];
-          if (isFirstRun) isInitialGchatSyncRef.current = false;
+          if (isFirstRun) isInitialGchatSyncRef.current = false;
+        }
+
+        // 🎯 ADDED: Process WhatsApp Notifications from waData
+        if (waData && waData.ok && Array.isArray(waData.notifications)) {
+          const waNotifs = waData.notifications.map(n => ({
+            ...n,
+            alt: "WhatsApp",
+            timestamp: n.timestamp || new Date().toISOString(),
+            isSilent: new Date(n.timestamp) <= sessionStartTime.current
+          }));
+          combined = [...combined, ...waNotifs];
         }
 
-        if (!isMuted && combined.length > 0) {
-          const hasNewEmail = combined.some(item => item.alt === "Gmail" && !item.isSilent);
-          const hasNewChatAction = combined.some(item => item.alt === "Google Chat" && !item.isSilent);
-          if (hasNewEmail) {
-            new Audio(GMAIL_SOUND_DATA).play().catch(() => {});
-            combined.filter(i => i.alt === "Gmail" && !i.isSilent).forEach(i => soundedGmailIdsRef.current.add(i.id));
+        if (!isMuted && combined.length > 0) {
+          const hasNewEmail = combined.some(item => item.alt === "Gmail" && !item.isSilent);
+          const hasNewChatAction = combined.some(item => item.alt === "Google Chat" && !item.isSilent);
+          const hasNewWA = combined.some(item => item.alt === "WhatsApp" && !item.isSilent); // 👈 Added
+
+          if (hasNewEmail) {
+            new Audio(GMAIL_SOUND_DATA).play().catch(() => {});
+            combined.filter(i => i.alt === "Gmail" && !i.isSilent).forEach(i => soundedGmailIdsRef.current.add(i.id));
+          }
+          if (hasNewChatAction) {
+            new Audio(GCHAT_SOUND_DATA).play().catch(() => {});
+          }
+          // 🎯 FIX: Trigger WhatsApp sound if a new message is detected
+          if (hasNewWA) {
+            import("../utils/soundData.js").then(m => {
+              new Audio(m.WHATSAPP_SOUND_DATA).play().catch(() => {});
+            });
           }
-          if (hasNewChatAction) {
-            new Audio(GCHAT_SOUND_DATA).play().catch(() => {});
-          }
-        }
+        }
 
         if (combined.length > 0) {
           setNotifications(prev => {

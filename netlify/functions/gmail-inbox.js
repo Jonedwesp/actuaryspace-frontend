@@ -183,43 +183,67 @@ const folder = event.queryStringParameters?.folder || "INBOX";
       };
     }
 
-    // 3. FAST METADATA FETCH: Only headers + snippet — full body loaded on demand when email is opened
-    const fetchEmailMetadata = async (msg) => {
-      const msgRes = await request(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Date&metadataHeaders=Message-ID`,
-        { headers: { Authorization: `Bearer ${token}` }, agent: keepAliveAgent }
-      );
-      const msgData = await msgRes.json();
+    // 3. FAST METADATA FETCH: Headers, snippet, and structure for attachments
+    const fetchEmailMetadata = async (msg) => {
+      // Using format=full but filtering with 'fields' to exclude heavy body.data while preserving attachment metadata
+      const fields = "id,snippet,labelIds,payload(headers,parts(filename,mimeType,body/attachmentId,parts(filename,mimeType,body/attachmentId,parts(filename,mimeType,body/attachmentId))))";
+      const msgRes = await request(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=full&fields=${encodeURIComponent(fields)}`,
+        { headers: { Authorization: `Bearer ${token}` }, agent: keepAliveAgent }
+      );
+      const msgData = await msgRes.json();
 
-      if (!msgRes.ok || !msgData.id) {
-        return {
-          id: msg.id, snippet: "Could not load.", subject: "(Fetch Error)",
-          from: "System", to: "", cc: "", date: new Date().toISOString(),
-          messageId: "", labelIds: [], isUnread: false, isStarred: false,
-          attachments: [], body: ""
-        };
-      }
+      if (!msgRes.ok || !msgData.id) {
+        return {
+          id: msg.id, snippet: "Could not load.", subject: "(Fetch Error)",
+          from: "System", to: "", cc: "", date: new Date().toISOString(),
+          messageId: "", labelIds: [], isUnread: false, isStarred: false,
+          attachments: [], body: ""
+        };
+      }
 
-      const headers = msgData.payload?.headers || [];
-      const getH = (n) => headers.find((h) => h.name.toLowerCase() === n.toLowerCase())?.value || "";
+      const headers = msgData.payload?.headers || [];
+      const getH = (n) => headers.find((h) => h.name.toLowerCase() === n.toLowerCase())?.value || "";
 
-      return {
-        id: msg.id,
-        messageId: getH("Message-ID"),
-        snippet: msgData.snippet || "",
-        subject: getH("Subject") || "(No Subject)",
-        from: getH("From") || "(Unknown)",
-        to: getH("To") || "",
-        cc: getH("Cc") || "",
-        date: getH("Date") || "",
-        labelIds: msgData.labelIds || [],
-        isUnread: msgData.labelIds?.includes("UNREAD") || false,
-        isStarred: msgData.labelIds?.includes("STARRED") || false,
-        attachments: [],
-        body: ""
-      };
-    };
+      // Recursively extract attachments from payload parts
+      const extractAttachments = (parts) => {
+        let atts = [];
+        if (!parts) return atts;
+        for (const part of parts) {
+          if (part.filename && part.body && part.body.attachmentId) {
+            atts.push({
+              id: part.body.attachmentId,
+              name: part.filename,
+              mimeType: part.mimeType,
+              type: part.mimeType.includes("pdf") ? "pdf" : part.mimeType.includes("image") ? "img" : part.mimeType.includes("spreadsheet") || part.mimeType.includes("excel") ? "xls" : "file",
+              url: `/.netlify/functions/gmail-download?messageId=${msg.id}&attachmentId=${part.body.attachmentId}&filename=${encodeURIComponent(part.filename)}&mimeType=${encodeURIComponent(part.mimeType)}`
+            });
+          }
+          if (part.parts) {
+            atts = atts.concat(extractAttachments(part.parts));
+          }
+        }
+        return atts;
+      };
 
+      const attachments = extractAttachments(msgData.payload?.parts);
+
+      return {
+        id: msg.id,
+        messageId: getH("Message-ID"),
+        snippet: msgData.snippet || "",
+        subject: getH("Subject") || "(No Subject)",
+        from: getH("From") || "(Unknown)",
+        to: getH("To") || "",
+        cc: getH("Cc") || "",
+        date: getH("Date") || "",
+        labelIds: msgData.labelIds || [],
+        isUnread: msgData.labelIds?.includes("UNREAD") || false,
+        isStarred: msgData.labelIds?.includes("STARRED") || false,
+        attachments: attachments,
+        body: ""
+      };
+    };
     // All 50 metadata fetches fire simultaneously — each is tiny so no rate-limit risk
     const unorderedEmails = await Promise.all(messages.map(fetchEmailMetadata));
 

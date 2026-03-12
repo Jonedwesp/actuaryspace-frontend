@@ -126,10 +126,8 @@ export function useDonna({
           type: "session.update",
           session: {
             instructions: inst || "You are Agent Donna, a professional actuarial assistant.",
-            modalities: ["text", "audio"],
-            voice: "marin",
-            speed: 1.4,
-            // alloy, sage, shimmer, marin.
+            modalities: ["text"],
+            // Fallback OpenAI voice (if ElevenLabs quota runs out): voice: "marin", speed: 1.4 — re-enable and switch modalities to ["text","audio"]
             input_audio_transcription: { model: "gpt-4o-mini-transcribe" },
             turn_detection: {
               type: "server_vad",

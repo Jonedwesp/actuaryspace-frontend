@@ -33,6 +33,19 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
   // --- NEW DAILY STATS STATE ---
   const [isDailyModalOpen, setIsDailyModalOpen] = useState(false);
   const [dayOffset, setDayOffset] = useState(0); // 0 = today, 1 = yesterday
+  
+  const [isCardsOpen, setIsCardsOpen] = useState(false); // Default to closed
+  
+  // 🌟 NEW: Force all accordions to close and reset offsets when switching users
+  useEffect(() => {
+      if (selectedUser) {
+          setIsCardsOpen(false);
+          setIsDailyModalOpen(false);
+          setIsModalOpen(false);
+          setDayOffset(0);
+          setWeekOffset(0);
+      }
+  }, [selectedUser]);
   // -----------------------------
   
   const [maxLoadedWeek, setMaxLoadedWeek] = useState(-1);
@@ -88,9 +101,14 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
 
   // 🌟 NEW: Auto-fetch the ledger in the background so the ETA is instantly ready
   useEffect(() => {
+      let timer;
       if (maxLoadedWeek < 0 && !loadingWeekly) {
-          fetchLedgerChunk(0, 5);
+          // Delay the heavy 6-week fetch by 2 seconds to avoid an API traffic jam with the live dashboard load
+          timer = setTimeout(() => {
+              fetchLedgerChunk(0, 5);
+          }, 2000);
       }
+      return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   // ----------------------------------------------
@@ -144,6 +162,129 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
   const TARGET_USERS = ["Siya", "Enock", "Songeziwe", "Bonisa", "Siya - Review"];
   const reviewList = trelloBuckets.find(b => b.title === "Siya - Review") || { cards: [] };
 
+  // --- 🌟 NEW: GLOBAL ETA CALCULATION (Past 30 Days + LIVE Today) ---
+  const globalETAs = React.useMemo(() => {
+      if (maxLoadedWeek < 0) return { loe: "Calculating...", los: "Calculating..." };
+
+      let loeCases = 0; let loeActive = 0;
+      let losCases = 0; let losActive = 0;
+
+      // 1. Establish the 30-Day Window (Including Today)
+      const now = new Date();
+      const endOfToday = new Date(now);
+      endOfToday.setHours(23, 59, 59, 999);
+
+      const thirtyDaysAgo = new Date(now);
+      thirtyDaysAgo.setHours(0, 0, 0, 0);
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      // 2. Parse the Historical Ledger (Past 30 Days up to yesterday)
+      Object.values(weeklyStats).forEach(userHistory => {
+          userHistory.forEach(record => {
+              const rDate = new Date(record.date);
+              
+              if (rDate >= thirtyDaysAgo && rDate <= endOfToday) {
+                  const caseType = (record.caseType || "").toLowerCase();
+                  
+                  if (caseType.includes("loe")) {
+                      loeCases++; 
+                      loeActive += record.activeMins; 
+                  } else if (caseType.includes("los")) {
+                      losCases++; 
+                      losActive += record.activeMins; 
+                  }
+              }
+          });
+      });
+
+      // 3. Add Today's Live Completed Cases in Real-Time!
+      TARGET_USERS.forEach(userName => {
+          const completedToday = dailySentStats[`${userName}_completed_objects`] || [];
+          const bucketKey = userName === "Siya - Review" ? "SRV" : userName.substring(0, 3).toUpperCase();
+          
+          completedToday.forEach(c => {
+              // Extract Case Type safely
+              const validLabels = (c.labels || [])
+                  .map(l => typeof l === 'string' ? l : l?.name)
+                  .filter(name => name && name.toLowerCase() !== "ryangpt");
+              const caseTypeStr = validLabels.join(" ").toLowerCase();
+              
+              // Extract Active Time using the same safe logic as the table
+              let activeMins = 0;
+              try {
+                  const workField = c.customFields?.WorkLog || c.customFields?.['[SYSTEM]WorkLog'];
+                  const rawWork = typeof workField === 'string'
+                      ? workField
+                      : JSON.stringify(workField || "{}");
+
+                  let savedDurations = JSON.parse(rawWork);
+                  const durFromName = parseFloat(savedDurations[userName] || "0");
+                  const durFromKey = parseFloat(savedDurations[bucketKey] || "0");
+                  activeMins += (durFromName > 0 ? durFromName : durFromKey) || 0;
+
+                  // Add any lingering ticking time
+                  const rawStart = c.customFields?.WorkTimerStart || c.customFields?.['[SYSTEM]WorkTimerStart'] || "";
+                  if (rawStart) {
+                     const [startTsStr, startList] = rawStart.split("|");
+                     const startTs = parseFloat(startTsStr);
+                     if (startTs > 1000000000000 && (startList === userName || startList.substring(0, 3).toUpperCase() === bucketKey)) {
+                         activeMins += Math.max(0, Date.now() - startTs) / 1000 / 60;
+                     }
+                  }
+              } catch(e) {}
+
+              // Add live math to the Global totals
+              if (caseTypeStr.includes("loe")) {
+                  loeCases++;
+                  loeActive += activeMins;
+              } else if (caseTypeStr.includes("los")) {
+                  losCases++;
+                  losActive += activeMins;
+              }
+          });
+      });
+
+      const formatETA = (activeMins, cases) => {
+          if (cases === 0) return "0h 0m";
+          const avg = activeMins / cases;
+          return `${Math.floor(avg / 60)}h ${Math.floor(avg % 60)}m`;
+      };
+
+      return {
+          loe: formatETA(loeActive, loeCases),
+          los: formatETA(losActive, losCases)
+      };
+  }, [weeklyStats, maxLoadedWeek, dailySentStats]); // <-- Added live stats as a dependency
+  // ----------------------------------------------------------------
+
+  // --- 🌟 NEW: SAST BUSINESS HOURS CALCULATOR (8am - 5pm) ---
+  const getBusinessMinutes = (startTs, endTs) => {
+      if (!startTs || !endTs || startTs >= endTs) return 0;
+      let totalMins = 0;
+      let current = new Date(startTs);
+      let safetyCap = 0;
+      
+      while (current.getTime() < endTs && safetyCap < 1000) {
+          safetyCap++;
+          const formatter = new Intl.DateTimeFormat('en-US', { timeZone: 'Africa/Johannesburg', year: 'numeric', month: '2-digit', day: '2-digit' });
+          const [month, day, year] = formatter.format(current).split('/');
+          
+          const dayStart = new Date(`${year}-${month}-${day}T08:00:00+02:00`).getTime();
+          const dayEnd = new Date(`${year}-${month}-${day}T17:00:00+02:00`).getTime();
+
+          const overlapStart = Math.max(current.getTime(), dayStart);
+          const overlapEnd = Math.min(endTs, dayEnd);
+
+          if (overlapEnd > overlapStart) {
+              totalMins += (overlapEnd - overlapStart) / 60000;
+          }
+
+          current = new Date(dayStart + 24 * 60 * 60 * 1000);
+      }
+      return totalMins;
+  };
+  // ----------------------------------------------------------
+
   const getUserMetrics = (userName) => {
     const userList = trelloBuckets.find(b => b.title.toLowerCase() === userName.toLowerCase()) || { cards: [] };
 
@@ -152,16 +293,17 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
       !c.title.toLowerCase().includes("away from cases")
     );
 
-    // 🌟 FIXED: Grab the specific cards this user pushed forward today from the backend
+    // Grab the specific cards this user pushed forward today from the backend
     const completedTodayIds = dailySentStats[`${userName}_cards`] || []; 
+    const completedTodayObjects = dailySentStats[`${userName}_completed_objects`] || []; 
     const bucketKey = userName === "Siya - Review" ? "SRV" : userName.substring(0, 3).toUpperCase();
 
-    const allAssignedCards = trelloBuckets.flatMap(b => b.cards).filter(c => {
+    // Step A: Get all cards currently visible in the active buckets
+    const localAssignedCards = trelloBuckets.flatMap(b => b.cards).filter(c => {
       // Safety Check: Never show admin/away cards in the workspace table
       if (c.title.toLowerCase().includes("out of office") || c.title.toLowerCase().includes("away from cases")) return false;
 
       // Condition 1: Is the card physically in this user's list right now?
-      // We use c.list here instead of 'b' to avoid the white screen crash
       const isInUserList = (c.list || "").toLowerCase() === userName.toLowerCase();
 
       // Condition 2: Is it in a shared list (like Review or Yolandie) but they are the assigned member?
@@ -194,6 +336,38 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
       // Show the card if ANY of the above are true
       return isCurrentlyHere || wasCompletedToday || hasLoggedTime;
     });
+
+    // Step B: Stitch the missing backend cards into the list so they render at the bottom!
+    const localIds = new Set(localAssignedCards.map(c => c.id));
+    const missingCompletedCards = completedTodayObjects.filter(c => !localIds.has(c.id));
+    const allAssignedCards = [...localAssignedCards, ...missingCompletedCards];
+
+    // --- SMART SORTING LOGIC (Status + Due Date) ---
+    const sortedAssignedCards = [...allAssignedCards].sort((a, b) => {
+        const aCompleted = completedTodayIds.includes(a.id);
+        const bCompleted = completedTodayIds.includes(b.id);
+        
+        // 1. Primary Sort: Active cards stay on top, Completed drop to bottom
+        if (aCompleted !== bCompleted) {
+            return aCompleted ? 1 : -1;
+        }
+        
+        // 2. Secondary Sort: Closest Due Date first (within their respective group)
+        const parseDate = (title) => {
+            const match = (title || "").match(/\(Due\s+([^)]+)\)/i);
+            if (!match) return Infinity; 
+            
+            const ts = Date.parse(`${match[1].trim()} ${new Date().getFullYear()}`);
+            return isNaN(ts) ? Infinity : ts;
+        };
+
+        const aTime = parseDate(a.title);
+        const bTime = parseDate(b.title);
+        
+        if (aTime === bTime) return 0;
+        return aTime - bTime;
+    });
+
     let status = "🟢";
     let currentTask = "None";
 
@@ -212,29 +386,25 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
 
     const reviewCount = dailySentStats[userName] || 0;
 
-    // 3. Time Logged (Now shows the Arrival Timestamp of the #1 card)
+    // 3. Time Logged (Used ONLY for the main dashboard grid)
     const calculateArrivalTime = () => {
       if (activeCards.length > 0) {
          const topCard = activeCards[0];
          try {
              const durObj = JSON.parse(topCard.customFields?.IdleLog || "{}");
-             // If the card is at the top AND the timestamp belongs to this user
              if (durObj._topReachedAt && durObj._topUser === userName) {
                  const date = new Date(durObj._topReachedAt);
-                 // Format it as HH:MM (e.g., 17:41)
                  return date.toLocaleTimeString('en-ZA', { timeZone: 'Africa/Johannesburg', hour: '2-digit', minute: '2-digit', hour12: false });
              }
          } catch(e) {}
       }
-      return "-"; // Returns a dash if no card is actively at the top
+      return "-"; 
     };
 
     const calculateActiveTimer = () => {
       let totalMinutes = 0;
       const now = Date.now();
-      const bucketKey = userName === "Siya - Review" ? "SRV" : userName.substring(0, 3).toUpperCase();
 
-      // Only check the #1 active card in their list
       if (activeCards.length > 0) {
         const topCard = activeCards[0];
         let savedDurations = {};
@@ -272,43 +442,19 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
       return `${hours}h ${mins}m`;
     };
 
-    // 4. Calculate ETA (7-Day Historical Average Idle Time from Ledger)
-    const calculateETA = () => {
-        const history = weeklyStats[userName] || [];
-        
-        // Show a calculating status briefly while the background fetch finishes
-        if (history.length === 0) return "Calculating..."; 
-
-        // Get a true 7-day rolling window to avoid "0 ETA" on Monday mornings
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-        sevenDaysAgo.setHours(0, 0, 0, 0);
-
-        let recentCases = 0;
-        let recentIdle = 0;
-
-        history.forEach(record => {
-            const rDate = new Date(record.date);
-            if (rDate >= sevenDaysAgo) {
-                recentCases += record.cases;
-                recentIdle += record.idleMins;
-            }
-        });
-
-        const avgIdle = recentCases > 0 ? recentIdle / recentCases : 0;
-        return avgIdle > 0 ? `${Math.floor(avgIdle / 60)}h ${Math.floor(avgIdle % 60)}m` : "0h 0m";
-    };
-
       const isAway = status === "🔴";
       return { 
-        eta: isAway ? "-" : calculateETA(),
+        // ETAs are now Global, so they always show regardless of 'isAway'
+        etaLOE: globalETAs.loe, 
+        etaLOS: globalETAs.los, 
         status, 
         currentTask, 
         reviewCount, 
-        cardCount: isAway ? "-" : activeCards.length, 
+        cardCount: activeCards.length, // <-- Always show the count (will naturally show 0 if empty)
         timeLogged: isAway ? "-" : calculateArrivalTime(), 
         activeTimer: isAway ? "-" : calculateActiveTimer(), 
-        allUserCards: allAssignedCards 
+        allUserCards: sortedAssignedCards, 
+        completedTodayIds 
       };
   };
   const metrics = selectedUser ? getUserMetrics(selectedUser) : null;
@@ -331,160 +477,344 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
             </h2>
             <div style={{ display: "flex", gap: "24px" }}>
               <div className="prod-metric">
-                <span className="prod-metric-label">Output</span>
+                <span className="prod-metric-label">Output Today</span>
                 <span className="prod-metric-value highlight" style={{ color: "#1f1f1f" }}>{metrics.reviewCount} Cases</span>
               </div>
               <div className="prod-metric">
-                <span className="prod-metric-label">Logged</span>
-                <span className="prod-metric-value highlight" style={{ color: "#1f1f1f" }}>{metrics.timeLogged}</span>
+                <span className="prod-metric-label" style={{ display: "flex", alignItems: "center" }}>
+                  ETA: LOE
+                  <span className="info-tooltip pull-left" data-tip="Estimated time to complete the LOE case.">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9aa0a6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                  </span>
+                </span>
+                <span className="prod-metric-value highlight" style={{ color: "#1f1f1f" }}>{metrics.etaLOE}</span>
               </div>
               <div className="prod-metric">
-                <span className="prod-metric-label">ETA</span>
-                <span className="prod-metric-value highlight" style={{ color: "#ea4335" }}>{metrics.eta}</span>
+                <span className="prod-metric-label" style={{ display: "flex", alignItems: "center" }}>
+                  ETA: LOS
+                  <span className="info-tooltip pull-left" data-tip="Estimated time to complete the LOS case.">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9aa0a6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                  </span>
+                </span>
+                <span className="prod-metric-value highlight" style={{ color: "#1f1f1f" }}>{metrics.etaLOS}</span>
               </div>
             </div>
           </div>
 
-          <h3 style={{ fontSize: "16px", color: "#5f6368", borderBottom: "2px solid #f1f3f4", paddingBottom: "8px", margin: "0 0 16px 0" }}>
-            Card Activity
-          </h3>
-
-          <div style={{ overflowY: "auto", flex: 1 }}>
-           <table className="prod-table">
-              <thead>
-                <tr>
-                  <th style={{ width: "35%" }}>Card Name</th>
-                  <th>Location</th>
-                  <th>Due Date</th>
-                  <th>Status</th>
-                  <th>Idle Time</th> 
-                  <th>Active Time</th> 
-                </tr>
-              </thead>
-              <tbody>
-                {allUserCards.length === 0 ? (
-                  <tr>
-                    <td colSpan="6" style={{ textAlign: "center", color: "#5f6368", fontStyle: "italic", padding: "32px" }}>No active or reviewed cards found for {selectedUser}.</td>
-                  </tr>
-                ) : (
-                  (() => {
-                    let totalActiveMins = 0;
-                    let totalIdleMins = 0;
-                    const bucketKey = selectedUser === "Siya - Review" ? "SRV" : selectedUser.substring(0, 3).toUpperCase();
-                    
-                    const rows = allUserCards.map(c => {
-                        // 1. Idle Time Calculation
-                        let idleMins = 0;
-                        try {
-                            const durObj = JSON.parse(c.customFields?.IdleLog || "{}");
-                            idleMins += parseFloat(durObj[`${selectedUser}_idle`] || 0);
-                            
-                            if (durObj._topReachedAt && durObj._topUser === selectedUser) {
-                                idleMins += (Date.now() - durObj._topReachedAt) / 60000;
-                            }
-                        } catch(e) {}
-                        
-                        totalIdleMins += idleMins;
-                        
-                        const formattedIdle = idleMins > 0 
-                            ? `${Math.floor(idleMins / 60)}h ${Math.floor(idleMins % 60)}m` 
-                            : "0m";
-
-                        // 2. Active Time Calculation
-                        let activeMins = 0;
-                        try {
-                            let savedDurations = {};
-                            const rawDur = c.customFields?.WorkLog || "{}";
-                            if (!rawDur.startsWith("{")) {
-                               savedDurations = { [c.list]: parseFloat(rawDur) || 0 };
-                            } else {
-                               savedDurations = JSON.parse(rawDur);
-                            }
-                            const durFromName = parseFloat(savedDurations[selectedUser] || "0");
-                            const durFromKey = parseFloat(savedDurations[bucketKey] || "0");
-                            activeMins += (durFromName > 0 ? durFromName : durFromKey) || 0;
-
-                            const rawStart = c.customFields?.WorkTimerStart || "";
-                            if (rawStart) {
-                               const [startTsStr, startList] = rawStart.split("|");
-                               const startTs = parseFloat(startTsStr);
-                               if (startTs > 1000000000000 && (startList === selectedUser || startList.substring(0, 3).toUpperCase() === bucketKey)) {
-                                  activeMins += Math.max(0, Date.now() - startTs) / 1000 / 60;
-                               }
-                            }
-                        } catch(e) {}
-                        
-                        totalActiveMins += activeMins;
-
-                        const formattedActive = activeMins > 0 
-                            ? `${Math.floor(activeMins / 60)}h ${Math.floor(activeMins % 60)}m` 
-                            : "0m";
-
-                        return (
-                          <tr key={c.id} style={{ cursor: "pointer", borderBottom: "1px solid #f1f3f4" }} onClick={() => window.dispatchEvent(new CustomEvent("openTrelloCard", { detail: { ...c, fromProductivity: selectedUser } }))}>
-                            <td style={{ fontWeight: 500 }}>{c.title}</td>
-                            <td>
-                              <span style={{ background: c.list === "Siya - Review" ? "#e6f4ea" : "#f1f3f4", color: c.list === "Siya - Review" ? "#137333" : "#3c4043", padding: "4px 8px", borderRadius: "4px", fontSize: "12px", fontWeight: 600 }}>
-                                {c.list}
-                              </span>
-                            </td>
-                            <td style={{ color: "#5f6368", fontWeight: 500 }}>{extractDueDate(c.title)}</td>
-                            <td>{c.customFields?.Active || c.customFields?.Status || "-"}</td>
-                            <td style={{ fontWeight: "bold", color: idleMins > 0 ? "#ea4335" : "#97a0af" }}>
-                                {formattedIdle}
-                            </td>
-                            <td style={{ fontWeight: "bold", color: activeMins > 0 ? "#0b57d0" : "#97a0af" }}>
-                                {formattedActive}
-                            </td>
-                          </tr>
-                        );
-                    });
-
-                   return (
-                      <>
-                        {rows}
-                        {/* 1. THE STANDARD TOTALS ROW */}
-                        <tr style={{ background: "#f8f9fa", borderTop: "2px solid #dadce0" }}>
-                          <td colSpan="4" style={{ textAlign: "right", fontWeight: "bold", color: "#3c4043", padding: "12px" }}>Totals:</td>
-                          <td style={{ fontWeight: "bold", color: "#ea4335", padding: "12px" }}>
-                              {totalIdleMins > 0 ? `${Math.floor(totalIdleMins / 60)}h ${Math.floor(totalIdleMins % 60)}m` : "0h 0m"}
-                          </td>
-                          <td style={{ fontWeight: "bold", color: "#0b57d0", padding: "12px" }}>
-                              {totalActiveMins > 0 ? `${Math.floor(totalActiveMins / 60)}h ${Math.floor(totalActiveMins % 60)}m` : "0h 0m"}
-                          </td>
-                        </tr>
-
-                        {/* --- THE DUAL ANALYTICS BUTTONS --- */}
+         <div style={{ display: "flex", flexDirection: "column", gap: "16px", overflowY: "auto", flex: 1, paddingRight: "8px", paddingBottom: "32px" }}>
+            
+            {/* ========================================== */}
+            {/* 1. CARD ACTIVITY ACCORDION */}
+            {/* ========================================== */}
+            <div>
+              <div 
+                onClick={() => setIsCardsOpen(!isCardsOpen)}
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f8f9fa", padding: "14px 16px", borderRadius: "8px", cursor: "pointer", border: "1px solid #dadce0" }}
+              >
+                <h3 style={{ margin: 0, fontSize: "16px", color: "#3c4043", display: "flex", alignItems: "center", gap: "8px" }}>
+                  📋 Card Activity
+                </h3>
+                <svg style={{ transform: isCardsOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5f6368" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </div>
+              
+              {isCardsOpen && (
+                <div style={{ marginTop: "8px", border: "1px solid #dadce0", borderRadius: "8px", overflow: "hidden" }}>
+                  <table className="prod-table" style={{ margin: 0, borderBottom: "none" }}>
+                    <thead>
+                      <tr>
+                        <th style={{ width: "35%" }}>Card Name</th>
+                        <th>Case Type</th>
+                        <th>Due Date</th>
+                        <th>Status</th>
+                        <th>Excess Time</th> 
+                        <th>Active Time</th> 
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allUserCards.length === 0 ? (
                         <tr>
-                          <td colSpan="6" style={{ textAlign: "center", padding: "16px", borderTop: "1px solid #dadce0" }}>
-                             <div style={{ display: "flex", justifyContent: "center", gap: "16px" }}>
-                                 <button 
-                                    onClick={() => {
-                                        setIsDailyModalOpen(true);
-                                        if (maxLoadedWeek < 0 && !loadingWeekly) fetchLedgerChunk(0, 5);
-                                    }}
-                                    style={{ padding: "8px 16px", background: "#fff", border: "1px solid #dadce0", borderRadius: "16px", cursor: "pointer", fontSize: "12px", fontWeight: "600", color: "#5f6368", boxShadow: "0 1px 2px rgba(0,0,0,0.05)" }}
-                                 >
-                                   📅 Open Daily Analytics
-                                 </button>
-                                 <button 
-                                    onClick={() => {
-                                        setIsModalOpen(true);
-                                        if (maxLoadedWeek < 0 && !loadingWeekly) fetchLedgerChunk(0, 5);
-                                    }}
-                                    style={{ padding: "8px 16px", background: "#fff", border: "1px solid #dadce0", borderRadius: "16px", cursor: "pointer", fontSize: "12px", fontWeight: "600", color: "#5f6368", boxShadow: "0 1px 2px rgba(0,0,0,0.05)" }}
-                                 >
-                                   📊 Open Weekly Analytics
-                                 </button>
-                             </div>
-                          </td>
+                          <td colSpan="6" style={{ textAlign: "center", color: "#5f6368", fontStyle: "italic", padding: "32px" }}>No active or reviewed cards found for {selectedUser}.</td>
                         </tr>
-                      </>
-                    );
-                  })()
-                )}
-              </tbody>
-            </table>
+                      ) : (
+                        (() => {
+                          let totalActiveMins = 0; let totalIdleMins = 0;
+                          const bucketKey = selectedUser === "Siya - Review" ? "SRV" : selectedUser.substring(0, 3).toUpperCase();
+                          
+                          const rows = allUserCards.map(c => {
+                              const isCompleted = metrics.completedTodayIds?.includes(c.id);
+
+                              let rawIdleMins = 0;
+                              try {
+                                  const idleField = c.customFields?.IdleLog || c.customFields?.['[SYSTEM]IdleLog'];
+                                  const rawIdle = typeof idleField === 'string' ? idleField : JSON.stringify(idleField || "{}");
+                                  const durObj = JSON.parse(rawIdle);
+                                  rawIdleMins += parseFloat(durObj[`${selectedUser}_idle`] || 0);
+                                  if (!isCompleted && durObj._topReachedAt && durObj._topUser === selectedUser) {
+                                      rawIdleMins += getBusinessMinutes(durObj._topReachedAt, Date.now());
+                                  }
+                              } catch(e) {}
+
+                              let activeMins = 0;
+                              try {
+                                  const workField = c.customFields?.WorkLog || c.customFields?.['[SYSTEM]WorkLog'];
+                                  const rawWork = typeof workField === 'string' ? workField : JSON.stringify(workField || "{}");
+                                  let savedDurations = JSON.parse(rawWork);
+                                  const durFromName = parseFloat(savedDurations[selectedUser] || "0");
+                                  const durFromKey = parseFloat(savedDurations[bucketKey] || "0");
+                                  activeMins += (durFromName > 0 ? durFromName : durFromKey) || 0;
+
+                                  const rawStart = c.customFields?.WorkTimerStart || c.customFields?.['[SYSTEM]WorkTimerStart'] || "";
+                                  if (!isCompleted && rawStart) {
+                                     const [startTsStr, startList] = rawStart.split("|");
+                                     const startTs = parseFloat(startTsStr);
+                                     if (startTs > 1000000000000 && (startList === selectedUser || startList.substring(0, 3).toUpperCase() === bucketKey)) {
+                                         activeMins += Math.max(0, Date.now() - startTs) / 1000 / 60;
+                                     }
+                                  }
+                              } catch(e) {}
+                              
+                              let idleMins = Math.max(0, rawIdleMins - activeMins);
+                              totalIdleMins += idleMins; totalActiveMins += activeMins;
+
+                              const formattedIdle = idleMins > 0 ? `${Math.floor(idleMins / 60)}h ${Math.floor(idleMins % 60)}m` : "0m";
+                              const formattedActive = activeMins > 0 ? `${Math.floor(activeMins / 60)}h ${Math.floor(activeMins % 60)}m` : "0m";
+
+                              return (
+                                <tr key={c.id} style={{ cursor: "pointer", borderBottom: "1px solid #f1f3f4", backgroundColor: isCompleted ? "#f8f9fa" : "transparent" }} onClick={() => {
+                                    const safeCard = { ...c, name: c.name || c.title || "Unknown Case", desc: c.desc || "This case was rescued from the backend ledger. Description not available.", url: c.url || `https://trello.com/c/${c.id}`, labels: c.labels || [], idMembers: c.idMembers || [], members: c.members || [], customFieldItems: c.customFieldItems || [], fromProductivity: selectedUser };
+                                    window.dispatchEvent(new CustomEvent("openTrelloCard", { detail: safeCard }));
+                                }}>
+                                  <td style={{ fontWeight: 500, color: isCompleted ? "#5f6368" : "inherit" }}>
+                                      {isCompleted && <span style={{ marginRight: "8px" }} title="Completed Today">✅</span>}
+                                      <span style={{ textDecoration: isCompleted ? "line-through" : "none" }}>{c.title || c.name}</span>
+                                  </td>
+                                  <td>
+                                    <span style={{ background: "#e8f0fe", color: "#1a73e8", padding: "4px 8px", borderRadius: "4px", fontSize: "12px", fontWeight: 600, display: "inline-block", maxWidth: "130px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                      {(() => {
+                                          const validLabels = (c.labels || []).map(l => typeof l === 'string' ? l : l?.name).filter(name => name && name.toLowerCase() !== "ryangpt");
+                                          return validLabels.length > 0 ? validLabels.join(", ") : "-";
+                                      })()}
+                                    </span>
+                                  </td>
+                                  <td style={{ color: "#5f6368", fontWeight: 500 }}>{extractDueDate(c.title || c.name)}</td>
+                                  <td>{c.customFields?.Active || c.customFields?.Status || "-"}</td>
+                                  <td style={{ fontWeight: "bold", color: idleMins > 0 ? "#1f1f1f" : "#97a0af" }}>{formattedIdle}</td>
+                                  <td style={{ fontWeight: "bold", color: activeMins > 0 ? "#1f1f1f" : "#97a0af" }}>{formattedActive}</td>
+                                </tr>
+                              );
+                          });
+
+                          return (
+                            <>
+                              {rows}
+                              <tr style={{ background: "#f8f9fa", borderTop: "2px solid #dadce0" }}>
+                                <td colSpan="4" style={{ textAlign: "right", fontWeight: "bold", color: "#3c4043", padding: "12px" }}>Totals:</td>
+                                <td style={{ fontWeight: "bold", color: "#1f1f1f", padding: "12px" }}>
+                                    {totalIdleMins > 0 ? `${Math.floor(totalIdleMins / 60)}h ${Math.floor(totalIdleMins % 60)}m` : "0h 0m"}
+                                </td>
+                                <td style={{ fontWeight: "bold", color: "#1f1f1f", padding: "12px" }}>
+                                    {totalActiveMins > 0 ? `${Math.floor(totalActiveMins / 60)}h ${Math.floor(totalActiveMins % 60)}m` : "0h 0m"}
+                                </td>
+                              </tr>
+                            </>
+                          );
+                        })()
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+           {/* ========================================== */}
+            {/* 2. DAILY ANALYTICS ACCORDION */}
+            {/* ========================================== */}
+            <div>
+              <div 
+                onClick={() => { 
+                    if (isDailyModalOpen) {
+                        setIsDailyModalOpen(false);
+                        setDayOffset(0); // Reset to today when closed
+                    } else {
+                        setIsDailyModalOpen(true);
+                        if (maxLoadedWeek < 0 && !loadingWeekly) fetchLedgerChunk(0, 5); 
+                    }
+                }}
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f8f9fa", padding: "14px 16px", borderRadius: "8px", cursor: "pointer", border: "1px solid #dadce0" }}
+              >
+                <h3 style={{ margin: 0, fontSize: "16px", color: "#3c4043", display: "flex", alignItems: "center", gap: "8px" }}>📅 Daily Analytics</h3>
+                <svg style={{ transform: isDailyModalOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5f6368" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </div>
+
+              {isDailyModalOpen && (
+                <div style={{ marginTop: "8px", border: "1px solid #dadce0", borderRadius: "8px", background: "#fff", overflow: "hidden" }}>
+                  <div style={{ padding: "16px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px dashed #dadce0", marginBottom: "24px" }}>
+                      <button onClick={() => { const nextOffset = dayOffset + 1; setDayOffset(nextOffset); const requiredWeek = Math.floor(nextOffset / 7); if (requiredWeek > maxLoadedWeek && !loadingWeekly) fetchLedgerChunk(maxLoadedWeek + 1, requiredWeek + 5); }} disabled={loadingWeekly} style={{ background: "none", border: "none", fontSize: "18px", cursor: loadingWeekly ? "wait" : "pointer", color: loadingWeekly ? "#dadce0" : "#5f6368" }}>◀</button>
+                      <div style={{ textAlign: "center" }}>
+                          <div style={{ fontWeight: "bold", color: "#1f1f1f", fontSize: "16px" }}>{dayOffset === 0 ? "Today" : dayOffset === 1 ? "Yesterday" : `${dayOffset} Days Ago`}</div>
+                          <div style={{ fontSize: "12px", color: "#5f6368", marginTop: "4px" }}>{(() => { const { start } = getDayBoundaries(dayOffset); return start.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }); })()}</div>
+                      </div>
+                      <button onClick={() => setDayOffset(Math.max(0, dayOffset - 1))} disabled={dayOffset === 0 || loadingWeekly} style={{ background: "none", border: "none", fontSize: "18px", cursor: (dayOffset === 0 || loadingWeekly) ? "default" : "pointer", color: (dayOffset === 0 || loadingWeekly) ? "#dadce0" : "#5f6368" }}>▶</button>
+                  </div>
+                  
+                  <div style={{ padding: "0 24px 24px 24px" }}>
+                      {loadingWeekly ? (
+                           <div style={{ color: "#5f6368", fontSize: "14px", padding: "40px 0", textAlign: "center" }}>Fetching historical ledger data...</div>
+                      ) : (
+                           (() => {
+                               const { start, end } = getDayBoundaries(dayOffset);
+                               const userHistory = weeklyStats[selectedUser] || [];
+                               const dayCasesData = userHistory.filter(r => { const d = new Date(r.date); return d >= start && d <= end; }).map(r => ({ name: r.caseName || "Unknown", active: r.activeMins, idle: r.idleMins }));
+
+                               if (dayCasesData.length === 0) return <div style={{ padding: "40px", color: "#5f6368", fontStyle: "italic", textAlign: "center" }}>No cases completed on this day.</div>;
+
+                               const totalActive = dayCasesData.reduce((sum, d) => sum + d.active, 0);
+                               const totalIdle = dayCasesData.reduce((sum, d) => sum + d.idle, 0);
+                               const avgActive = dayCasesData.length > 0 ? totalActive / dayCasesData.length : 0;
+                               const avgIdle = dayCasesData.length > 0 ? totalIdle / dayCasesData.length : 0;
+
+                               let maxVal = Math.max(avgActive, avgIdle);
+                               dayCasesData.forEach(d => maxVal = Math.max(maxVal, d.active, d.idle));
+                               const maxY = Math.max(60, Math.ceil(maxVal / 15) * 15);
+                               const yTicks = [];
+                               for (let i = maxY; i >= 0; i -= 15) yTicks.push(i);
+
+                               return (
+                                  <>
+                                      <div style={{ display: 'flex', gap: '24px', justifyContent: 'center', marginBottom: '40px', fontSize: '12px', fontWeight: 'bold', color: '#3c4043' }}>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><div style={{ width: '14px', height: '14px', backgroundColor: '#1a73e8', borderRadius: '3px' }}/> Active Time</div>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><div style={{ width: '14px', height: '14px', backgroundColor: '#ea4335', borderRadius: '3px' }}/> Excess Idle Time</div>
+                                      </div>
+
+                                      <div style={{ display: 'flex', height: '340px', fontFamily: 'sans-serif', marginBottom: '80px' }}>
+                                         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', paddingRight: '12px', color: '#9aa0a6', fontSize: '11px', textAlign: 'right', minWidth: '45px', margin: '-6px 0', position: 'relative' }}>
+                                             <div style={{ position: 'absolute', top: '-25px', right: '12px', fontSize: '10px', fontWeight: 'bold', color: '#5f6368', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Minutes</div>
+                                             {yTicks.map(t => <div key={t}>{t}m</div>)}
+                                         </div>
+                                         <div style={{ flex: 1, position: 'relative', borderBottom: '2px solid #dadce0', borderLeft: '2px solid #dadce0', display: 'flex', alignItems: 'flex-end', overflowX: 'visible', gap: '8px', padding: '0 16px' }}>
+                                             {yTicks.map(t => <div key={`grid-${t}`} style={{ position: 'absolute', left: 0, right: 0, bottom: `${(t/maxY)*100}%`, borderTop: '1px dashed #f1f3f4', zIndex: 0 }} />)}
+                                             
+                                             {avgActive > 0 && <div style={{ position: 'absolute', left: 0, right: 0, bottom: `${(avgActive/maxY)*100}%`, borderTop: '2px dashed rgba(26, 115, 232, 0.5)', zIndex: 0, pointerEvents: 'none' }}><div style={{ position: 'absolute', right: 0, bottom: '2px', fontSize: '10px', color: '#1a73e8', fontWeight: 'bold', backgroundColor: 'rgba(255,255,255,0.8)', padding: '0 4px', borderRadius: '4px' }}>Avg Active: {avgActive.toFixed(0)}m</div></div>}
+                                             {avgIdle > 0 && <div style={{ position: 'absolute', left: 0, right: 0, bottom: `${(avgIdle/maxY)*100}%`, borderTop: '2px dashed rgba(234, 67, 53, 0.5)', zIndex: 0, pointerEvents: 'none' }}><div style={{ position: 'absolute', right: 0, bottom: '2px', fontSize: '10px', color: '#ea4335', fontWeight: 'bold', backgroundColor: 'rgba(255,255,255,0.8)', padding: '0 4px', borderRadius: '4px' }}>Avg Idle: {avgIdle.toFixed(0)}m</div></div>}
+                                             
+                                             {dayCasesData.map((d, i) => (
+                                                 <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 1, flex: 1, position: 'relative', height: '100%' }}>
+                                                     <div style={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: '100%', width: '100%', justifyContent: 'center' }}>
+                                                         <div title={`Active: ${d.active.toFixed(0)}m`} style={{ width: '100%', maxWidth: '16px', height: `${(d.active/maxY)*100}%`, backgroundColor: '#1a73e8', borderRadius: '4px 4px 0 0', minHeight: d.active > 0 ? '2px' : '0' }} />
+                                                         <div title={`Idle: ${d.idle.toFixed(0)}m`} style={{ width: '100%', maxWidth: '16px', height: `${(d.idle/maxY)*100}%`, backgroundColor: '#ea4335', borderRadius: '4px 4px 0 0', minHeight: d.idle > 0 ? '2px' : '0' }} />
+                                                     </div>
+                                                     <div style={{ position: 'absolute', top: '100%', right: '50%', marginTop: '8px', transform: 'rotate(-45deg)', transformOrigin: 'top right', fontSize: '11px', color: '#5f6368', whiteSpace: 'nowrap', fontWeight: '600', width: '120px', textAlign: 'right', textOverflow: 'ellipsis', overflow: 'hidden' }} title={d.name}>{d.name}</div>
+                                                 </div>
+                                             ))}
+                                         </div>
+                                      </div>
+                                  </>
+                               );
+                           })()
+                      )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ========================================== */}
+            {/* 3. WEEKLY ANALYTICS ACCORDION */}
+            {/* ========================================== */}
+            <div>
+              <div 
+                onClick={() => { 
+                    if (isModalOpen) {
+                        setIsModalOpen(false);
+                        setWeekOffset(0); // Reset to current week when closed
+                    } else {
+                        setIsModalOpen(true);
+                        if (maxLoadedWeek < 0 && !loadingWeekly) fetchLedgerChunk(0, 5); 
+                    }
+                }}
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f8f9fa", padding: "14px 16px", borderRadius: "8px", cursor: "pointer", border: "1px solid #dadce0" }}
+              >
+                <h3 style={{ margin: 0, fontSize: "16px", color: "#3c4043", display: "flex", alignItems: "center", gap: "8px" }}>📊 Weekly Analytics</h3>
+                <svg style={{ transform: isModalOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5f6368" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </div>
+
+              {isModalOpen && (
+                <div style={{ marginTop: "8px", border: "1px solid #dadce0", borderRadius: "8px", background: "#fff", overflow: "hidden" }}>
+                  <div style={{ padding: "16px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px dashed #dadce0", marginBottom: "24px" }}>
+                      <button onClick={() => { const nextOffset = weekOffset + 1; setWeekOffset(nextOffset); if (nextOffset > maxLoadedWeek && !loadingWeekly) fetchLedgerChunk(maxLoadedWeek + 1, maxLoadedWeek + 6); }} disabled={loadingWeekly} style={{ background: "none", border: "none", fontSize: "18px", cursor: loadingWeekly ? "wait" : "pointer", color: loadingWeekly ? "#dadce0" : "#5f6368" }}>◀</button>
+                      <div style={{ textAlign: "center" }}>
+                          <div style={{ fontWeight: "bold", color: "#1f1f1f", fontSize: "16px" }}>{weekOffset === 0 ? "Current Week" : `${weekOffset} Week${weekOffset > 1 ? 's' : ''} Ago`}</div>
+                          <div style={{ fontSize: "12px", color: "#5f6368", marginTop: "4px" }}>{(() => { const { start, end } = getWeekBoundaries(weekOffset); const format = (d) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); return `${format(start)} — ${format(end)}`; })()}</div>
+                      </div>
+                      <button onClick={() => setWeekOffset(Math.max(0, weekOffset - 1))} disabled={weekOffset === 0 || loadingWeekly} style={{ background: "none", border: "none", fontSize: "18px", cursor: (weekOffset === 0 || loadingWeekly) ? "default" : "pointer", color: (weekOffset === 0 || loadingWeekly) ? "#dadce0" : "#5f6368" }}>▶</button>
+                  </div>
+
+                  <div style={{ padding: "0 24px 24px 24px" }}>
+                      {loadingWeekly ? (
+                           <div style={{ color: "#5f6368", fontSize: "14px", padding: "40px 0", textAlign: "center" }}>Fetching historical ledger data...</div>
+                      ) : (
+                           (() => {
+                               const { start, end } = getWeekBoundaries(weekOffset);
+                               const userHistory = weeklyStats[selectedUser] || [];
+                               const days = [ { id: 1, name: 'Monday', activeSum: 0, idleSum: 0, count: 0 }, { id: 2, name: 'Tuesday', activeSum: 0, idleSum: 0, count: 0 }, { id: 3, name: 'Wednesday', activeSum: 0, idleSum: 0, count: 0 }, { id: 4, name: 'Thursday', activeSum: 0, idleSum: 0, count: 0 }, { id: 5, name: 'Friday', activeSum: 0, idleSum: 0, count: 0 } ];
+
+                               userHistory.forEach(record => {
+                                   const rDate = new Date(record.date);
+                                   if (rDate >= start && rDate <= end) {
+                                       const dayObj = days.find(d => d.id === rDate.getDay());
+                                       if (dayObj) { dayObj.activeSum += record.activeMins; dayObj.idleSum += record.idleMins; dayObj.count += 1; }
+                                   }
+                               });
+
+                               const weekCasesData = days.map(d => ({ name: d.name, active: d.count > 0 ? d.activeSum / d.count : 0, idle: d.count > 0 ? d.idleSum / d.count : 0 }));
+                               let totalWeekActive = 0; let totalWeekIdle = 0; let totalWeekCases = 0;
+                               days.forEach(d => { totalWeekActive += d.activeSum; totalWeekIdle += d.idleSum; totalWeekCases += d.count; });
+                               const overallAvgActive = totalWeekCases > 0 ? totalWeekActive / totalWeekCases : 0;
+                               const overallAvgIdle = totalWeekCases > 0 ? totalWeekIdle / totalWeekCases : 0;
+
+                               let maxVal = Math.max(overallAvgActive, overallAvgIdle);
+                               weekCasesData.forEach(d => maxVal = Math.max(maxVal, d.active, d.idle));
+                               const maxY = Math.max(60, Math.ceil(maxVal / 15) * 15);
+                               const yTicks = [];
+                               for (let i = maxY; i >= 0; i -= 15) yTicks.push(i);
+
+                               return (
+                                  <>
+                                      <div style={{ display: 'flex', gap: '24px', justifyContent: 'center', marginBottom: '40px', fontSize: '12px', fontWeight: 'bold', color: '#3c4043' }}>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><div style={{ width: '14px', height: '14px', backgroundColor: '#1a73e8', borderRadius: '3px' }}/> Avg Active Time</div>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><div style={{ width: '14px', height: '14px', backgroundColor: '#ea4335', borderRadius: '3px' }}/> Avg Excess Idle Time</div>
+                                      </div>
+
+                                      <div style={{ display: 'flex', height: '340px', fontFamily: 'sans-serif', marginBottom: '80px' }}>
+                                         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', paddingRight: '12px', color: '#9aa0a6', fontSize: '11px', textAlign: 'right', minWidth: '45px', margin: '-6px 0', position: 'relative' }}>
+                                             <div style={{ position: 'absolute', top: '-25px', right: '12px', fontSize: '10px', fontWeight: 'bold', color: '#5f6368', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Minutes</div>
+                                             {yTicks.map(t => <div key={t}>{t}m</div>)}
+                                         </div>
+                                         <div style={{ flex: 1, position: 'relative', borderBottom: '2px solid #dadce0', borderLeft: '2px solid #dadce0', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-around', padding: '0 16px', overflowX: 'visible' }}>
+                                             {yTicks.map(t => <div key={`grid-${t}`} style={{ position: 'absolute', left: 0, right: 0, bottom: `${(t/maxY)*100}%`, borderTop: '1px dashed #f1f3f4', zIndex: 0 }} />)}
+                                             
+                                             {overallAvgActive > 0 && <div style={{ position: 'absolute', left: 0, right: 0, bottom: `${(overallAvgActive/maxY)*100}%`, borderTop: '2px dashed rgba(26, 115, 232, 0.5)', zIndex: 0, pointerEvents: 'none' }}><div style={{ position: 'absolute', right: 0, bottom: '2px', fontSize: '10px', color: '#1a73e8', fontWeight: 'bold', backgroundColor: 'rgba(255,255,255,0.8)', padding: '0 4px', borderRadius: '4px' }}>Wk Avg Active: {overallAvgActive.toFixed(0)}m</div></div>}
+                                             {overallAvgIdle > 0 && <div style={{ position: 'absolute', left: 0, right: 0, bottom: `${(overallAvgIdle/maxY)*100}%`, borderTop: '2px dashed rgba(234, 67, 53, 0.5)', zIndex: 0, pointerEvents: 'none' }}><div style={{ position: 'absolute', right: 0, bottom: '2px', fontSize: '10px', color: '#ea4335', fontWeight: 'bold', backgroundColor: 'rgba(255,255,255,0.8)', padding: '0 4px', borderRadius: '4px' }}>Wk Avg Idle: {overallAvgIdle.toFixed(0)}m</div></div>}
+                                             
+                                             {weekCasesData.map((d, i) => (
+                                                 <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', zIndex: 1, flex: 1, position: 'relative', height: '100%' }}>
+                                                     <div style={{ display: 'flex', alignItems: 'flex-end', gap: '2px', height: '100%', width: '100%', justifyContent: 'center' }}>
+                                                         <div title={`Avg Active: ${d.active.toFixed(0)}m`} style={{ width: '100%', maxWidth: '18px', height: `${(d.active/maxY)*100}%`, backgroundColor: '#1a73e8', borderRadius: '4px 4px 0 0', minHeight: d.active > 0 ? '2px' : '0' }} />
+                                                         <div title={`Avg Idle: ${d.idle.toFixed(0)}m`} style={{ width: '100%', maxWidth: '18px', height: `${(d.idle/maxY)*100}%`, backgroundColor: '#ea4335', borderRadius: '4px 4px 0 0', minHeight: d.idle > 0 ? '2px' : '0' }} />
+                                                     </div>
+                                                     <div style={{ position: 'absolute', top: '100%', right: '50%', marginTop: '8px', transform: 'rotate(-45deg)', transformOrigin: 'top right', fontSize: '11px', color: '#5f6368', whiteSpace: 'nowrap', fontWeight: 'bold', textAlign: 'right' }}>{d.name}</div>
+                                                 </div>
+                                             ))}
+                                         </div>
+                                      </div>
+                                  </>
+                               );
+                           })()
+                      )}
+                  </div>
+                </div>
+              )}
+            </div>
+
           </div>
         </div>
       ) : (
@@ -511,28 +841,39 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
 
                   {/* 2. All metrics (Below) */}
                   <div style={{ display: "flex", gap: "24px", flexWrap: "wrap", alignItems: "flex-start" }}>
+                    
                     <div className="prod-metric" style={{ flex: 1, minWidth: "120px", overflow: "hidden" }}>
                       <span className="prod-metric-label">Current Task</span>
-                      <span className="prod-metric-value">{m.currentTask}</span>
+                      <span className="prod-metric-value" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "block" }}>{m.currentTask}</span>
                     </div>
-                    <div className="prod-metric" style={{ minWidth: "90px" }}>
+
+                    <div className="prod-metric" style={{ width: "80px", flexShrink: 0 }}>
                       <span className="prod-metric-label">Card Count</span>
                       <span className="prod-metric-value highlight" style={{ color: "#1f1f1f" }}>{m.cardCount}</span>
                     </div>
-                    <div className="prod-metric" style={{ minWidth: "110px" }}>
-                      <span className="prod-metric-label">Time Logged</span>
+                    
+                    <div className="prod-metric" style={{ width: "110px", flexShrink: 0 }}>
+                      <span className="prod-metric-label" style={{ display: "flex", alignItems: "center" }}>
+                        Time Logged
+                        <span className="info-tooltip" data-tip="Start time of this case">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9aa0a6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                        </span>
+                      </span>
                       <span className="prod-metric-value highlight" style={{ color: "#1f1f1f" }}>{m.timeLogged}</span>
                     </div>
-                    <div className="prod-metric" style={{ minWidth: "110px" }}>
+
+                    <div className="prod-metric" style={{ width: "90px", flexShrink: 0 }}>
                       <span className="prod-metric-label">Active Timer</span>
                       <span className="prod-metric-value highlight" style={{ color: "#1f1f1f" }}>{m.activeTimer}</span>
                     </div>
-                    <div className="prod-metric" style={{ minWidth: "130px" }}>
+
+                    <div className="prod-metric" style={{ width: "160px", flexShrink: 0 }}>
                       <span className="prod-metric-label">
-                        {user === "Siya - Review" ? "Sent to Yolandie" : "Sent to Review"}
+                        {user === "Siya - Review" ? "Sent to Yolandie Today" : "Sent to Review Today"}
                       </span>
                       <span className="prod-metric-value highlight" style={{ color: "#1f1f1f" }}>{m.reviewCount}</span>
                     </div>
+
                   </div>
 
                 </div>
@@ -543,236 +884,7 @@ const ProductivityDashboard = React.memo(({ trelloBuckets, trelloMembers }) => {
       )}
       </div>
 
-{/* --- THE FLOATING DAILY MODAL --- */}
-          {isDailyModalOpen && (
-              <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.2)", zIndex: 999, display: "flex", justifyContent: "center", alignItems: "center" }}>
-                  <div style={{ width: "90%", maxWidth: "650px", background: "#fff", borderRadius: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.15)", border: "1px solid #dadce0", overflow: "hidden", display: "flex", flexDirection: "column", maxHeight: "90vh" }}>
-                      
-                      <div style={{ background: "#f8f9fa", padding: "16px 24px", borderBottom: "1px solid #dadce0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <button onClick={() => {
-                              const nextOffset = dayOffset + 1;
-                              setDayOffset(nextOffset);
-                              const requiredWeek = Math.floor(nextOffset / 7);
-                              if (requiredWeek > maxLoadedWeek && !loadingWeekly) {
-                                  fetchLedgerChunk(maxLoadedWeek + 1, requiredWeek + 5);
-                              }
-                          }} disabled={loadingWeekly} style={{ background: "none", border: "none", fontSize: "18px", cursor: loadingWeekly ? "wait" : "pointer", color: loadingWeekly ? "#dadce0" : "#5f6368" }}>◀</button>
-                          
-                          <div style={{ textAlign: "center" }}>
-                              <div style={{ fontWeight: "bold", color: "#1f1f1f", fontSize: "16px" }}>
-                                  {dayOffset === 0 ? "Today" : dayOffset === 1 ? "Yesterday" : `${dayOffset} Days Ago`}
-                              </div>
-                              <div style={{ fontSize: "12px", color: "#5f6368", marginTop: "4px" }}>
-                                  {(() => {
-                                      const { start } = getDayBoundaries(dayOffset);
-                                      return start.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-                                  })()}
-                              </div>
-                          </div>
 
-                          <button onClick={() => setDayOffset(Math.max(0, dayOffset - 1))} disabled={dayOffset === 0 || loadingWeekly} style={{ background: "none", border: "none", fontSize: "18px", cursor: (dayOffset === 0 || loadingWeekly) ? "default" : "pointer", color: (dayOffset === 0 || loadingWeekly) ? "#dadce0" : "#5f6368" }}>▶</button>
-                      </div>
-
-                      <div style={{ padding: "36px 24px", textAlign: "center", overflowY: "auto" }}>
-                          {loadingWeekly ? (
-                               <div style={{ color: "#5f6368", fontSize: "14px", padding: "40px 0" }}>Fetching historical ledger data...</div>
-                          ) : (
-                               (() => {
-                                   const { start, end } = getDayBoundaries(dayOffset);
-                                   const userHistory = weeklyStats[selectedUser] || [];
-                                   
-                                   let dayCases = 0; let dayActive = 0; let dayIdle = 0;
-                                   userHistory.forEach(record => {
-                                       const rDate = new Date(record.date);
-                                       if (rDate >= start && rDate <= end) {
-                                           dayCases += record.cases;
-                                           dayActive += record.activeMins;
-                                           dayIdle += record.idleMins;
-                                       }
-                                   });
-
-                                   const avgActive = dayCases > 0 ? dayActive / dayCases : 0;
-                                   const avgIdle = dayCases > 0 ? dayIdle / dayCases : 0;
-
-                                   const centralPercentRaw = dayIdle > 0 ? (dayActive / dayIdle) * 100 : (dayActive > 0 ? 100 : 0);
-                                   const centralPercentText = `${centralPercentRaw.toFixed(0)}%`;
-
-                                   const circumf = 477.5; 
-                                   const visualFillPercent = Math.min(centralPercentRaw, 100); 
-                                   const visibleLenRaw = (visualFillPercent / 100) * circumf;
-                                   const dasharray = `${Number(visibleLenRaw.toFixed(1))} ${circumf}`;
-
-                                   return (
-                                      <>
-                                          <div style={{ fontSize: "15px", color: "#3c4043", marginBottom: "0" }}>
-                                              Cases Completed: <strong>{dayCases}</strong>
-                                          </div>
-
-                                          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '40px 0', position: 'relative' }}>
-                                              <svg width="180" height="180" viewBox="0 0 180 180" style={{ transform: 'rotate(-90deg)' }}>
-                                                  <circle cx="90" cy="90" r="76" fill="none" stroke="#34A853" strokeWidth="14" strokeOpacity="1" />
-                                                  <circle cx="90" cy="90" r="76" fill="none" stroke="#ea4335" strokeWidth="14" strokeDasharray={dasharray} strokeLinecap="round" />
-                                              </svg>
-                                              
-                                              <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', pointerEvents: 'none', width: '120px' }}>
-                                                  <div style={{ fontSize: '10px', color: '#5f6368', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 'bold', marginBottom: '4px', lineHeight: '1.4' }}>
-                                                      Active to<br/>Idle Ratio
-                                                  </div>
-                                                  <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#1f1f1f', marginTop: '0' }}>
-                                                     {centralPercentText}
-                                                  </div>
-                                              </div>
-                                          </div>
-
-                                          <div style={{ display: "flex", justifyContent: "space-around" }}>
-                                             <div>
-                                                <div style={{ fontSize: "11px", color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.5px", fontWeight: "bold" }}>Daily Avg Active / Case</div>
-                                                <div style={{ fontSize: "18px", fontWeight: "bold", color: "#0b57d0", marginTop: "6px" }}>
-                                                   {avgActive > 0 ? `${Math.floor(avgActive / 60)}h ${Math.floor(avgActive % 60)}m` : "0h 0m"}
-                                                </div>
-                                             </div>
-                                             <div>
-                                                <div style={{ fontSize: "11px", color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.5px", fontWeight: "bold" }}>Daily Avg Idle / Case</div>
-                                                <div style={{ fontSize: "18px", fontWeight: "bold", color: "#ea4335", marginTop: "6px" }}>
-                                                   {avgIdle > 0 ? `${Math.floor(avgIdle / 60)}h ${Math.floor(avgIdle % 60)}m` : "0h 0m"}
-                                                </div>
-                                             </div>
-                                          </div>
-                                      </>
-                                   );
-                               })()
-                          )}
-                      </div>
-
-                      <div style={{ padding: "16px 24px", background: "#f8f9fa", borderTop: "1px solid #dadce0", textAlign: "right" }}>
-                          <button onClick={() => { setIsDailyModalOpen(false); setDayOffset(0); }} style={{ padding: "8px 20px", background: "#1a73e8", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" }}>
-                              Close Analytics
-                          </button>
-                      </div>
-                  </div>
-              </div>
-          )}
-          {/* --- END DAILY MODAL --- */}
-
-      {/* --- THE FLOATING WEEKLY MODAL --- */}
-          {isModalOpen && (
-              <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.2)", zIndex: 999, display: "flex", justifyContent: "center", alignItems: "center" }}>
-                  <div style={{ width: "90%", maxWidth: "650px", background: "#fff", borderRadius: "12px", boxShadow: "0 8px 32px rgba(0,0,0,0.15)", border: "1px solid #dadce0", overflow: "hidden", display: "flex", flexDirection: "column", maxHeight: "90vh" }}>
-                      
-                      {/* Modal Header & Navigation */}
-                      <div style={{ background: "#f8f9fa", padding: "16px 24px", borderBottom: "1px solid #dadce0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <button onClick={() => {
-                              const nextOffset = weekOffset + 1;
-                              setWeekOffset(nextOffset);
-                              if (nextOffset > maxLoadedWeek && !loadingWeekly) {
-                                  fetchLedgerChunk(maxLoadedWeek + 1, maxLoadedWeek + 6);
-                              }
-                          }} disabled={loadingWeekly} style={{ background: "none", border: "none", fontSize: "18px", cursor: loadingWeekly ? "wait" : "pointer", color: loadingWeekly ? "#dadce0" : "#5f6368" }}>◀</button>
-                          
-                          <div style={{ textAlign: "center" }}>
-                              <div style={{ fontWeight: "bold", color: "#1f1f1f", fontSize: "16px" }}>
-                                  {weekOffset === 0 ? "Current Week" : `${weekOffset} Week${weekOffset > 1 ? 's' : ''} Ago`}
-                              </div>
-                              <div style={{ fontSize: "12px", color: "#5f6368", marginTop: "4px" }}>
-                                  {(() => {
-                                      const { start, end } = getWeekBoundaries(weekOffset);
-                                      const format = (d) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-                                      return `${format(start)} — ${format(end)}`;
-                                  })()}
-                              </div>
-                          </div>
-
-                          <button onClick={() => setWeekOffset(Math.max(0, weekOffset - 1))} disabled={weekOffset === 0 || loadingWeekly} style={{ background: "none", border: "none", fontSize: "18px", cursor: (weekOffset === 0 || loadingWeekly) ? "default" : "pointer", color: (weekOffset === 0 || loadingWeekly) ? "#dadce0" : "#5f6368" }}>▶</button>
-                      </div>
-
-                      {/* Modal Content / Calculations */}
-                      <div style={{ padding: "36px 24px", textAlign: "center", overflowY: "auto" }}>
-                          {loadingWeekly ? (
-                               <div style={{ color: "#5f6368", fontSize: "14px", padding: "40px 0" }}>Fetching historical ledger data...</div>
-                          ) : (
-                               (() => {
-                                   const { start, end } = getWeekBoundaries(weekOffset);
-                                   const userHistory = weeklyStats[selectedUser] || [];
-                                   
-                                   let weekCases = 0; let weekActive = 0; let weekIdle = 0;
-                                   userHistory.forEach(record => {
-                                       const rDate = new Date(record.date);
-                                       if (rDate >= start && rDate <= end) {
-                                           weekCases += record.cases;
-                                           weekActive += record.activeMins;
-                                           weekIdle += record.idleMins;
-                                       }
-                                   });
-
-                                   const avgActive = weekCases > 0 ? weekActive / weekCases : 0;
-                                   const avgIdle = weekCases > 0 ? weekIdle / weekCases : 0;
-
-                                   // --- CIRCULAR GRAPHIC CALCULATIONS ---
-                                   const centralPercentRaw = weekIdle > 0 ? (weekActive / weekIdle) * 100 : (weekActive > 0 ? 100 : 0);
-                                   const centralPercentText = `${centralPercentRaw.toFixed(0)}%`;
-
-                                   // Ring Math: Increased to 180x180 (radius=76), circumf ~477.5
-                                   const circumf = 477.5; 
-                                   const visualFillPercent = Math.min(centralPercentRaw, 100); // Caps visual ring at 100% full
-                                   const visibleLenRaw = (visualFillPercent / 100) * circumf;
-                                   const dasharray = `${Number(visibleLenRaw.toFixed(1))} ${circumf}`;
-
-                                   return (
-                                      <>
-                                          <div style={{ fontSize: "15px", color: "#3c4043", marginBottom: "0" }}>
-                                              Cases Completed: <strong>{weekCases}</strong>
-                                          </div>
-
-                                          {/* --- LARGER CIRCULAR GRAPHIC SECTION --- */}
-                                          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '40px 0', position: 'relative' }}>
-                                              
-                                              {/* Scaled Up SVG Element */}
-                                              <svg width="180" height="180" viewBox="0 0 180 180" style={{ transform: 'rotate(-90deg)' }}>
-                                                  <circle cx="90" cy="90" r="76" fill="none" stroke="#34A853" strokeWidth="14" strokeOpacity="1" />
-                                                  <circle cx="90" cy="90" r="76" fill="none" stroke="#ea4335" strokeWidth="14" strokeDasharray={dasharray} strokeLinecap="round" />
-                                              </svg>
-                                              
-                                              {/* Centered Text - Stacked to fit beautifully */}
-                                              <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', pointerEvents: 'none', width: '120px' }}>
-                                                  <div style={{ fontSize: '10px', color: '#5f6368', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 'bold', marginBottom: '4px', lineHeight: '1.4' }}>
-                                                      Active to<br/>Idle Ratio
-                                                  </div>
-                                                  <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#1f1f1f', marginTop: '0' }}>
-                                                     {centralPercentText}
-                                                  </div>
-                                              </div>
-                                          </div>
-
-                                          <div style={{ display: "flex", justifyContent: "space-around" }}>
-                                             <div>
-                                                <div style={{ fontSize: "11px", color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.5px", fontWeight: "bold" }}>Standard Avg Active / Case</div>
-                                                <div style={{ fontSize: "18px", fontWeight: "bold", color: "#0b57d0", marginTop: "6px" }}>
-                                                   {avgActive > 0 ? `${Math.floor(avgActive / 60)}h ${Math.floor(avgActive % 60)}m` : "0h 0m"}
-                                                </div>
-                                             </div>
-                                             <div>
-                                                <div style={{ fontSize: "11px", color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.5px", fontWeight: "bold" }}>Standard Avg Idle / Case</div>
-                                                <div style={{ fontSize: "18px", fontWeight: "bold", color: "#ea4335", marginTop: "6px" }}>
-                                                   {avgIdle > 0 ? `${Math.floor(avgIdle / 60)}h ${Math.floor(avgIdle % 60)}m` : "0h 0m"}
-                                                </div>
-                                             </div>
-                                          </div>
-                                      </>
-                                   );
-                               })()
-                          )}
-                      </div>
-
-                      {/* Modal Footer / Close */}
-                      <div style={{ padding: "16px 24px", background: "#f8f9fa", borderTop: "1px solid #dadce0", textAlign: "right" }}>
-                          <button onClick={() => { setIsModalOpen(false); setWeekOffset(0); }} style={{ padding: "8px 20px", background: "#1a73e8", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" }}>
-                              Close Analytics
-                          </button>
-                      </div>
-                  </div>
-              </div>
-          )}
-          {/* --- END MODAL --- */}
     </div>
   );
 });

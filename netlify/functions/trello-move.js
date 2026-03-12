@@ -29,17 +29,22 @@ export const handler = async (event) => {
         // 3. Find the real list ID by matching the name
         console.log(`[Backend] Resolving list for: "${targetListName || realTargetId}"`);
         
-        const searchStr = (targetListName || "").toLowerCase().trim();
-        const realList = listsData.find(l => {
+       const searchStr = (targetListName || targetListId || "").toLowerCase().trim();
+        
+        // 🚀 ARCHITECT'S BACKEND FIX: Exact Match First
+        let realList = listsData.find(l => l.name.toLowerCase().trim() === searchStr);
+
+        // If no exact match, try the phonetic/fuzzy logic
+        if (!realList) {
+          realList = listsData.find(l => {
             const listName = l.name.toLowerCase().trim();
-            // If we don't have a name, match by the ID we were given
-            if (!searchStr) return l.id === realTargetId;
-            
-            return listName === searchStr || 
-                   listName.includes(searchStr) || 
-                   searchStr.includes(listName) ||
-                   ((searchStr === "sia" || searchStr === "sear") && listName === "siya"); 
-        });
+            if (!searchStr) return l.id === realTargetId;
+            
+            return listName.includes(searchStr) || 
+                   searchStr.includes(listName) ||
+                   ((searchStr === "sia" || searchStr === "sear" || searchStr === "ci") && listName === "siya"); 
+          });
+        }
         
         if (realList) {
             console.log(`[Backend] Resolved to: ${realList.name} (${realList.id})`);

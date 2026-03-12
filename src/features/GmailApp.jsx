@@ -171,30 +171,26 @@ if (currentView.app === "gmail") {
       }
     };
 
- const handleMarkUnreadSelected = async () => {
-      const snapshotIds = Array.from(selectedEmailIds);
-      if (snapshotIds.length === 0) return;
-      setGmailLoading(true);
-      try {
-        setGmailEmails(prev => {
-          const markedIds = new Set(snapshotIds);
-          const marked = prev.filter(e => markedIds.has(e.id)).map(e => ({ ...e, isUnread: true }));
-          const rest = prev.filter(e => !markedIds.has(e.id));
-          return [...marked, ...rest];
-        });
-        const res = await fetch("/.netlify/functions/gmail-mark-unread-bulk", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messageIds: snapshotIds })
-        });
-        if (res.ok) {
-          setSelectedEmailIds(new Set());
-          triggerSnackbar(`${snapshotIds.length} marked as unread.`);
-        }
-  } catch (e) {
+ const handleMarkUnreadSelected = async () => {
+      const snapshotIds = Array.from(selectedEmailIds);
+      if (snapshotIds.length === 0) return;
+      try {
+        setGmailEmails(prev => {
+          const markedIds = new Set(snapshotIds);
+          return prev.map(e => markedIds.has(e.id) ? { ...e, isUnread: true } : e);
+        });
+        const res = await fetch("/.netlify/functions/gmail-mark-unread-bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messageIds: snapshotIds })
+        });
+        if (res.ok) {
+          setSelectedEmailIds(new Set());
+          triggerSnackbar(`${snapshotIds.length} marked as unread.`);
+        }
+  } catch (e) {
         console.error(e);
       }
-      setGmailLoading(false);
     };
     return (
           <div style={{ position: "relative", display: "flex", flexDirection: "column", height: "100%", background: "#fff", borderRadius: "12px", border: "1px solid #8993a4", boxShadow: "0 8px 16px -4px rgba(9,30,66,0.25), 0 0 0 1px rgba(9,30,66,0.08)", overflow: "hidden" }}>
@@ -768,34 +764,42 @@ if (currentView.app === "gmail") {
 </div>
    </div>
                 
-              {msg.attachments && msg.attachments.length > 0 && (
-                  <div style={{ display: 'flex', gap: '8px', marginTop: '6px', overflow: 'hidden', alignItems: 'center' }}>
-                    {msg.attachments.slice(0, 3).map(att => {
-                      const isPdf = att.mimeType.includes('pdf');
-                      const isImg = att.mimeType.includes('image');
-                      const isXls = att.mimeType.includes('excel') || att.mimeType.includes('spreadsheet');
-                      const isWord = att.mimeType.includes('word') || att.mimeType.includes('document');
-                      
-                      const iconColor = isPdf ? '#ea4335' : isImg ? '#a142f4' : isXls ? '#188038' : isWord ? '#1a73e8' : '#5f6368';
-                      const iconBg = isPdf ? '#fce8e6' : isImg ? '#f3e8fd' : isXls ? '#e6f4ea' : isWord ? '#e8f0fe' : '#f1f3f4';
-                      const iconText = isPdf ? 'PDF' : isImg ? 'IMG' : isXls ? 'XLS' : isWord ? 'W' : 'FILE';
-                      
-                      return (
-                        <div key={att.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 10px', border: '1px solid #dadce0', borderRadius: '100px', fontSize: '12px', background: '#fff', maxWidth: '180px' }}>
-                          <div style={{ background: iconBg, color: iconColor, borderRadius: '4px', padding: '2px 4px', fontSize: '9px', fontWeight: 'bold', display: 'grid', placeItems: 'center', minWidth: '22px' }}>
-                            {iconText}
-                          </div>
-                          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#3c4043', fontWeight: 500 }}>{att.name}</span>
-                        </div>
-                      )
-                    })}
-                    {msg.attachments.length > 3 && (
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px 10px', border: '1px solid #dadce0', borderRadius: '100px', fontSize: '12px', background: '#fff', color: '#5f6368', fontWeight: 500 }}>
-                        +{msg.attachments.length - 3}
-                      </div>
-                    )}
-                  </div>
-                )}
+              {msg.attachments && msg.attachments.length > 0 && (
+                  <div style={{ display: 'flex', gap: '6px', marginTop: '6px', overflow: 'hidden', alignItems: 'center' }}>
+                    {msg.attachments.slice(0, 3).map(att => {
+                      const isPdf = att.mimeType.includes('pdf');
+                      const isImg = att.mimeType.includes('image');
+                      const isXls = att.mimeType.includes('excel') || att.mimeType.includes('spreadsheet');
+                      const isWord = att.mimeType.includes('word') || att.mimeType.includes('document');
+
+                      const svgIcon = isPdf ? (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="#ea4335"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9.5 8.5c0 .83-.67 1.5-1.5 1.5H6.5v2H5v-7h3c.83 0 1.5.67 1.5 1.5v2zm5 2c0 .83-.67 1.5-1.5 1.5h-2.5v-7H13c.83 0 1.5.67 1.5 1.5v4zm4-3h-2v1h1.5v1.5H16.5v2h-1.5v-7h3.5v1.5z"/><path d="M6.5 9.5h1v1h-1zM13 9.5h1v3h-1z"/></svg>
+                      ) : isImg ? (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="#ea4335"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+                      ) : isWord ? (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="#1a73e8"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+                      ) : isXls ? (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="#188038"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm-1.2 9.1L11 13l-1.8-1.9H7.4l2.7 2.9-2.9 3.1h1.9L11 15.1l1.9 2h1.8l-2.9-3.1 2.8-2.9h-1.8zM13 9V3.5L18.5 9H13z"/></svg>
+                      ) : (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="#5f6368"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+                      );
+                      
+                      return (
+                        <div key={att.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '2px 10px 2px 6px', border: '1px solid #dadce0', borderRadius: '100px', fontSize: '13px', background: '#fff', maxWidth: '180px' }}>
+                          <div style={{ display: 'grid', placeItems: 'center' }}>
+                            {svgIcon}
+                          </div>
+                          <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#5f6368', fontWeight: 500 }}>{att.name}</span>
+                        </div>
+                      )
+                    })}
+                    {msg.attachments.length > 3 && (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '24px', height: '24px', border: '1px solid #dadce0', borderRadius: '50%', fontSize: '11px', background: '#fff', color: '#5f6368', fontWeight: 500 }}>
+                        +{msg.attachments.length - 3}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               
@@ -1227,22 +1231,17 @@ const emailPane = (
           <div className="gmail-action-icon" onClick={() => setEmailToDelete(email)} title="Delete">
             <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
           </div>
-          <div className="gmail-action-icon" title="Mark as unread" onClick={async () => {
-             setGmailEmails(prev => {
-               const target = prev.find(e => e.id === email.id);
-               if (!target) return prev;
-               const rest = prev.filter(e => e.id !== email.id);
-               return [{ ...target, isUnread: true }, ...rest];
-             });
-             setCurrentView({ app: "gmail", contact: null });
-             try {
-               await fetch("/.netlify/functions/gmail-mark-unread", {
-                 method: "POST",
-                 headers: { "Content-Type": "application/json" },
-                 body: JSON.stringify({ messageId: email.id })
-               });
-             } catch (err) { console.error("Failed to mark unread", err); }
-          }}>
+          <div className="gmail-action-icon" title="Mark as unread" onClick={async () => {
+             setGmailEmails(prev => prev.map(e => e.id === email.id ? { ...e, isUnread: true } : e));
+             setCurrentView({ app: "gmail", contact: null });
+             try {
+               await fetch("/.netlify/functions/gmail-mark-unread", {
+                 method: "POST",
+                 headers: { "Content-Type": "application/json" },
+                 body: JSON.stringify({ messageId: email.id })
+               });
+             } catch (err) { console.error("Failed to mark unread", err); }
+          }}>
             <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8l8 5 8-5v10zm-8-7L4 6h16l-8 5z"/></svg>
           </div>
         </div>

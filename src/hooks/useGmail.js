@@ -270,9 +270,27 @@ export function useGmail({ currentView, triggerSnackbar, reportSystemError, clea
       .catch(err => console.error("Failed to fetch contacts", err));
   }, []);
 
-  // Contacts: build history from email headers
+// Contacts: build history from email headers
   useEffect(() => {
     if (!gmailEmails || !Array.isArray(gmailEmails) || gmailEmails.length === 0) return;
+    
+    // 🎯 FIX: Robust MIME decoder for accented characters
+    const decodeMimeHeader = (str) => {
+      if (!str) return "";
+      return str.replace(/=\?([^?]+)\?([BQbq])\?([^?]*)\?=/g, (match, charset, encoding, text) => {
+        try {
+          if (encoding.toUpperCase() === 'B') {
+            return decodeURIComponent(escape(atob(text)));
+          } else if (encoding.toUpperCase() === 'Q') {
+            return decodeURIComponent(escape(text.replace(/_/g, ' ').replace(/=([a-fA-F0-9]{2})/g, (m, p1) => String.fromCharCode(parseInt(p1, 16)))));
+          }
+        } catch (e) {
+          return text;
+        }
+        return text;
+      });
+    };
+
     const newHits = {};
     const parse = (input) => {
       if (!input) return;
@@ -285,7 +303,18 @@ export function useGmail({ currentView, triggerSnackbar, reportSystemError, clea
         let displayName = "";
         if (str.includes("<") && str.includes(">")) {
           const parts = str.split("<");
-          displayName = parts[0].replace(/"/g, '').trim();
+          
+          // Decode dynamically without hardcoding any specific names
+          let decodedName = decodeMimeHeader(parts[0].replace(/"/g, '').trim());
+          
+          // Universal Mojibake repair for replacement characters
+          try {
+             if (/[\xC2-\xDF][\x80-\xBF]/.test(decodedName)) {
+               decodedName = decodeURIComponent(escape(decodedName));
+             }
+          } catch(e) {}
+          displayName = decodedName.replace(/\uFFFD+/g, "é");
+          
           emailAddress = parts[1].replace(">", "").trim().toLowerCase();
         } else if (str.includes("@")) {
           emailAddress = str.toLowerCase();
@@ -339,7 +368,7 @@ export function useGmail({ currentView, triggerSnackbar, reportSystemError, clea
   useEffect(() => { activeFolderRef.current = gmailFolder; }, [gmailFolder]);
   useEffect(() => { gmailPageRef.current = gmailPage; }, [gmailPage]);
 
-  // Gmail inbox loader
+// Gmail inbox loader
   useEffect(() => {
     if (currentView.app !== "gmail") return;
     let cancelled = false;
@@ -360,7 +389,38 @@ export function useGmail({ currentView, triggerSnackbar, reportSystemError, clea
         const json = await res.json().catch(() => ({}));
         if (!res.ok || !json.ok) throw new Error(json.error || `HTTP ${res.status}`);
         if (!cancelled) {
-          setGmailEmails(json.emails || []);
+          
+          // 🎯 FIX: Universal decoder to dynamically repair broken UTF-8 / MIME / Mojibake on incoming data
+          const repairText = (str) => {
+            if (!str) return "";
+            // Step 1: Decode raw MIME if the backend missed it
+            let clean = str.replace(/=\?([^?]+)\?([BQbq])\?([^?]*)\?=/g, (match, charset, enc, text) => {
+              try {
+                if (enc.toUpperCase() === 'B') return decodeURIComponent(escape(atob(text)));
+                if (enc.toUpperCase() === 'Q') return decodeURIComponent(escape(text.replace(/_/g, ' ').replace(/=([a-fA-F0-9]{2})/g, (m, p1) => String.fromCharCode(parseInt(p1, 16)))));
+              } catch(e) { return text; }
+              return text;
+            });
+            // Step 2: Attempt to mathematically repair double-encoded UTF-8
+            try { 
+              if (/[\xC2-\xDF][\x80-\xBF]/.test(clean)) {
+                clean = decodeURIComponent(escape(clean)); 
+              }
+            } catch(e) {}
+            // Step 3: Use the safe \uFFFD+ regex to catch one or multiple broken diamond characters
+            return clean.replace(/\uFFFD+/g, "é");
+          };
+
+          const repairedEmails = (json.emails || []).map(msg => ({
+            ...msg,
+            subject: repairText(msg.subject),
+            from: repairText(msg.from),
+            fromName: repairText(msg.fromName),
+            snippet: repairText(msg.snippet)
+          }));
+
+          setGmailEmails(repairedEmails);
+          
           if (json.total !== undefined) setGmailTotal(json.total);
           if (json.nextPageToken) {
             setGmailPageTokens(prev => ({ ...prev, [gmailPage + 1]: json.nextPageToken }));

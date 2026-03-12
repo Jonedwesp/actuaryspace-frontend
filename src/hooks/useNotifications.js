@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { formatNotificationDate } from "../utils/dateTime.js";
-import { GMAIL_SOUND_DATA, GCHAT_SOUND_DATA, TRELLO_SOUND_DATA, CALENDAR_SOUND_DATA } from "../utils/soundData.js";
+import { GMAIL_SOUND_DATA, GCHAT_SOUND_DATA, TRELLO_SOUND_DATA, CALENDAR_SOUND_DATA, WHATSAPP_SOUND_DATA } from "../utils/soundData.js";
 
 export function useNotifications({ sessionStartTime }) {
   const [notifications, setNotifications] = useState([]);
@@ -31,10 +31,12 @@ export function useNotifications({ sessionStartTime }) {
 
       if (!isMuted) {
         console.log(`[Audio Engine] Playing sound for: ${n.alt}`);
+        // 🎯 FIX: Added mapping for WhatsApp notification sound
         const soundSource = n.alt === "Gmail" ? GMAIL_SOUND_DATA :
                             n.alt === "Google Chat" ? GCHAT_SOUND_DATA :
                             n.alt === "Trello" ? TRELLO_SOUND_DATA :
-                            n.alt === "Calendar" ? CALENDAR_SOUND_DATA : null;
+                            n.alt === "Calendar" ? CALENDAR_SOUND_DATA : 
+                            n.alt === "WhatsApp" ? WHATSAPP_SOUND_DATA : null;
         if (soundSource) {
           const audio = new Audio(soundSource);
           audio.play().catch(err => console.warn(`[Audio Engine] ${n.alt} sound blocked. Interaction needed.`, err));

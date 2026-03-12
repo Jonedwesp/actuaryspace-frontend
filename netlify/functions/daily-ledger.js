@@ -21,7 +21,7 @@ async function processLedger(event) {
     // 2. Fetch Board State, Today's Actions, AND Custom Fields
     const [listsRes, cardsRes, actionsRes, customFieldsRes] = await Promise.all([
       fetch(`${base}/boards/${TRELLO_BOARD_ID}/lists?${auth}`),
-      fetch(`${base}/boards/${TRELLO_BOARD_ID}/cards?customFieldItems=true&fields=name,idList&${auth}`), // <-- Added customFieldItems=true so we can see the IdleLog!
+      fetch(`${base}/boards/${TRELLO_BOARD_ID}/cards?customFieldItems=true&fields=name,idList,labels&${auth}`), // <-- Added labels!
       fetch(`${base}/boards/${TRELLO_BOARD_ID}/actions?filter=updateCard:idList&since=${midnightSAST}&limit=1000&${auth}`),
       fetch(`${base}/boards/${TRELLO_BOARD_ID}/customFields?${auth}`) // <-- Fetching the fields so we can find IdleLog
     ]);
@@ -63,49 +63,68 @@ async function processLedger(event) {
     const snapshotRows = [];
     const todayStr = new Date().toLocaleDateString("en-GB", { timeZone: 'Africa/Johannesburg' });
 
-    // 4. Calculate Scores AND Idle Time
+    // --- 🌟 NEW: SAST BUSINESS HOURS CALCULATOR (8am - 5pm) ---
+    const getBusinessMinutes = (startTs, endTs) => {
+        if (!startTs || !endTs || startTs >= endTs) return 0;
+        let totalMins = 0;
+        let current = new Date(startTs);
+        let safetyCap = 0; // Prevents infinite loops on bad data
+        
+        while (current.getTime() < endTs && safetyCap < 1000) {
+            safetyCap++;
+            // Force the dates into SAST so the Netlify UTC server doesn't miscalculate 5pm
+            const formatter = new Intl.DateTimeFormat('en-US', { timeZone: 'Africa/Johannesburg', year: 'numeric', month: '2-digit', day: '2-digit' });
+            const [month, day, year] = formatter.format(current).split('/');
+            
+            const dayStart = new Date(`${year}-${month}-${day}T08:00:00+02:00`).getTime();
+            const dayEnd = new Date(`${year}-${month}-${day}T17:00:00+02:00`).getTime();
+
+            const overlapStart = Math.max(current.getTime(), dayStart);
+            const overlapEnd = Math.min(endTs, dayEnd);
+
+            if (overlapEnd > overlapStart) {
+                totalMins += (overlapEnd - overlapStart) / 60000;
+            }
+
+            // Jump exactly to 8 AM the next morning to continue the loop
+            current = new Date(dayStart + 24 * 60 * 60 * 1000);
+        }
+        return totalMins;
+    };
+    // ----------------------------------------------------------
+
+    // 4. Calculate Scores AND Idle Time (ONE ROW PER CASE)
     targetUsers.forEach(user => {
       let completedCards = [];
-      let totalIdleMins = 0; // Track idle time across all cards for the day
-      let totalActiveMins = 0; // Track active WorkFlow time
       const bucketKey = user === "Siya - Review" ? "SRV" : user.substring(0, 3).toUpperCase();
 
       cards.forEach(c => {
-        // --- A. Calculate Idle Time using the new [SYSTEM]IdleLog field ---
+        let cardIdle = 0;
+        let cardActive = 0;
+
+       // --- A. Calculate Idle Time for THIS specific card ---
         if (idleFieldId) {
             const idleItem = c.customFieldItems?.find(i => i.idCustomField === idleFieldId);
             try {
                 const parsed = JSON.parse(idleItem?.value?.text || "{}");
                 const idleKey = `${user}_idle`;
+                if (parsed[idleKey]) cardIdle += parsed[idleKey];
                 
-                // Add previously stored idle time
-                if (parsed[idleKey]) totalIdleMins += parsed[idleKey];
-                
-                // Add currently ticking idle time (if they left it at the top of the list right now)
                 if (parsed._topReachedAt && parsed._topUser === user) {
-                    totalIdleMins += (new Date().getTime() - parsed._topReachedAt) / 60000;
+                    // 🌟 Replaced 24/7 subtraction with the new 8-to-5 Calculator
+                    cardIdle += getBusinessMinutes(parsed._topReachedAt, new Date().getTime());
                 }
             } catch(e) {}
         }
 
-        // --- B. Calculate Movement ---
-        if (!c.name || c.name.toLowerCase().includes("out of office")) {
-            // Keep going, but don't count it for completed cards
-        } else if (cardCredits[c.id] && cardCredits[c.id].has(user)) {
-           const currentListName = lists.find(l => l.id === c.idList)?.name;
-           if (currentListName !== user) {
-               completedCards.push(c);
-           }
-        }
-
-        // --- C. Calculate Active Time ---
+        // --- B. Calculate Active Time for THIS specific card ---
         if (workLogFieldId) {
             const workItem = c.customFieldItems?.find(i => i.idCustomField === workLogFieldId);
             try {
                 const parsed = JSON.parse(workItem?.value?.text || "{}");
                 const durFromName = parseFloat(parsed[user] || "0");
                 const durFromKey = parseFloat(parsed[bucketKey] || "0");
-                totalActiveMins += (durFromName > 0 ? durFromName : durFromKey) || 0;
+                cardActive += (durFromName > 0 ? durFromName : durFromKey) || 0;
             } catch(e) {}
         }
 
@@ -115,21 +134,59 @@ async function processLedger(event) {
                  const [startTsStr, startList] = startItem.value.text.split("|");
                  const startTs = parseFloat(startTsStr);
                  if (startTs > 1000000000000 && (startList === user || (startList && startList.substring(0, 3).toUpperCase() === bucketKey))) {
-                     totalActiveMins += Math.max(0, new Date().getTime() - startTs) / 1000 / 60;
+                     cardActive += Math.max(0, new Date().getTime() - startTs) / 1000 / 60;
                  }
              }
+        }
+
+        // --- C. Calculate Movement (Is this card completed?) ---
+        if (!c.name || c.name.toLowerCase().includes("out of office")) {
+            // Ignore
+        } else if (cardCredits[c.id] && cardCredits[c.id].has(user)) {
+           const currentListName = lists.find(l => l.id === c.idList)?.name;
+           if (currentListName !== user) {
+               completedCards.push(c);
+               
+               // Extract strict Case Type for THIS specific card
+               const validLabels = (c.labels || []).map(l => typeof l === 'string' ? l : l?.name).filter(name => name && name.toLowerCase() !== "ryangpt");
+               const caseTypeStr = validLabels.length > 0 ? validLabels.join(", ") : "Unknown";
+
+               // 🌟 NEW: Calculate True "Excess" Idle Time by subtracting Active Time
+               let excessIdle = Math.max(0, cardIdle - cardActive);
+
+               const formatTime = (m) => m > 0 ? `${Math.floor(m / 60)}h ${Math.floor(m % 60)}m` : "0h 0m";
+
+               // PUSH A DEDICATED ROW FOR THIS COMPLETED CASE 
+               // Columns: [Date, Team Member, Case Name, Case Type, Active Time, Excess Idle Time]
+               snapshotRows.push([todayStr, user, c.name, caseTypeStr, formatTime(cardActive), formatTime(excessIdle)]);
+           }
         }
       });
 
       liveStats[user] = completedCards.length;
       liveStats[`${user}_cards`] = completedCards.map(c => c.id);
       
-      const cardNamesStr = completedCards.length > 0 ? completedCards.map(c => c.name).join("  |  ") : "-";
-      const formattedIdleTime = totalIdleMins > 0 ? `${Math.floor(totalIdleMins / 60)}h ${Math.floor(totalIdleMins % 60)}m` : "0h 0m";
-      const formattedActiveTime = totalActiveMins > 0 ? `${Math.floor(totalActiveMins / 60)}h ${Math.floor(totalActiveMins % 60)}m` : "0h 0m";
-
-      // Build the row exactly matching the 6 Google Sheet columns: [Date, Name, Cases, Active Time, Idle Time, Card Names]
-      snapshotRows.push([todayStr, user, completedCards.length, formattedActiveTime, formattedIdleTime, cardNamesStr]);
+      // Keep rescued frontend objects intact for the UI
+      liveStats[`${user}_completed_objects`] = completedCards.map(c => {
+          const listName = lists.find(l => l.id === c.idList)?.name || "Moved";
+          const mappedCustomFields = {};
+          
+          if (c.customFieldItems) {
+              c.customFieldItems.forEach(item => {
+                  const fieldDef = customFields.find(f => f.id === item.idCustomField);
+                  if (fieldDef && fieldDef.name) {
+                      if (item.value?.text) mappedCustomFields[fieldDef.name] = item.value.text;
+                      if (item.value?.number) mappedCustomFields[fieldDef.name] = String(item.value.number);
+                      if (item.idValue) {
+                          const option = fieldDef.options?.find(o => o.id === item.idValue);
+                          if (option) mappedCustomFields[fieldDef.name] = option.value?.text;
+                      }
+                  }
+              });
+          }
+          
+          return { id: c.id, title: c.name, list: listName, customFields: mappedCustomFields, labels: c.labels || [] };
+      });
     });
 
     // 5. If called by React UI, return stats instantly and DO NOT write to Google Sheets
@@ -154,7 +211,7 @@ async function processLedger(event) {
 
             const response = await sheets.spreadsheets.values.get({
                 spreadsheetId: process.env.DAILY_LEDGER_SHEET_ID,
-                range: 'A:F'
+                range: 'Daily Ledger!A:F' // <-- Add the exact tab name here!
             });
 
             const rows = response.data.values || [];
@@ -168,38 +225,50 @@ async function processLedger(event) {
             const endDate = qEnd ? new Date(`${qEnd}T23:59:59`) : new Date(8640000000000000);
 
             for (let i = 1; i < rows.length; i++) {
-                const [dateStr, name, casesStr, activeStr, idleStr] = rows[i] || [];
+                // Read the 6 column structure
+                const [dateStr, rawName, caseNameStr, caseTypeStr, activeStr, idleStr] = rows[i] || [];
+                
+                // Clean the name of any accidental trailing spaces from manual entry
+                const name = (rawName || "").trim();
+                
                 if (!dateStr || !name || !targetUsers.includes(name)) continue;
                 
-                const parts = dateStr.split('/');
-                if (parts.length !== 3) continue;
+                let rowDate;
+                // Handle DD/MM/YYYY format
+                if (dateStr.includes('/')) {
+                    const parts = dateStr.split('/');
+                    if (parts.length === 3) rowDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T12:00:00`);
+                } 
+                // Handle YYYY-MM-DD format
+                else {
+                    rowDate = new Date(`${dateStr}T12:00:00`);
+                }
                 
-                // Set to noon to safely avoid any midnight timezone shifts
-                const rowDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T12:00:00`); 
+                // If it couldn't parse a valid date, skip it
+                if (!rowDate || isNaN(rowDate.getTime())) continue;
                 
                 // Only send back the data if it falls within the requested 6-week window
                 if (rowDate >= startDate && rowDate <= endDate) {
-                    const cases = parseInt(casesStr) || 0;
                     const parseTime = (t) => {
                         if (!t || t === "-" || t === "N/A") return 0;
                         let m = 0;
-                        const hMatch = t.match(/(\d+)h/);
-                        const mMatch = t.match(/(\d+)m/);
+                        const hMatch = String(t).match(/(\d+)h/);
+                        const mMatch = String(t).match(/(\d+)m/);
                         if (hMatch) m += parseInt(hMatch[1]) * 60;
                         if (mMatch) m += parseInt(mMatch[1]);
                         return m;
                     };
 
-                    // Format back to string for the React frontend
                     allData[name].push({
-                        date: `${parts[2]}-${parts[1]}-${parts[0]}T00:00:00`,
-                        cases: cases,
+                        date: rowDate.toISOString(),
+                        cases: 1, 
+                        caseName: caseNameStr || "Unknown",
+                        caseType: (caseTypeStr || "").toLowerCase(),
                         activeMins: parseTime(activeStr),
                         idleMins: parseTime(idleStr)
                     });
                 }
             }
-
             return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: JSON.stringify(allData) };
         } catch (error) {
             return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
@@ -233,7 +302,7 @@ async function processLedger(event) {
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: DAILY_LEDGER_SHEET_ID,
-      range: 'Daily Ledger!A:E',
+      range: 'Daily Ledger!A:F',
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: snapshotRows },
     });
