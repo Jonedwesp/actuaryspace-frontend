@@ -9,6 +9,8 @@ const GChatSidebarMenu = ({
   setTrashedGchatSpaces,
   gchatSelectedSpace, setGchatSelectedSpace,
   setChatToDelete, // 👈 ADD THIS
+  handleArchiveChat,
+  handleUnarchiveChat,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuItem = (label, color, handler) => (
@@ -45,11 +47,30 @@ const GChatSidebarMenu = ({
             return next;
           });
         })}
-        {menuItem(showArchivedChats ? "Unarchive" : "Archive", "#202124", () => {
-          setArchivedGchatSpaces(prev => prev.includes(sid) ? prev.filter(id => id !== sid) : [...prev, sid]);
+{menuItem(showArchivedChats ? "Unarchive" : "Archive", "#202124", () => {
+          if (showArchivedChats) {
+            handleUnarchiveChat(sid);
+          } else {
+            handleArchiveChat(sid);
+          }
         })}
         {menuItem(mutedGchatSpaces.includes(sid) ? "Unmute" : "Mute", "#202124", () => {
-          setMutedGchatSpaces(prev => prev.includes(sid) ? prev.filter(id => id !== sid) : [...prev, sid]);
+          const isMuting = !mutedGchatSpaces.includes(sid);
+          
+          // 1. Optimistic UI update + Local Storage (0ms latency)
+          setMutedGchatSpaces(prev => {
+            const next = isMuting ? [...prev, sid] : prev.filter(id => id !== sid);
+            localStorage.setItem("GCHAT_MUTED_SPACES", JSON.stringify(next));
+            return next;
+          });
+
+          // 2. Background sync with Google Chat API
+          fetch("/.netlify/functions/gchat-mute", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ spaceId: sid, mute: isMuting })
+          }).catch(err => console.error("Mute sync failed:", err));
         })}
      {menuItem("Delete", "#d93025", () => {
           setChatToDelete({ id: sid, title: s.displayName || "this chat" });

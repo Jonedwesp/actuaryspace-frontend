@@ -69,7 +69,8 @@ export function useSyncPolling({
           combined = [...combined, ...gmailNotifs];
         }
 
-        if (chatData && chatData.ok) {
+     if (chatData && chatData.ok) {
+          // 🚀 ARCHITECT'S UI SYNC: Update the space list in the sidebar if GChat is active
           if (currentViewRef.current.app === "gchat" && Array.isArray(chatData.spaces)) {
             setGchatSpaces(prev => {
               const newSpaces = chatData.spaces.map(s => {
@@ -85,7 +86,6 @@ export function useSyncPolling({
             });
           }
 
-          const chatNotifs = [];
           const isFirstRun = seenGchatIdsRef.current === null;
           if (isFirstRun) seenGchatIdsRef.current = new Set();
 
@@ -97,8 +97,15 @@ export function useSyncPolling({
               const isCurrentlyViewing = gchatSelectedSpaceRef.current?.id === sid || gchatSelectedSpaceRef.current?.name === sid;
               const hasBeenSeen = seenGchatIdsRef.current.has(msgId);
 
+              // 🛡️ DM vs SPACE IDENTITY: Ensure robust detection for 'users/' ID strings
+              const spaceObj = gchatSpaces.find(sp => (sp.id || sp.name) === sid);
+              const isDM = n.spaceType === "DIRECT_MESSAGE" || spaceObj?.type === "DIRECT_MESSAGE" || (sid && sid.includes("users/"));
+
               if (!hasBeenSeen) {
                 seenGchatIdsRef.current.add(msgId);
+                
+                // 🛡️ SILENT BOOT: Memorize history on load, but don't fire side effects
+                if (isFirstRun) return;
 
                 setTrashedGchatSpaces(prev => {
                   if (prev.includes(sid)) {
@@ -114,7 +121,7 @@ export function useSyncPolling({
                   const base = exists ? prev : [...prev, {
                     id: sid, name: sid,
                     displayName: n.senderName || n.title || "Direct Message",
-                    type: n.spaceType || "DIRECT_MESSAGE",
+                    type: isDM ? "DIRECT_MESSAGE" : "SPACE",
                     lastActiveTime: ts, createTime: ts
                   }];
                   return base.map(sp =>
@@ -138,32 +145,36 @@ export function useSyncPolling({
                   });
 
                   if (!dismissedNotifsRef.current.has(msgId)) {
-                    const isAlreadyInUI = notifications.some(existing => existing.id === msgId);
-                    if (!isAlreadyInUI) {
-                      const lastSenderId = n.sender?.name || "";
-                      const spaceObj = gchatSpaces.find(sp => (sp.id || sp.name) === sid);
-                      const isDM = n.spaceType === "DIRECT_MESSAGE" || spaceObj?.type === "DIRECT_MESSAGE";
-                      let resolvedSender = GCHAT_ID_MAP[lastSenderId] || n.senderName || "Colleague";
-                      if (isDM && resolvedSender === "Colleague" && spaceObj?.displayName) {
-                        resolvedSender = spaceObj.displayName;
-                      }
-                      const resolvedSpaceTitle = isDM
-                        ? null
-                        : (GCHAT_ID_MAP[sid] || spaceObj?.displayName || n.title || "Chat");
-                      const notifText = isDM
-                        ? (resolvedSender !== "Colleague" ? `${resolvedSender}: ${n.text}` : n.text)
-                        : (resolvedSpaceTitle !== "Colleague"
-                            ? `${resolvedSpaceTitle} - ${resolvedSender}: ${n.text}`
-                            : n.text);
+                    // 🛡️ MENTION FILTER: Skip panel if it's a Space and Siya isn't mentioned
+                    if (!isDM && !n.isMentioned) return;
 
-                      const isBrandNewChat = new Date(ts) > sessionStartTime.current;
-                      chatNotifs.push({
+                    const lastSenderId = n.sender?.name || "";
+                    let resolvedSender = GCHAT_ID_MAP[lastSenderId] || n.senderName || "Colleague";
+                    if (isDM && resolvedSender === "Colleague" && spaceObj?.displayName) {
+                      resolvedSender = spaceObj.displayName;
+                    }
+                    const resolvedSpaceTitle = isDM
+                      ? null
+                      : (GCHAT_ID_MAP[sid] || spaceObj?.displayName || n.title || "Chat");
+                    
+                    const notifText = isDM
+                      ? (resolvedSender !== "Colleague" ? `${resolvedSender}: ${n.text}` : n.text)
+                      : (resolvedSpaceTitle !== "Colleague"
+                          ? `${resolvedSpaceTitle} - ${resolvedSender}: ${n.text}`
+                          : n.text);
+
+                    const isBrandNewChat = new Date(ts) > sessionStartTime.current;
+                    
+                    // 🚀 ARCHITECT'S EVENT DISPATCH: Fire a custom event to App.jsx bridge
+                    window.dispatchEvent(new CustomEvent("gchatNotification", {
+                      detail: {
                         ...n, id: msgId, alt: "Google Chat", icon: gchatIcon,
                         text: notifText, timestamp: ts, spaceId: sid,
                         isSilent: (!isBrandNewChat) || (mutedGchatSpaces.includes(sid) && !n.isMentioned),
-                      });
-                    }
+                      }
+                    }));
                   }
+              
                 } else {
                   setGchatMessages(prev => {
                     if (prev.some(m => (m.name || m.id) === msgId)) return prev;
@@ -227,7 +238,7 @@ export function useSyncPolling({
           }
         }
 
-        if (combined.length > 0) {
+   if (combined.length > 0) {
           setNotifications(prev => {
             const existingIds = new Set(prev.map(p => p.id));
             const seenInBatch = new Set();

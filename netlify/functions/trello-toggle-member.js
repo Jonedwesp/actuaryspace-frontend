@@ -3,14 +3,19 @@ export const handler = async (event) => {
   if (event.httpMethod !== "POST") return { statusCode: 405, body: "Method Not Allowed" };
 
   try {
-    const { cardId, memberId, shouldAdd } = JSON.parse(event.body);
+    const body = JSON.parse(event.body);
+    const { cardId, memberId } = body;
+    
+    // 🎯 ARCHITECT'S SYNC: Support both 'shouldAdd' and 'action' formats
+    const shouldAdd = body.action === 'add' || body.shouldAdd === true;
+
     const key = process.env.TRELLO_API_KEY || process.env.TRELLO_KEY;
     const token = process.env.TRELLO_TOKEN;
 
     let url = "";
     let method = "";
 
-    // 🚨 THE FIX: Route the URLs exactly how Trello demands
+    // 🛡️ THE FIX: Route the URLs exactly how Trello demands
     if (shouldAdd) {
       // ADD a member
       url = `https://api.trello.com/1/cards/${cardId}/idMembers?value=${memberId}&key=${key}&token=${token}`;

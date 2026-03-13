@@ -638,36 +638,42 @@ export function useGchatSync({
     }
   };
 
-  const confirmDeleteChat = async () => {
-    if (!chatToDelete) return;
-    const sid = chatToDelete.id;
-    const isDM = chatToDelete.type === "DIRECT_MESSAGE" || sid.startsWith("users/");
+const confirmDeleteChat = (spaceOverride = null) => {
+    const target = spaceOverride || chatToDelete;
+    if (!target) return;
+    const sid = target.id || target.name;
+    const isDM = target.type === "DIRECT_MESSAGE" || target.spaceType === "DIRECT_MESSAGE" || sid.startsWith("users/");
+    
     window.dispatchEvent(new Event("pauseTrelloPolling"));
     localStorage.setItem(`GCHAT_DELETE_TIME_${sid}`, new Date().toISOString());
     localStorage.removeItem(`GCHAT_MSGS_${sid}`);
+    
     setTrashedGchatSpaces(prev => {
-      const next = [...prev, sid];
+      const next = [...new Set([...prev, sid])];
       localStorage.setItem("GCHAT_TRASHED", JSON.stringify(next));
       return next;
     });
+
+    // ZERO-LATENCY UI: Strip it from the primary spaces array immediately
+    setGchatSpaces(prev => prev.filter(s => (s.id || s.name) !== sid));
+
     if (gchatSelectedSpace?.id === sid || gchatSelectedSpace?.name === sid) {
       setGchatSelectedSpace(null);
       setGchatMessages([]);
     }
+    
     const snackbarMsg = isDM ? "Conversation hidden and history cleared" : "Space deleted permanently";
-    setChatToDelete(null);
+    if (!spaceOverride) setChatToDelete(null);
     triggerSnackbar(snackbarMsg);
-    try {
-      const endpoint = isDM ? "/.netlify/functions/gchat-hide-chat" : "/.netlify/functions/gchat-delete-space";
-      await fetch(endpoint, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ spaceId: sid })
-      });
-    } catch (err) {
-      console.error("Failed to sync chat status with Google", err);
-    }
+    
+    // Fire and forget the backend fetch without awaiting it
+    const endpoint = isDM ? "/.netlify/functions/gchat-hide-chat" : "/.netlify/functions/gchat-delete-space";
+    fetch(endpoint, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ spaceId: sid })
+    }).catch(err => console.error("Failed to sync chat status with Google", err));
   };
 
   const handleUpdateGChatMessage = async (messageId, newText) => {
@@ -778,7 +784,7 @@ export function useGchatSync({
           setGchatMessages((prev) => dedupeMergeMessages(prev, [json.message]));
           setInputValue("");
         }
-      } catch (err) {
+} catch (err) {
         console.error("gchat-send/upload failed:", err);
         alert("Message failed to send. Check console.");
       }
@@ -789,6 +795,53 @@ export function useGchatSync({
         ta2.closest(".chat-bar")?.classList.remove("expanded");
       }
     }
+  };
+
+  const handleArchiveChat = (spaceId) => {
+    if (!spaceId) return;
+    
+    // 1. Zero-latency Optimistic UI update
+    setArchivedGchatSpaces(prev => {
+      const next = [...new Set([...prev, spaceId])];
+      localStorage.setItem("GCHAT_ARCHIVED", JSON.stringify(next));
+      return next;
+    });
+
+    if (gchatSelectedSpace?.id === spaceId || gchatSelectedSpace?.name === spaceId) {
+      setGchatSelectedSpace(null);
+      setGchatMessages([]);
+    }
+
+    if (typeof triggerSnackbar === 'function') triggerSnackbar("Chat archived.");
+
+    // 2. Fire-and-forget backend sync (No awaiting)
+    fetch("/.netlify/functions/gchat-archive-space", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ spaceId })
+    }).catch(err => console.error("Failed to sync archive status", err));
+  };
+
+  const handleUnarchiveChat = (spaceId) => {
+    if (!spaceId) return;
+    
+    // 1. Zero-latency Optimistic UI update
+    setArchivedGchatSpaces(prev => {
+      const next = prev.filter(id => id !== spaceId);
+      localStorage.setItem("GCHAT_ARCHIVED", JSON.stringify(next));
+      return next;
+    });
+
+    if (typeof triggerSnackbar === 'function') triggerSnackbar("Chat unarchived.");
+
+    // 2. Fire-and-forget backend sync (No awaiting)
+    fetch("/.netlify/functions/gchat-unarchive-space", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ spaceId })
+    }).catch(err => console.error("Failed to sync unarchive status", err));
   };
 
   return {
@@ -853,10 +906,12 @@ export function useGchatSync({
     gchatFilePreview, setGchatFilePreview,
     toggleReaction,
     triggerGChatNotification,
-    handleStartChat,
+handleStartChat,
     handleDeleteGChatMessage,
     confirmDeleteGChatMessage,
     confirmDeleteChat,
+    handleArchiveChat,
+    handleUnarchiveChat,
     handleUpdateGChatMessage,
     handleSend,
     pendingUpload, setPendingUpload,

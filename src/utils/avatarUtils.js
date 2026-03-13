@@ -82,6 +82,12 @@ export function remapBotName(name) {
   const trimmed = String(name).trim();
   // Any variant of "ActuarySpaceBot" becomes "Yolandie"
   if (/^actuaryspacebot$/i.test(trimmed)) return "Yolandie";
+  
+  // 🚀 ARCHITECT'S GUARD: If the name is a Trello title (has spaces and isn't a known alias),
+  // return it exactly as is. Do not allow first-letter shortening.
+  const lower = trimmed.toLowerCase();
+  if (AVATAR_ALIASES[lower]) return AVATAR_ALIASES[lower];
+  
   return trimmed;
 }
 
@@ -90,6 +96,11 @@ export let LIVE_TRELLO_AVATARS = {};
 
 export function avatarFor(name) {
   if (!name) return null;
+
+  // 🛡️ ARCHITECT'S BYPASS: If the name looks like a Trello Task (e.g. "Hello World"), 
+  // and isn't a known team member, don't try to find an avatar for it.
+  const isLikelyTask = name.includes(" ") && !AVATAR_ALIASES[name.toLowerCase().trim()];
+  if (isLikelyTask) return null;
 
   // strip things like " (web)", " (bot)", etc.
   let key = String(name).toLowerCase().trim();
@@ -104,17 +115,18 @@ export function avatarFor(name) {
   if (alias) {
     const ak = alias.toLowerCase();
     const aliasParts = ak.split(/\s+/);
-    const inits = aliasParts.map((p) => p[0]).join("");
-    const localUrl = AVATARS[ak] || AVATARS[aliasParts[0]] || AVATARS[inits];
+    // 🎯 THE FIX: Only allow initials if the alias is exactly 2 words (e.g. "Alicia O")
+    // This prevents "Hello World" from matching initials logic
+    const inits = aliasParts.length === 2 ? (aliasParts[0][0] + aliasParts[1][0]).toLowerCase() : "";
+    const localUrl = AVATARS[ak] || AVATARS[aliasParts[0]] || (inits ? AVATARS[inits] : null);
     if (localUrl) return localUrl;
   }
 
-  // 2. Direct hits in local files: full name / first token / initials
-  const inits = parts.map((p) => p[0]).join("");
-  const directUrl = AVATARS[key] || AVATARS[firstWord] || AVATARS[inits];
+  // 2. Direct hits in local files
+  const directUrl = AVATARS[key] || AVATARS[firstWord];
   if (directUrl) return directUrl;
 
-  // 3. Fall back to Live Trello Avatars (only for people without a local photo)
+  // 3. Fall back to Live Trello Avatars
   if (LIVE_TRELLO_AVATARS[key]) return LIVE_TRELLO_AVATARS[key];
   if (LIVE_TRELLO_AVATARS[firstWord]) return LIVE_TRELLO_AVATARS[firstWord];
 

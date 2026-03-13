@@ -712,13 +712,19 @@ const RightPanel = React.memo(function RightPanel({
         // Only update if data changed (Simple check)
         // Detect cards that are leaving the board before updating state
         const removedCards = [];
-        prevBucketsRef.current.forEach(bucket => {
-            bucket.cards?.forEach(card => {
-                const newBucket = mapped.find(b => b.title === bucket.title);
-                if (!newBucket?.cards?.find(c => c.id === card.id)) {
-                    removedCards.push({ card, listTitle: bucket.title });
-                }
-            });
+
+        // 🛡️ ARCHITECT'S GUARD: Prevent fatal crash if state structure shifted to Object
+        const safePrevBuckets = Array.isArray(prevBucketsRef.current) ? prevBucketsRef.current : [];
+
+        safePrevBuckets.forEach(bucket => {
+            if (bucket && bucket.cards) {
+                bucket.cards.forEach(card => {
+                    const newBucket = mapped.find(b => b.title === bucket.title);
+                    if (!newBucket?.cards?.find(c => c.id === card.id)) {
+                        removedCards.push({ card, listTitle: bucket.title });
+                    }
+                });
+            }
         });
         if (removedCards.length > 0) {
             setLeavingCards(prev => [...prev, ...removedCards]);
@@ -961,7 +967,7 @@ const RightPanel = React.memo(function RightPanel({
       )}
       <div className="right-scroll left-scroll">
         <div className="trello-col-wrap">
-          {trelloBuckets.map((bucket, i) => (
+          {Array.isArray(trelloBuckets) && trelloBuckets.map((bucket, i) => (
             <div 
                 className="tl-col" 
                 key={bucket.id || i}

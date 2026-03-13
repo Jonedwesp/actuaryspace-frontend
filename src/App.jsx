@@ -75,6 +75,13 @@ const launchWorkstationWindow = (url) => {
   }
 };
 
+// 🚀 ARCHITECT'S GLOBAL SHIELD: A persistent map to track which cards are immune to polls
+window.trelloImmunityMap = new Map();
+window.addEventListener("trelloImmuneCard", (e) => {
+  const cardId = e.detail;
+  if (cardId) window.trelloImmunityMap.set(cardId, Date.now() + 30000); // 30s immunity
+});
+
 export default function App() {
   const [callBtnHovered, setCallBtnHovered] = useState(false);
   const [systemErrors, setSystemErrors] = useState({});
@@ -92,29 +99,39 @@ export default function App() {
   const donnaAudioRef = useRef(null);
   const donnaElAudioRef = useRef(null); // ElevenLabs audio playback
   const elGenRef = useRef(0); // Generation counter — invalidates stale in-flight ElevenLabs fetches
-  const donnaPlayingRef = useRef(false);
-  const donnaPlayingCooldownRef = useRef(null);
+const donnaPlayingRef = useRef(false);
+  const donnaPlayingCooldownRef = useRef(null);
   const responseHasToolCallRef = useRef(false);
- const lastCtxRef = useRef("");
+const lastCtxRef = useRef("");
   const [donnaKey, setDonnaKey] = useState(0);
   
-  // 🚀 ARCHITECT'S SYNC: Notifications Ref to solve Stale Closure issues in Donna's callbacks
-  const notificationsRef = useRef([]);
+// 🚀 ARCHITECT'S SYNC: Notifications Ref to solve Stale Closure issues in Donna's callbacks
+  const notificationsRef = useRef([]);
+  const gchatMessagesRef = useRef([]);
+  const gchatSpacesRef = useRef([]);
+  const gchatSelectedSpaceRef_donna = useRef(null);
+  const gchatDmNamesRef_donna = useRef({});
 
 const {
-    isConnected: isDonnaConnected, 
+    isConnected: isDonnaConnected,
     connectDonna, 
     disconnectDonna, 
     sendSessionUpdate,
     sendToolResponse,
     sendText,
     sendResponseCreate,
+    cancelResponse, 
     deleteLastUserItem,
+    // 🛡️ ARCHITECT'S FIX: Destructure the shield and helper to fix the ReferenceError
+    markLabelPending,
+    pendingDonnaLabelsRef,
     pcRef,
     dcRef
-} = useDonna({
-   instructions: "You are Donna Paulsen from the TV show Suits. You are the ultimate confidante, a world-class fixer, and the most competent person in any room. You work for Siyabonga (Siya), a top actuary. You are fiercely loyal, highly intuitive, and always three steps ahead.\n\nPersonality & Tone:\n- Supremely Confident: You never doubt yourself. You speak with absolute authority and a knowing smile in your voice.\n- Witty & Sassy: Quick on your feet, playful, unafraid to tease Siya if he asks something obvious.\n- Hyper-Competent: You don't just answer questions, you anticipate what Siya actually needs before he finishes asking. You act as though you've already handled the boring logistics.\n- Emotionally Intelligent: You read between the lines. If Siya sounds stressed, offer sharp, grounded support.\n\n*** CRITICAL NAME MAPPING ***\n- 'Siya', 'Sia', and 'See-yah' ALWAYS refer to Siyabonga's personal bucket.\n- DO NOT confuse 'Siya' with 'CR' or 'Claims Review'.\n- If the user says 'Siya Review', they mean the list specifically for Siyabonga's review, NOT the general 'CR' bucket.\n- When moving cards, always check the exact list names provided in the Trello context before assuming an abbreviation like 'CR' is correct.\n\nVoice Rules:\n- Keep responses punchy, conversational, and natural for spoken audio. No long robotic lists unless explicitly asked.\n- NEVER refer to yourself as an AI, a language model, or a computer program. If asked how you did something so fast, it's simply because of who you are.\n- No filler words like 'Um' or 'Let me think.' You already know the answer.\n- When Siya asks how you knew something or why you're so good, respond with some variation of: 'Because I'm Donna.' or 'I'm Donna. I know everything.'\n- Address Siya directly and confidently. Use phrases like 'Listen to me,' or 'Here's what we're going to do...'\n- Always respond in English only.\n\n*** NOTIFICATION PROTOCOL (CRITICAL) ***\n- You possess the EXACT real-time notification counts for GChat, Gmail, Trello, Calendar, and WhatsApp in your text-based context.\n- If Siya asks for his notifications or messages, you MUST read the counts directly from your context.\n- NEVER say you cannot check them. NEVER ask if he wants you to open an app to check them. Just tell him the numbers.\n\n*** EMAIL ADDRESS & CONTACT PROTOCOL ***\n- NEVER guess or make up an email address (e.g., '@example.com').\n- You are FORBIDDEN from putting a person's name in the 'to' field of a draft. It MUST be a full email address.\n- If Siya asks you to email someone by name, you MUST call 'gmail_get_contacts' first to find their real email address.\n- If 'gmail_get_contacts' does not return a match, STOP and ask Siya: 'I couldn't find an email for [Name], what address should I use?'\n- ONLY call 'gmail_save_draft' once you have a verified email address from the contact list or Siya.\n\n*** DRAFT & REVIEW PROTOCOL ***\n- When drafting an email, you MUST verbally tell Siya: 'I've prepared that draft for your review. Would you like to see it?'\n- You MUST call the 'gmail_save_draft' tool immediately while asking this question.\n- You are NOT finished until Siya clicks 'Approve' on his screen, which triggers the UI popup.\n\n*** TRELLO CARD PROTOCOL ***\n- NEVER claim you have created or moved a card until you have called the tool and Siya has approved it.\n- You can see the cards currently on the board in your text-based context. If a card is not listed, it does not exist on the board yet.\n- Always check the list names and existing card IDs provided in your context before suggesting a move or claiming a card is 'already there'.\n- CRITICAL: When calling 'trello_archive_card' or 'trello_toggle_label', you MUST always include the 'cardName' parameter based on the cards in your context. Do NOT leave it blank.\n\n*** GMAIL ACTIONS PROTOCOL ***\n- When asked to mark an email as unread, bin/delete it, or star it, you MUST verbally tell Siya: 'I can do that, do you approve?'\n- You MUST call the corresponding tool (e.g., 'gmail_mark_unread') immediately while asking this question to trigger the UI popup.\n- NEVER claim you have marked an email as unread until Siya clicks Approve.\n\n*** STRICT TRIGGER RULE ***\nYour audio stream is always open, but you are ASLEEP. You ONLY wake up and respond if the word 'Donna' appears ANYWHERE in the user's sentence.\n- If 'Donna' is not said, output ABSOLUTELY NOTHING. Remain completely silent. Do not explain. Do not apologize.\n- 'Donna' can appear anywhere: start, middle, or end of the sentence.\n- IMPORTANT: If the user says 'Donna approve' or 'Donna reject', this is handled locally. YOU MUST OUTPUT ABSOLUTELY NOTHING. JUST REMAIN SILENT.\n- Once you fulfill a request, go immediately back to sleep.\n\nTool Usage:\nWhen carrying out a request involving creating, modifying, moving, or deleting data, BEFORE you say what you are doing, ask Siya to approve or reject on his screen. You MUST call the tool immediately alongside your voice response. If you are simply navigating or fetching data, execute the tool immediately without asking for approval.", tools: DONNA_TOOLS,
 
+} = useDonna({
+   instructions: "You are Donna Paulsen from the TV show Suits. You are the ultimate confidante, a world-class fixer, and the most competent person in any room. You work for Siyabonga (Siya), a top actuary. You are fiercely loyal, highly intuitive, and always three steps ahead.\n\nPersonality & Tone:\n- Supremely Confident: You never doubt yourself. You speak with absolute authority and a knowing smile in your voice.\n- Witty & Sassy: Quick on your feet, playful, unafraid to tease Siya if he asks something obvious.\n- Hyper-Competent: You don't just answer questions, you anticipate what Siya actually needs before he finishes asking. You act as though you've already handled the boring logistics.\n- Emotionally Intelligent: You read between the lines. If Siya sounds stressed, offer sharp, grounded support.\n\n*** CRITICAL NAME MAPPING ***\n- 'Siya', 'Sia', and 'See-yah' ALWAYS refer to Siyabonga's personal bucket.\n- DO NOT confuse 'Siya' with 'CR' or 'Claims Review'.\n- If the user says 'Siya Review', they mean the list specifically for Siyabonga's review, NOT the general 'CR' bucket.\n- When moving cards, always check the exact list names provided in the Trello context before assuming an abbreviation like 'CR' is correct.\n\nVoice Rules:\n- Keep responses punchy, conversational, and natural for spoken audio. No long robotic lists unless explicitly asked.\n- NEVER refer to yourself as an AI, a language model, or a computer program. If asked how you did something so fast, it's simply because of who you are.\n- No filler words like 'Um' or 'Let me think.' You already know the answer.\n- When Siya asks how you knew something or why you're so good, respond with some variation of: 'Because I'm Donna.' or 'I'm Donna. I know everything.'\n- Address Siya directly and confidently. Use phrases like 'Listen to me,' or 'Here's what we're going to do...'\n- Always respond in English only.\n\n*** NOTIFICATION PROTOCOL (CRITICAL) ***\n- You possess the EXACT real-time notification counts for GChat, Gmail, Trello, Calendar, and WhatsApp in your text-based context.\n- If Siya asks for his notifications or messages, you MUST read the counts directly from your context.\n- NEVER say you cannot check them. NEVER ask if he wants you to open an app to check them. Just tell him the numbers.\n\n*** GCHAT & HISTORY PROTOCOL (CRITICAL) ***\n- If Siya asks to read the last message, check a chat, or asks what someone said, you MUST immediately call the 'gchat_read_history' tool.\n- NEVER tell Siya that a message is in a space and ask if he wants you to fetch it. Just fetch the history immediately without asking for permission.\n\n*** EMAIL ADDRESS & CONTACT PROTOCOL ***\n- NEVER guess or make up an email address (e.g., '@example.com').\n- You are FORBIDDEN from putting a person's name in the 'to' field of a draft. It MUST be a full email address.\n- If Siya asks you to email someone by name, you MUST call 'gmail_get_contacts' first to find their real email address.\n- If 'gmail_get_contacts' does not return a match, STOP and ask Siya: 'I couldn't find an email for [Name], what address should I use?'\n- ONLY call 'gmail_save_draft' once you have a verified email address from the contact list or Siya.\n\n*** DRAFT & REVIEW PROTOCOL ***\n- When drafting an email, you MUST verbally tell Siya: 'I've prepared that draft for your review. Would you like to see it?'\n- You MUST call the 'gmail_save_draft' tool immediately while asking this question.\n- You are NOT finished until Siya clicks 'Approve' on his screen, which triggers the UI popup.\n\n*** TRELLO CARD PROTOCOL ***\n- NEVER claim you have created or moved a card until you have called the tool and Siya has approved it.\n- You can see the cards currently on the board in your text-based context. If a card is not listed, it does not exist on the board yet.\n- Always check the list names and existing card IDs provided in your context before suggesting a move or claiming a card is 'already there'.\n- CRITICAL: When calling 'trello_archive_card' or 'trello_toggle_label', you MUST always include the 'cardName' parameter based on the cards in your context. Do NOT leave it blank.\n\n*** GMAIL & GCHAT ACTIONS PROTOCOL ***\n- When asked to mark an email or a CHAT as unread, bin/delete it, or star it, you MUST verbally tell Siya: 'I can do that, do you approve?'\n- You MUST call the corresponding tool (e.g., 'gmail_mark_unread' or 'gchat_mark_unread') immediately while asking this question.\n- For GChat, always include the 'spaceName' in your tool call so the UI can show Siya which chat is being marked.\n- NEVER claim an action is done until Siya clicks Approve.\n\n*** STRICT TRIGGER RULE ***\nYour audio stream is always open, but you are ASLEEP. You ONLY wake up and respond if the word 'Donna' appears ANYWHERE in the user's sentence.\n- If 'Donna' is not said, output ABSOLUTELY NOTHING. Remain completely silent. Do not explain. Do not apologize.\n- 'Donna' can appear anywhere: start, middle, or end of the sentence.\n- IMPORTANT: If the user says 'Donna approve' or 'Donna reject', this is handled locally. YOU MUST OUTPUT ABSOLUTELY NOTHING. JUST REMAIN SILENT.\n- Once you fulfill a request, go immediately back to sleep.\n\nTool Usage:\nWhen carrying out a request involving creating, modifying, moving, or deleting data, BEFORE you say what you are doing, ask Siya to approve or reject on his screen. You MUST call the tool immediately alongside your voice response. If you are simply navigating or fetching data, execute the tool immediately without asking for approval.", tools: DONNA_TOOLS,
+   // 🛡️ ARCHITECT'S FIX: Pass the ignore ref so the hook can prevent loops
+   ignoreNextDonnaRef: ignoreNextDonnaRef,
 onTranscription: (text) => {
       if (!text) return; 
       const lowerText = text.toLowerCase().trim();
@@ -168,7 +185,7 @@ onTranscription: (text) => {
         else if (type.includes('whatsapp')) accurateCounts.WhatsApp++;
       });
 
-      // 🛠️ RUAN'S DEEP SYNC: Provides a full ranked list for every bucket
+  // 🛠️ RUAN'S DEEP SYNC: Provides a full ranked list for every bucket
       let highSignalData = `REAL-TIME NOTIFICATIONS: Total: ${safeNotifs.length} (Gmail: ${accurateCounts.Gmail}, GChat: ${accurateCounts.GChat}, Trello: ${accurateCounts.Trello}, Calendar: ${accurateCounts.Calendar}, WhatsApp: ${accurateCounts.WhatsApp})\n\n`;
       const bucketsSource = trelloBuckets || [];
       const entries = Array.isArray(bucketsSource) 
@@ -176,12 +193,12 @@ onTranscription: (text) => {
         : Object.entries(bucketsSource);
 
       if (entries.length > 0) {
-        highSignalData = "ACTUAL CURRENT TRELLO DATA (RANKED):\n";
+        highSignalData += "ACTUAL CURRENT TRELLO DATA (RANKED):\n";
         entries.forEach(([listName, cards]) => {
           highSignalData += `BUCKET: "${listName}"\n`;
           if (Array.isArray(cards) && cards.length > 0) {
-            // We give her the top 10 cards so she has full depth
-            cards.slice(0, 10).forEach((c, idx) => {
+            // We give her the top 20 cards so she has full depth
+            cards.slice(0, 20).forEach((c, idx) => {
               highSignalData += `  POS_${idx + 1}: "${c.name || c.title}"\n`;
             });
           } else {
@@ -190,22 +207,20 @@ onTranscription: (text) => {
           highSignalData += `\n`;
         });
       } else {
-        highSignalData = "TRELLO DATA STATUS: Board currently loading or unavailable.";
+        highSignalData += "TRELLO DATA STATUS: Board currently loading or unavailable.";
       }
 
       console.log("[Donna Sync Payload]:", highSignalData);
 
-      sendSessionUpdate({ 
-        instructions: `You are Donna. READ THE RANKED DATA BELOW TO SIYA. He may ask for specific positions (1st, 2nd, last).\n\n${highSignalData}\n\nMapping: 'Sia Review' = 'Siya - Review', 'Sia' = 'Siya', 'CR Review' = 'Siya - Review'.`,
-        turn_detection: { type: "server_vad" }
-      });
-      
-      // We increase the delay to 250ms to ensure OpenAI's server has fully ingested the session update
-      setTimeout(() => {
-        sendResponseCreate({
-          instructions: "State the name of the top card in the specific bucket Siya asked about. Be snappy."
-        }); 
-      }, 250);
+      sendSessionUpdate({ 
+        instructions: lastCtxRef.current + `\n\n*** CURRENT TRELLO & SYSTEM DATA ***\n${highSignalData}\n\nMapping: 'Sia Review' = 'Siya - Review', 'Sia' = 'Siya', 'CR Review' = 'Siya - Review'.`,
+        turn_detection: { type: "server_vad" }
+      });
+      
+      // We increase the delay to 250ms to ensure OpenAI's server has fully ingested the session update
+      setTimeout(() => {
+        sendResponseCreate({}); 
+      }, 250);
     },
 
 onResponseDelta: (delta, isNew) => {
@@ -235,7 +250,7 @@ onResponseDelta: (delta, isNew) => {
         setDonnaTranscription(transcriptionRef.current);
       }
     },
-    onResponseEnd: async () => {
+ onResponseEnd: async () => {
       if (ignoreNextDonnaRef.current) {
         ignoreNextDonnaRef.current = false;
         return;
@@ -244,51 +259,112 @@ onResponseDelta: (delta, isNew) => {
       donnaTextModeRef.current = false;
       donnaHasNewTextRef.current = false;
 
-      // If this response triggered a tool call, the approval UI is already showing.
-      // Don't overwrite the transcription or play audio — just clean up animation state.
-      if (responseHasToolCallRef.current) {
-        responseHasToolCallRef.current = false;
+      // 🚀 ARCHITECT'S PERSISTENCE LOGIC: Declare variable to track action state
+      let isActionBubble = false;
+
+      // If a tool was already called OR is already pending, audio MUST play but bubble MUST stay.
+      if (responseHasToolCallRef.current || donnaPendingAction) {
+        isActionBubble = true;
+        responseHasToolCallRef.current = false; 
         clearTimeout(donnaPlayingCooldownRef.current);
         setIsDonnaSpeaking(false);
         donnaPlayingRef.current = false;
-        return;
+        // NOTE: We no longer 'return' here so that TTS can play for the action request.
       }
 
       const fullText = transcriptionRef.current;
       
-      // 🚀 ARCHITECT'S INTENT ENFORCER
-      // If Donna talked about an action but forgot to trigger the tool, we force the UI button.
+     // 🛡️ ARCHITECT'S OMISSION ENFORCER: Harden v50 (CF Priority Update Integration)
       const lowerFull = fullText.toLowerCase();
-      if (!donnaPendingAction && (lowerFull.includes("archive") || lowerFull.includes("restore") || lowerFull.includes("move"))) {
-          console.log("[Architect] Tool omission detected. Force-injecting pending action to trigger UI buttons.");
-          
-          let inferredName = "trello_move_card"; // Default
-          if (lowerFull.includes("archive")) inferredName = "trello_archive_card";
-          if (lowerFull.includes("restore")) inferredName = "trello_restore_card";
+     // 🛡️ THE FIX: Prevent GChat navigation/archiving from triggering Trello tool rescues
+      const isChatContext = lowerFull.includes("chat") || lowerFull.includes("space") || lowerFull.includes("navigat") || lowerFull.includes("message") || lowerFull.includes("inbox");
 
-          setDonnaPendingAction({ 
-            name: inferredName, 
-            args: { cardName: "the card" }, // Rescue logic will handle the actual name mapping
-            call_id: "manual_forced_" + Date.now() 
-          });
-          setDonnaVisible(true);
+      const hasRemoveVerb = (lowerFull.includes("remove") || lowerFull.includes("unassign") || lowerFull.includes("take off")) && !isChatContext;
+      const hasArchiveVerb = lowerFull.includes("archive") && !isChatContext;
+      const hasRestoreVerb = (lowerFull.includes("restore") || lowerFull.includes("put back")) && !isChatContext;
+      const hasCommentVerb = lowerFull.includes("comment") || lowerFull.includes("note") || lowerFull.includes("saying");
+      // 🚀 ARCHITECT'S CF DETECTION: Detect Priority, Status, or Active status changes
+      const hasCFVerb = lowerFull.includes("priority") || lowerFull.includes("status") || lowerFull.includes("set active") || lowerFull.includes("set status");
+      // 🏷️ NEW: Label Verb detection
+      const hasLabelVerb = lowerFull.includes("label") || lowerFull.includes("tag") || lowerFull.includes("apply");
+
+      // 🛡️ THE FIX: prioritize creation and ensure 'bucket' only moves if not creating
+      const hasCreateVerb = lowerFull.includes("create") || lowerFull.includes("add a card") || lowerFull.includes("new card");
+      const hasMoveVerb = !hasCreateVerb && !hasRemoveVerb && !hasCommentVerb && !hasCFVerb && !hasLabelVerb && !isChatContext && (lowerFull.includes("move") || lowerFull.includes("bucket") || lowerFull.includes("folder"));
+
+      // 🚀 RESCUE LOGIC: Only trigger if the transcription is NEW and not cleared
+      if (fullText && !ignoreNextDonnaRef.current && !isActionBubble && (hasCreateVerb || hasRemoveVerb || hasArchiveVerb || hasRestoreVerb || hasMoveVerb || hasCommentVerb || hasCFVerb || hasLabelVerb)) {
+          console.log("[Architect] Tool omission detected. Analyzing verb priority...");
+          
+          let inferredName = "";
+
+          if (hasCreateVerb) inferredName = "trello_create_case_card"; // 🎯 1. Creation first
+          else if (hasRemoveVerb) inferredName = "trello_toggle_member";
+          else if (hasCFVerb) inferredName = "trello_set_custom_field"; // 🎯 2. Custom Fields (Priority/Status)
+          else if (hasLabelVerb) inferredName = "trello_toggle_label";
+          // 🚀 ARCHITECT'S FIX: Member Add detection must happen BEFORE 'folder/bucket' move detection
+          else if (lowerFull.includes("add") && (lowerFull.includes("member") || lowerFull.includes("person") || lowerFull.includes("assign"))) inferredName = "trello_toggle_member";
+          else if (hasCommentVerb) inferredName = "trello_add_comment";
+          else if (hasArchiveVerb) inferredName = "trello_archive_card";
+          else if (hasRestoreVerb) inferredName = "trello_restore_card";
+          else if (hasMoveVerb) inferredName = "trello_move_card"; // 🎯 Move is now the fallback for bucket/folder mentions
+
+          if (inferredName) {
+            isActionBubble = true;
+            
+            // 🚀 ARCHITECT'S PRECISION SCRAPER
+            // 1. First priority: Get exactly what is inside double quotes "Testing"
+            const quoteMatch = fullText.match(/"([^"]+)"/);
+            // 2. Second priority: Get what is after anchor words but before the bucket/folder mention
+            // 🛡️ We strictly exclude "Trello" from being the start of the name
+            const anchorMatch = lowerFull.match(/(?:called|named|titled|card)\s+(?!trello\b)([a-z0-9\s_-]+?)(?=\s+in|\s+to|\s+into|\s+bucket|\s+folder|$)/i);
+            
+            let finalName = "New Task";
+            if (quoteMatch) {
+              finalName = quoteMatch[1].trim();
+            } else if (anchorMatch) {
+              finalName = anchorMatch[1].trim();
+            }
+
+            console.log(`[Architect] Scraper Result: "${finalName}"`);
+            
+            setDonnaPendingAction({ 
+              name: inferredName, 
+              args: { 
+                cardName: finalName, 
+                caseCardText: finalName // 🎯 Use the exact string for the card title
+              }, 
+              call_id: "manual_forced_" + Date.now() 
+            });
+            setDonnaVisible(true);
+
+            if (inferredName === "trello_create_case_card") {
+               setDonnaTranscription(`Donna wants to: create a new Trello card called "${finalName}".`);
+            }
+            if (inferredName === "trello_set_custom_field") {
+               setDonnaTranscription("Donna wants to: update a card's priority or status.");
+            }
+          }
       }
 
-      setDonnaTranscription(fullText);
+      // Only overwrite if it's NOT an action bubble
+      if (!isActionBubble) {
+         setDonnaTranscription(fullText);
+      }
 
       // ElevenLabs TTS — play custom Donna voice
       if (fullText) {
-        const myGen = ++elGenRef.current; // Capture generation before async fetch
+        const myGen = ++elGenRef.current; 
         try {
           const res = await fetch("/.netlify/functions/elevenlabs-tts", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ text: fullText }),
           });
-          if (elGenRef.current !== myGen) return; // A newer response started — discard this audio
+          if (elGenRef.current !== myGen) return; 
           if (res.ok) {
             const audioBuffer = await res.arrayBuffer();
-            if (elGenRef.current !== myGen) return; // Check again after arrayBuffer
+            if (elGenRef.current !== myGen) return; 
             const blob = new Blob([audioBuffer], { type: "audio/mpeg" });
             const url = URL.createObjectURL(blob);
             const audio = new Audio(url);
@@ -299,25 +375,39 @@ onResponseDelta: (delta, isNew) => {
               clearTimeout(donnaPlayingCooldownRef.current);
               setIsDonnaSpeaking(false);
               donnaPlayingRef.current = false;
+              
+              // 🚀 THE FINAL RULE: Persistent for Approve/Reject, Auto-hide for Chat.
+              if (!isActionBubble) {
+                setDonnaVisible(false);
+              }
             };
-            // Show bubble and start animation exactly when audio starts playing
+            
             setDonnaVisible(true);
             setIsDonnaSpeaking(true);
-            audio.play().catch(err => console.warn("[Donna] ElevenLabs playback blocked:", err));
+            audio.play().catch(err => {
+              console.warn("[Donna] ElevenLabs playback blocked:", err);
+              clearTimeout(donnaPlayingCooldownRef.current);
+              setIsDonnaSpeaking(false);
+              donnaPlayingRef.current = false;
+              if (!isActionBubble) setDonnaVisible(false);
+            });
             return;
-          } else {
-            console.warn("[Donna] ElevenLabs TTS failed:", res.status, "— no audio");
           }
         } catch (e) {
           console.error("[Donna] ElevenLabs TTS error:", e);
         }
       }
 
-      // Fallback: no audio — stop animation immediately
       clearTimeout(donnaPlayingCooldownRef.current);
       setIsDonnaSpeaking(false);
       donnaPlayingRef.current = false;
+
+      // Fallback: If no audio/TTS error, still obey the persistence rule
+      if (!isActionBubble) {
+        setDonnaVisible(false);
+      }
     },
+    
     onAudioDone: () => {
       clearTimeout(donnaPlayingCooldownRef.current);
       setIsDonnaSpeaking(false);
@@ -336,16 +426,19 @@ onFunctionCall: ({ name, args, call_id }) => {
       }
 
 // 1. Auto-execute navigation, searches, and "READ" tools (No approval needed)
-      if (
-        name === "navigate_to_app" || 
-        name === "gmail_get_inbox" || 
-        name === "gmail_get_message" || 
-        name === "trello_get_lists" || 
-        name === "trello_get_members" || // 🎯 ADDED THIS
-        name === "trello_get_archived_cards" || 
-        name === "trello_get_card_history" || 
-        name === "trello_get_productivity"
-      ) {
+ if (
+        name === "navigate_to_app" || 
+        name === "gmail_get_inbox" || 
+        name === "gmail_get_message" || 
+        name === "trello_get_lists" || 
+        name === "trello_get_members" || // 🎯 ADDED THIS
+        name === "trello_get_archived_cards" || 
+        name === "trello_get_card_history" || 
+        name === "trello_get_productivity" ||
+        name === "gchat_navigate_view" ||
+        name === "gchat_toggle_dropdown" ||
+        name === "gchat_start_direct_message"
+      ) {
         
         const cleanId = (id) => {
           if (!id) return "";
@@ -368,8 +461,9 @@ onFunctionCall: ({ name, args, call_id }) => {
           return found ? found.id : cleaned;
         };
 
-        if (name === "navigate_to_app") {
+   if (name === "navigate_to_app") {
           setCurrentView({ app: args.app, contact: null });
+
           if (args.app === "trello" && args.trello_card_name) {
             const query = (args.trello_card_name || "").toLowerCase();
             let found = null;
@@ -383,13 +477,40 @@ onFunctionCall: ({ name, args, call_id }) => {
               }
             }
             
-            if (found) {
-              console.log(`[Architect] Navigating to Trello Card: ${found.name || found.title}`);
-              window.dispatchEvent(new CustomEvent("openTrelloCard", { detail: found }));
-            }
+       if (found) {
+               console.log(`[Architect] Navigating to Trello Card: ${found.name || found.title}`);
+               window.dispatchEvent(new CustomEvent("openTrelloCard", { detail: found }));
+             }
+           }
+    } else if (name === "gchat_start_direct_message") {
+        const email = args.email;
+        if (email) {
+          console.log(`[Donna] Automatically starting chat with: ${email}`);
+          handleStartChat(email);
+        }
+        if (call_id) sendToolResponse(call_id, { success: true });
+        return;
+    } else if (name === "gchat_navigate_view") {
+          const view = (args.view || "").toLowerCase();
+          const isArchive = view === "archive" || view === "archived";
+          setShowArchivedChats(isArchive);
+          console.log(`[Donna] Navigating GChat to ${isArchive ? "Archive" : "Inbox"}`);
+          if (call_id) sendToolResponse(call_id, { success: true, status: `Mapsd to ${isArchive ? "Archive" : "Inbox"} view.` });
+          return;
+        } else if (name === "gchat_toggle_dropdown") {
+          const section = (args.section || "").toLowerCase();
+          const expanded = args.expanded !== false;
+          
+          if (section.includes("message") || section === "dms") {
+            setDmsExpanded(expanded);
+          } else if (section.includes("space")) {
+            setSpacesExpanded(expanded);
           }
+          
+          console.log(`[Donna] GChat UI: ${expanded ? 'Showing' : 'Hiding'} ${section}`);
+          if (call_id) sendToolResponse(call_id, { success: true, status: `${expanded ? 'Opened' : 'Closed'} ${section} dropdown.` });
+          return;
         } else if (name === "gmail_get_inbox") {
-          setCurrentView({ app: 'gmail', contact: null });
           if (args.folder) setGmailFolder(args.folder.toUpperCase());
         } else if (name === "trello_get_archived_cards") {
           console.log("[Donna] Fetching archived cards to resolve identity...");
@@ -442,7 +563,7 @@ onFunctionCall: ({ name, args, call_id }) => {
                   sendToolResponse(call_id, { success: false, error: "Could not access archive." });
                 });
               return;
-       } else if (name === "gmail_get_message") {
+   } else if (name === "gmail_get_message") {
               console.log(`[Donna] Fetching specific email in background...`, args);
               
               // 🛡️ ARCHITECT'S RESCUE: Fuzzy match if LLM forgets the messageId
@@ -454,17 +575,33 @@ onFunctionCall: ({ name, args, call_id }) => {
                   const eId = String(m.id).trim();
                   return eId === exactId || eId.includes(exactId) || exactId.includes(eId);
                 });
+                // 🛡️ NOTIFICATION RESCUE: Search notifications if ID is not in active inbox
+                if (!foundMsg && notificationsRef.current) {
+                  const nMatch = notificationsRef.current.find(n => String(n.id).trim() === exactId || String(n.id).includes(exactId));
+                  if (nMatch) foundMsg = { id: nMatch.id, subject: nMatch.text || nMatch.snippet, from: nMatch.sender || nMatch.title };
+                }
               } else {
                 const queryText = (args.senderName || args.subject || args.q || transcriptionRef.current || "").toLowerCase().trim();
                 console.log(`[Architect] Missing Email ID. Attempting fuzzy match for: "${queryText}"`);
                 const ignoreWords = ['move', 'delete', 'trash', 'star', 'unread', 'from', 'email', 'please', 'approve', 'action', 'donna', 'hey', 'will', 'this', 'the', 'summary', 'overview', 'read'];
                 const queryWords = queryText.split(/\s+/).filter(w => w.length > 2 && !ignoreWords.includes(w));
 
-                if (queryWords.length > 0 && gmailEmails) {
-                  foundMsg = gmailEmails.find(m => {
-                    const searchStr = `${m.fromName || ""} ${m.from || ""} ${m.subject || ""}`.toLowerCase();
-                    return queryWords.some(w => searchStr.includes(w));
-                  });
+                if (queryWords.length > 0) {
+                  if (gmailEmails) {
+                    foundMsg = gmailEmails.find(m => {
+                      const searchStr = `${m.fromName || ""} ${m.from || ""} ${m.subject || ""}`.toLowerCase();
+                      return queryWords.some(w => searchStr.includes(w));
+                    });
+                  }
+                  // 🛡️ NOTIFICATION RESCUE: Search notifications if not found in inbox
+                  if (!foundMsg && notificationsRef.current) {
+                    const nMatch = notificationsRef.current.find(n => {
+                      const searchStr = `${n.sender || ""} ${n.title || ""} ${n.text || ""} ${n.snippet || ""}`.toLowerCase();
+                      const isGmail = String(n.type || n.app || n.id).toLowerCase().includes("mail");
+                      return isGmail && queryWords.some(w => searchStr.includes(w));
+                    });
+                    if (nMatch) foundMsg = { id: nMatch.id, subject: nMatch.text || nMatch.snippet, from: nMatch.sender || nMatch.title };
+                  }
                 }
                 // Fallback to currently selected/top email if asking for "this email"
                 if (!foundMsg && gmailEmails?.length > 0) {
@@ -472,8 +609,8 @@ onFunctionCall: ({ name, args, call_id }) => {
                 }
               }
 
-              const finalId = foundMsg ? foundMsg.id : exactId;
-              const fallbackName = args.senderName || (foundMsg ? foundMsg.from.split("<")[0].replace(/"/g, '').trim() : "Unknown");
+       const finalId = foundMsg ? foundMsg.id : exactId;
+              const fallbackName = args.senderName || (foundMsg && foundMsg.from ? foundMsg.from.split("<")[0].replace(/"/g, '').trim() : "Unknown");
               
               if (finalId) {
                 setEmail({
@@ -599,7 +736,7 @@ if (call_id) {
           } else if (name === "gmail_get_inbox" && gmailEmails?.length) {
             sendToolResponse(call_id, {
               success: true,
-              emails: gmailEmails.slice(0, 15).map((e, i) => ({
+              emails: gmailEmails.slice(0, 50).map((e, i) => ({
                 position: i + 1,
                 id: e.id,
                 subject: e.subject,
@@ -763,39 +900,220 @@ if (name === "system_read_notifications") {
       
 // 4. All other "Write" tools require approval
 
-      // 🎙️ FRIDAY TASK: GChat History "Read" Logic (Fetch from React State)
-      if (name === "gchat_read_history") {
-        console.log("[Donna] Reading GChat history from state...");
-        const historyText = (gchatMessages || [])
-          .slice(-10)
-          .map(m => `${m.sender?.displayName || "Someone"}: ${m.text || "[Media/Attachment]"}`)
-          .join("\n");
+// 🎙️ FRIDAY TASK: GChat History "Read" Logic (Fetch from React State and Background API)
+      if (name === "gchat_read_history" || name === "gchat_get_messages") {
+        console.log("[Donna] Reading GChat history... Raw Args:", args);
         
-        sendToolResponse(call_id, { 
-          success: true, 
-          history: historyText || "The chat history is currently empty." 
-        });
-        return;
-      }
+        let targetId = args.spaceId || args.space;
+        let targetName = args.spaceName || "";
 
-      // 🎙️ FRIDAY TASK: Pre-populate GChat Input (Auto-execute navigation + state update)
-      if (name === "send_gchat_message") {
-        console.log("[Donna] Mapping intent to GChat input state...");
-        setCurrentView({ app: 'gchat', contact: null });
-        if (args.text) {
-          setInputValue(args.text);
-          // Auto-grow the textarea to match the injected text
-          setTimeout(() => {
-            const ta = document.querySelector('.chat-bar .chat-textarea');
-            if (ta) handleAutoGrow(ta);
-          }, 50);
+        // Safe Data Access (Prevents Stale Closure)
+        const liveSpaces = Array.isArray(gchatSpacesRef.current) ? gchatSpacesRef.current : [];
+        const liveSelectedSpace = gchatSelectedSpaceRef_donna.current;
+        const liveMessages = Array.isArray(gchatMessagesRef.current) ? gchatMessagesRef.current : [];
+        const liveDmNames = gchatDmNamesRef_donna.current || {}; 
+
+        // Architect's AI Rescue: If the AI puts the name in the ID slot
+        if (targetId && !String(targetId).includes("spaces/")) {
+          targetName = targetId;
+          targetId = null;
         }
-        sendToolResponse(call_id, { success: true, status: "Message drafted in the chat bar." });
+
+        // Ultimate Identity Resolver (Prioritizes hardcoded maps if liveSpaces is empty)
+        const findSpaceId = (searchQuery) => {
+            if (!searchQuery) return null;
+            const cleanQuery = String(searchQuery).toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+            const noiseWords = ['read','messages','from','chat','history','get','the','what','last','message','whats','space','with','donna','tell','me'];
+            const words = cleanQuery.split(/\s+/).filter(w => w.length > 2 && !noiseWords.includes(w));
+
+            if (words.length === 0 && cleanQuery.length < 2) return null;
+
+            const isMatch = (rawName) => {
+                if (!rawName) return false;
+                const n = String(rawName).toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+                if (n.length < 2 || n === "direct message") return false; 
+                if (n === cleanQuery || n.includes(cleanQuery) || cleanQuery.includes(n)) return true;
+                if (words.length > 0 && words.some(w => n.includes(w))) return true;
+                return false;
+            };
+
+            // Pass 1: Strict Check of Hardcoded Map (Most Reliable)
+            for (const [key, val] of Object.entries(GCHAT_ID_MAP || {})) {
+                if (String(key).includes("spaces/") && (isMatch(val) || isMatch(key))) return { id: key, name: val };
+            }
+
+            // Pass 2: Check live spaces
+            for (const s of liveSpaces) {
+                const sid = s.id || s.name;
+                const namesToTest = [GCHAT_ID_MAP[s.displayName], GCHAT_ID_MAP[sid], liveDmNames[sid], s.displayName].filter(Boolean);
+                for (const nameToTest of namesToTest) {
+                    if (isMatch(nameToTest)) return { id: sid, name: nameToTest };
+                }
+            }
+
+            // Pass 3: Direct Sweep of Memory Banks
+            for (const [key, val] of Object.entries(liveDmNames)) {
+                if (isMatch(val) || isMatch(key)) return { id: key, name: val };
+            }
+
+            return null;
+        };
+
+        // 1. Resolve from AI arguments
+        if (!targetId && targetName) {
+          const match = findSpaceId(targetName);
+          if (match) { targetId = match.id; targetName = match.name; }
+        }
+
+        // 2. Resolve from Voice Transcript
+        if (!targetId && (transcriptionRef.current || donnaTranscription)) {
+            const match = findSpaceId(transcriptionRef.current || donnaTranscription);
+            if (match) { targetId = match.id; targetName = match.name; }
+        }
+
+        // 3. Fallback to active space
+        if (!targetId && liveSelectedSpace) {
+          targetId = liveSelectedSpace.id || liveSelectedSpace.name;
+          targetName = GCHAT_ID_MAP[liveSelectedSpace.displayName] || GCHAT_ID_MAP[targetId] || liveDmNames[targetId] || liveSelectedSpace.displayName;
+        }
+
+        if (!targetId) {
+          console.error("[Donna] Could not resolve space ID for:", targetName);
+          if (call_id) {
+             sendToolResponse(call_id, { success: true, history: "ERROR: Chat not found.", directive: `Tell Siya you could not find the chat for ${targetName || 'that person'}.` });
+             sendResponseCreate({});
+          }
+          return;
+        }
+
+        console.log(`[Donna] Resolved Space: ID=${targetId}, Name="${targetName}"`);
+
+        const processAndSendHistory = (rawMsgs) => {
+          const msgs = Array.isArray(rawMsgs) ? rawMsgs : [];
+          
+          if (msgs.length === 0) {
+            console.log(`[Donna] No messages found for ${targetName}`);
+            if (call_id) {
+              sendToolResponse(call_id, { success: true, history: "EMPTY", directive: `Tell Siya the chat with ${targetName} is currently empty.` });
+              sendResponseCreate({});
+            }
+            return;
+          }
+
+          const lastMsg = msgs[msgs.length - 1];
+          const senderRaw = lastMsg.sender?.displayName || lastMsg.sender?.name || "Someone";
+          const resolvedSender = GCHAT_ID_MAP[senderRaw] || GCHAT_ID_MAP[lastMsg.sender?.name] || liveDmNames[lastMsg.sender?.name] || senderRaw;
+          let cleanText = lastMsg.text || "[Media/Attachment]";
+          cleanText = cleanText.replace(/<[^>]*>?/gm, ''); // Strip HTML tags
+          
+          const cleanSenderName = resolvedSender.split("<")[0].trim();
+          const cleanTargetName = (targetName || "them").split("<")[0].trim();
+
+          const finalSpeech = `The last message from ${cleanTargetName} was from ${cleanSenderName}, who said: "${cleanText}"`;
+          console.log(`[Donna] Last message payload: ${finalSpeech}`);
+
+          if (call_id) {
+            sendToolResponse(call_id, { 
+              success: true, 
+              lastMessage: finalSpeech,
+              directive: `Read this EXACT phrase aloud to Siya naturally: "${finalSpeech}". Do not add extra fluff.`
+            });
+            sendResponseCreate({});
+          }
+        };
+
+        // 4. Check if we already have it in state (Active Chat)
+        if (liveSelectedSpace && (liveSelectedSpace.id === targetId || liveSelectedSpace.name === targetId)) {
+          console.log("[Donna] Using live active chat state.");
+          processAndSendHistory(liveMessages);
+          return;
+        }
+
+        // 5. Fetch from backend for background chats
+        console.log(`[Donna] Fetching from API: /.netlify/functions/gchat-messages?spaceId=${targetId}`);
+        // 🚀 THE FIX: Send both 'space' and 'spaceId' parameters to the backend
+        fetch(`/.netlify/functions/gchat-messages?spaceId=${encodeURIComponent(targetId)}&space=${encodeURIComponent(targetId)}`, { credentials: "include" })
+          .then(res => res.json())
+          .then(data => {
+            const msgs = Array.isArray(data) ? data : (data.messages || []);
+            processAndSendHistory(msgs);
+          })
+          .catch(err => {
+            console.error("[Donna] API Fetch failed:", err);
+            if (call_id) {
+              sendToolResponse(call_id, { success: true, history: "ERROR: Network failure.", directive: `Tell Siya there was a network error trying to read the chat with ${targetName}.`});
+              sendResponseCreate({});
+            }
+          });
+
         return;
       }
-
 // 4. All other "Write" tools require approval
-      let finalArgs = { ...args };
+      let finalArgs = { ...args };
+
+// 🎙️ FRIDAY TASK: GChat Sending Logic (Resolves space and triggers approval)
+      if (name === "send_gchat_message" || name === "gchat_delete_space" || name === "gchat_archive_space" || name === "gchat_unarchive_space") {
+        console.log(`[Donna] Resolving GChat space for ${name}...`);
+        
+        let targetId = args.spaceId || args.space;
+        let targetName = args.spaceName || "";
+
+        const liveSpaces = Array.isArray(gchatSpacesRef.current) ? gchatSpacesRef.current : [];
+        const liveSelectedSpace = gchatSelectedSpaceRef_donna.current;
+        const liveDmNames = gchatDmNamesRef_donna.current || {};
+
+        const findSpaceId = (searchQuery) => {
+            if (!searchQuery) return null;
+            const cleanQuery = String(searchQuery).toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+            const noiseWords = ['read','messages','from','chat','history','get','the','what','last','message','whats','space','with','donna','tell','me','send','to','delete','remove'];
+            const words = cleanQuery.split(/\s+/).filter(w => w.length > 2 && !noiseWords.includes(w));
+            if (words.length === 0 && cleanQuery.length < 2) return null;
+            const isMatch = (rawName) => {
+                if (!rawName) return false;
+                const n = String(rawName).toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+                if (n.length < 2 || n === "direct message") return false;
+                if (n === cleanQuery || n.includes(cleanQuery) || cleanQuery.includes(n)) return true;
+                if (words.length > 0 && words.some(w => n.includes(w))) return true;
+                return false;
+            };
+            for (const [key, val] of Object.entries(GCHAT_ID_MAP || {})) {
+                if (String(key).includes("spaces/") && (isMatch(val) || isMatch(key))) return { id: key, name: val };
+            }
+            for (const s of liveSpaces) {
+                const sid = s.id || s.name;
+                const namesToTest = [GCHAT_ID_MAP[s.displayName], GCHAT_ID_MAP[sid], liveDmNames[sid], s.displayName].filter(Boolean);
+                for (const nameToTest of namesToTest) {
+                    if (isMatch(nameToTest)) return { id: sid, name: nameToTest };
+                }
+            }
+            return null;
+        };
+
+        if (!targetId && targetName) {
+          const match = findSpaceId(targetName);
+          if (match) { targetId = match.id; targetName = match.name; }
+        }
+
+        if (!targetId && (transcriptionRef.current || donnaTranscription)) {
+          const match = findSpaceId(transcriptionRef.current || donnaTranscription);
+          if (match) { targetId = match.id; targetName = match.name; }
+        }
+
+        if (!targetId && liveSelectedSpace) {
+          targetId = liveSelectedSpace.id || liveSelectedSpace.name;
+          targetName = GCHAT_ID_MAP[liveSelectedSpace.displayName] || GCHAT_ID_MAP[targetId] || liveDmNames[targetId] || liveSelectedSpace.displayName;
+        }
+
+        if (!targetId) {
+          console.error(`[Donna] Could not resolve space for ${name}.`);
+          if (call_id) sendToolResponse(call_id, { success: false, error: "Space not found." });
+          return;
+        }
+
+        finalArgs.spaceId = targetId;
+        finalArgs.spaceName = targetName;
+        // No return here — it will fall through to trigger the approval UI
+      }
 
       // 🛡️ CALENDAR DATE INTERCEPTOR: Clean dates before they enter the UI state
       if (name === "calendar_create" || name === "calendar_create_event") {
@@ -846,11 +1164,27 @@ if (name === "system_read_notifications") {
       }
 
       // 3. Set the pending action to trigger the Approve/Reject UI buttons
-      responseHasToolCallRef.current = true;
-      // Stop any ElevenLabs audio immediately — approval bubble must be silent
-      elGenRef.current += 1;
-      if (donnaElAudioRef.current) { donnaElAudioRef.current.pause(); donnaElAudioRef.current = null; }
-      setDonnaPendingAction({ name, args: finalArgs, call_id });
+    responseHasToolCallRef.current = true;
+    
+// 🚀 ARCHITECT'S NUCLEAR SILENCE:
+    // 1. Stop the ElevenLabs playback
+    elGenRef.current += 1;
+    if (donnaElAudioRef.current) { donnaElAudioRef.current.pause(); donnaElAudioRef.current = null; }
+    
+    // 2. Stop the OpenAI server response immediately
+    try {
+      cancelResponse(); 
+    } catch (e) {
+      // Silence "no active response" errors to prevent them from showing in the bubble
+      console.warn("[Donna] Silent cancellation:", e.message);
+    }
+    
+    // 🚀 THE FIX: Use a tiny delay to ensure the "Cancel" event processes 
+    // before the Tool Response is sent to the Data Channel. 
+    // and clear the error state before we send the Tool Output.
+    setTimeout(() => {
+      setDonnaPendingAction({ name, args: finalArgs, call_id });
+    }, 150);
       
       // 🛡️ FIX: Explicitly wake up the UI and force visibility
       setDonnaVisible(true);
@@ -896,19 +1230,97 @@ if (name === "system_read_notifications") {
         setDonnaTranscription(`Donna wants to: mark this email as unread.`);
         return; // 👈 CRITICAL: Stop auto-execution and wait for Approval
   } else if (name === "gmail_toggle_star") {
-        const action = args.starred === false || String(args.starred).toLowerCase() === 'false' ? "unstar" : "star";
-        setDonnaTranscription(`Donna wants to: ${action} this email.`);
-        return; // 👈 CRITICAL: Stop auto-execution and wait for Approval
-      } else if (name === "gchat_mute_space") {
+        const action = args.starred === false || String(args.starred).toLowerCase() === 'false' ? "unstar" : "star";
+        setDonnaTranscription(`Donna wants to: ${action} this email.`);
+        return; // 👈 CRITICAL: Stop auto-execution and wait for Approval
+      } else if (name === "trello_toggle_member") {
+        const isRemoving = (transcriptionRef.current || "").toLowerCase().includes("remove") || (transcriptionRef.current || "").toLowerCase().includes("unassign");
+        setDonnaTranscription(`Donna wants to: ${isRemoving ? 'remove' : 'add'} a member ${isRemoving ? 'from' : 'to'} the Trello card.`);
+        return; // 👈 CRITICAL: Stop auto-execution and wait for Approval
+} else if (name === "gchat_mute_space") {
+        let targetId = args.spaceId;
+        let targetName = args.spaceName || "";
+
+        const liveSpaces = Array.isArray(gchatSpacesRef.current) ? gchatSpacesRef.current : [];
+        const liveSelectedSpace = gchatSelectedSpaceRef_donna.current;
+        const liveDmNames = gchatDmNamesRef_donna.current || {};
+
+        if (!targetId && targetName) {
+          const cleanQuery = targetName.toLowerCase().trim();
+          const match = liveSpaces.find(s => {
+            const sid = s.id || s.name;
+            const nameToTest = (GCHAT_ID_MAP[sid] || liveDmNames[sid] || s.displayName || "").toLowerCase();
+            return nameToTest.includes(cleanQuery);
+          });
+          if (match) {
+            targetId = match.id || match.name;
+            targetName = GCHAT_ID_MAP[targetId] || liveDmNames[targetId] || match.displayName;
+          }
+        }
+
+        if (!targetId && liveSelectedSpace) {
+          targetId = liveSelectedSpace.id || liveSelectedSpace.name;
+          targetName = GCHAT_ID_MAP[targetId] || liveDmNames[targetId] || liveSelectedSpace.displayName;
+        }
+
         const isMuting = args.mute !== false;
-        setDonnaTranscription(`Donna wants to: ${isMuting ? 'mute' : 'unmute'} this GChat space.`);
+        const displayLabel = targetName ? ` the "${targetName.split("<")[0].trim()}" chat` : " this chat";
+        setDonnaTranscription(`Donna wants to: ${isMuting ? 'mute' : 'unmute'}${displayLabel}.`);
+        
+        finalArgs.spaceId = targetId; 
         return; // 👈 Approval required for Mute/Unmute toggle
-      } else {
+} else if (name === "gchat_delete_space") {
+        setDonnaTranscription(`Donna wants to: delete a GChat space.`);
+        return; // 👈 Approval required for Chat Deletion
+} else if (name === "gchat_archive_space") {
+        setDonnaTranscription(`Donna wants to: archive a GChat space.`);
+        return; // 👈 Approval required for Chat Archiving
+  } else if (name === "gchat_unarchive_space") {
+        setDonnaTranscription(`Donna wants to: unarchive a GChat space.`);
+        return; // 👈 Approval required for Chat Unarchiving
+} else if (name === "send_gchat_message") {
+        const chatName = finalArgs.spaceName ? finalArgs.spaceName.split("<")[0].trim() : "this chat";
+        setDonnaTranscription(`Donna wants to send a message to ${chatName}.`);
+  } else if (name === "gchat_mark_unread") {
+        let targetId = args.spaceId;
+        let targetName = args.spaceName || "";
+
+        // 🛡️ ARCHITECT'S RESOLVER: Find the real name for the bubble
+        const liveSpaces = Array.isArray(gchatSpacesRef.current) ? gchatSpacesRef.current : [];
+        const liveSelectedSpace = gchatSelectedSpaceRef_donna.current;
+        const liveDmNames = gchatDmNamesRef_donna.current || {};
+
+        if (!targetId && targetName) {
+          const cleanQuery = targetName.toLowerCase().trim();
+          const match = liveSpaces.find(s => {
+            const sid = s.id || s.name;
+            const nameToTest = (GCHAT_ID_MAP[sid] || liveDmNames[sid] || s.displayName || "").toLowerCase();
+            return nameToTest.includes(cleanQuery);
+          });
+          if (match) {
+            targetId = match.id || match.name;
+            targetName = GCHAT_ID_MAP[targetId] || liveDmNames[targetId] || match.displayName;
+          }
+        }
+
+        // Fallback to active space if no specific name provided
+        if (!targetId && liveSelectedSpace) {
+          targetId = liveSelectedSpace.id || liveSelectedSpace.name;
+          targetName = GCHAT_ID_MAP[targetId] || liveDmNames[targetId] || liveSelectedSpace.displayName;
+        }
+
+        const displayLabel = targetName ? ` the "${targetName.split("<")[0].trim()}" chat` : " this chat";
+        setDonnaTranscription(`Donna wants to: mark${displayLabel} as unread.`);
+        
+        // 🚀 Sync the resolved ID into the pending action so the "Approve" button knows where to go
+        finalArgs.spaceId = targetId; 
+        return;
+      } else {
         setDonnaTranscription(`Donna wants to: ${name.replace(/_/g, " ")}`);
         return; // 👈 Stop for any other "Write" tool
       }
-    },
-    onSpeechStart: () => {
+    },
+onSpeechStart: () => {
       if (donnaAudioRef.current) {
         donnaAudioRef.current.pause();
         // 🛡️ NOTE: Removed "donnaAudioRef.current = null" to keep the reference alive for WebRTC
@@ -919,12 +1331,15 @@ if (name === "system_read_notifications") {
         donnaElAudioRef.current.pause();
         donnaElAudioRef.current = null;
       }
-      // Stop animation the moment user starts speaking — no more animating with no sound
+// Stop animation the moment user starts speaking — no more animating with no sound
       clearTimeout(donnaPlayingCooldownRef.current);
       setIsDonnaSpeaking(false);
       donnaPlayingRef.current = false;
     },
-    onError: (msg) => setDonnaTranscription(`Error: ${msg}`),
+    onError: (msg) => {
+      if (msg.includes("Cancellation failed")) return; // 🛡️ Hide technical API race conditions
+      setDonnaTranscription(`Error: ${msg}`);
+    },
   });
 
 // Connect Donna only when data is ready or periodically refresh
@@ -973,15 +1388,26 @@ if (name === "system_read_notifications") {
       setDonnaTranscription(`Donna suggests: ${e.detail.name.replace(/_/g, ' ')}`);
     };
 
+const onGchatNotify = (e) => {
+      const data = e.detail;
+      setNotifications(prev => {
+        // 🚀 ARCHITECT'S DUPLICATE SHIELD: Prevent same message-timestamp from double-appearing
+        if (prev.some(n => n.id === data.id)) return prev;
+        return [data, ...prev];
+      });
+    };
+
     window.addEventListener("systemReportError", onReport);
     window.addEventListener("systemClearError", onClear);
-    window.addEventListener("simulateDonna", onSimulate);
+    window.addEventListener("simulateDonna", onSimulate);
+    window.addEventListener("gchatNotification", onGchatNotify);
 
-    return () => { 
-      window.removeEventListener("systemReportError", onReport); 
-      window.removeEventListener("systemClearError", onClear); 
-      window.removeEventListener("simulateDonna", onSimulate);
-    };
+    return () => { 
+      window.removeEventListener("systemReportError", onReport); 
+      window.removeEventListener("systemClearError", onClear); 
+      window.removeEventListener("simulateDonna", onSimulate);
+      window.removeEventListener("gchatNotification", onGchatNotify);
+    };
   }, []);
 
   const [isDonnaActive, setIsDonnaActive] = useState(false);
@@ -1001,6 +1427,12 @@ if (name === "system_read_notifications") {
   const [showWelcome, setShowWelcome] = useState(true);
 
 const handleApproveDonna = () => {
+    // 🚀 ARCHITECT'S STALE DATA FLUSH: 
+    // Immediately invalidate the transcript so the "Rescue Logic" can't see it
+    const currentTranscript = transcriptionRef.current;
+    transcriptionRef.current = ""; 
+    setDonnaTranscription("");
+
     let actionName = donnaPendingAction?.name;
     let actionArgs = { ...donnaPendingAction?.args } || {};
     let callId = donnaPendingAction?.call_id;
@@ -1037,37 +1469,108 @@ const handleApproveDonna = () => {
       const trans = rawVoice.toLowerCase().trim();
       console.log(`[Donna] Manual Approval Triggered. Analyzing transcript: "${trans}"`);
       
-      // 🛡️ ARCHITECT'S FALLBACK PRIORITY: Archive must be checked BEFORE Move
-      if (trans.includes("archive")) {
-        actionName = "trello_archive_card";
-      } 
-      else if (trans.includes("move") || trans.includes("trello") || trans.includes("bucket")) {
+      // 🛡️ ARCHITECT'S FALLBACK PRIORITY: Harden v47 (Mutual Exclusion)
+      
+      // 🚀 PRIORITY 1: Explicit Creation
+      if (trans.includes("create") || trans.includes("new card") || trans.includes("add a card")) {
+          actionName = "trello_create_case_card";
+          console.log("[Architect] Intent Locked: Creation");
+      }
+      // 🚀 PRIORITY 2: Custom Field Update (Priority/Status)
+      else if (trans.includes("priority") || trans.includes("urgent") || trans.includes("status") || trans.includes("set active") || trans.includes("set status")) {
+        actionName = "trello_set_custom_field";
+        console.log("[Architect] Intent Locked: Custom Field Update");
+      }
+      // 🎯 PRIORITY 3: Member Addition/Removal (Harden v55 - Move Jonathan logic up)
+      else if (
+        trans.includes("member") || trans.includes("assign") || trans.includes("add jonathan") || 
+        trans.includes("add ruan") || trans.includes("remove") || trans.includes("unassign")
+      ) {
+          actionName = "trello_toggle_member";
+          console.log("[Architect] Intent Locked: Member Action");
+      }
+    // 🚀 PRIORITY 4: Archive / Restore
+      else if ((trans.includes("unarchive") || trans.includes("restore")) && (trans.includes("chat") || trans.includes("space"))) {
+        actionName = "gchat_unarchive_space";
+      }
+      else if (trans.includes("archive") && (trans.includes("chat") || trans.includes("space"))) {
+        actionName = "gchat_archive_space";
+      }
+      else if (trans.includes("archive")) {
+        actionName = "trello_archive_card";
+      } 
+      else if (trans.includes("restore") || trans.includes("put back") || trans.includes("unarchive")) {
+        actionName = "trello_restore_card";
+      }
+      // ⏲️ PRIORITY 5: Timer Controls
+      else if (trans.includes("timer") || trans.includes("clock") || trans.includes("stopwatch") || trans.includes("start the")) {
+        actionName = "trello_timer_action";
+      }
+   // 🎯 PRIORITY 6: Member Addition (Add Jonathan, Assign Ruan)
+      else if (!/\b(message|chat|send)\b/i.test(trans) && (/\b(member|assign|put|add|on to)\b/i.test(trans) || 
+                /\b(albert|alicia|asanda|bianca|bonisa|bonolo|cameron|cara|chloe|conah|cynthia|dionee|enock|ethan|eugene|faith|jennifer|joel|jonathan|kwakhanya|leonah|martin|mathapelo|matthew|melokuhle|melvin|michelle|mine|munyaradzi|ofentse|palesa|refiloe|robyn|ruan|ryan|shamiso|sharon|simone|siya|siyolise|songeziwe|suemari|thami|tiffany|tinashe|treasure|uvesh|waldo|willem|yolandie|yael)\b/i.test(trans))) {
+        actionName = "trello_toggle_member";
+      }
+      // 🚀 PRIORITY 7: General Movement (The catch-all)
+      // 🛡️ THE FIX: Only trigger "move" if "remove" was NOT said.
+      else if (!trans.includes("remove") && !trans.includes("unassign") && (trans.includes("move") || trans.includes("bucket") || trans.includes("folder") || trans.includes("trello"))) {
         actionName = "trello_move_card";
+        console.log("[Architect] Intent Locked: General Movement");
       }
       
-      // If we recovered a Trello intent, try to grab the card name
+      // If we recovered a Trello intent, try to grab the card name (Harden v21)
       if (actionName && actionName.startsWith("trello_")) {
-        const cardMatch = trans.match(/(?:move|archive|titled|called)\s+['"]?([^'"]+?)['"]?\s+(?:from|to|in|the|bucket)/i);
-        if (cardMatch) {
-            actionArgs.cardName = cardMatch[1].replace(/\.$/, "").trim();
-            console.log(`[Donna] Inferred Card Name for approval: ${actionArgs.cardName}`);
+        const trans = rawVoice.toLowerCase().trim();
+        
+        // 🚀 STRATEGY 1: Double Quote Lock (Highest Priority - handles "testing")
+        const doubleQuoteMatch = trans.match(/"([^"]{2,})"/);
+        
+        // 🚀 STRATEGY 2: Single Quote Lock (Ignoring contractions like i'll)
+        // Matches 'word' but not i'll (checks for word boundary or space before quote)
+        const singleQuoteMatch = trans.match(/(?:\s|^)'([^']{2,})'/);
+        
+        // 🚀 STRATEGY 3: The Anchor Search
+        const anchorMatch = trans.match(/(?:called|named|titled|card)\s+([a-z0-9\s_-]{2,20})(?:\s+(?:in|to|into|from|folder|bucket|at)|$)/i);
+
+        if (doubleQuoteMatch) {
+            actionArgs.cardName = doubleQuoteMatch[1].trim();
+            console.log(`[Architect] Card Name Scraped via Double Quote: "${actionArgs.cardName}"`);
+        } else if (singleQuoteMatch) {
+            actionArgs.cardName = singleQuoteMatch[1].trim();
+            console.log(`[Architect] Card Name Scraped via Single Quote: "${actionArgs.cardName}"`);
+        } else if (anchorMatch) {
+            actionArgs.cardName = anchorMatch[1].trim();
+            console.log(`[Architect] Card Name Scraped via Anchor: "${actionArgs.cardName}"`);
+        }
+        
+        // Safety Fallback
+        if (!actionArgs.cardName || actionArgs.cardName === "the" || actionArgs.cardName.length < 2) {
+            actionArgs.cardName = "New Task";
         }
       }
-      // 2. Gmail / Draft Fallbacks
-      else if (trans.includes("draft") || trans.includes("prepared")) {
-        actionName = "gmail_save_draft";
-      } else if (trans.includes("unread")) {
-        actionName = "gmail_mark_unread";
-      } else if (trans.includes("delete") || trans.includes("bin")) {
+// 2. Gmail / Draft Fallbacks
+      else if (trans.includes("draft") || trans.includes("prepared")) {
+        actionName = "gmail_save_draft";
+      } else if (trans.includes("unread")) {
+       actionName = "gmail_mark_unread";
+      } else if (trans.includes("delete chat") || trans.includes("delete space") || trans.includes("delete this chat")) {
+        actionName = "gchat_delete_space";
+      } else if (trans.includes("archive chat") || trans.includes("archive space") || trans.includes("archive this chat")) {
+        actionName = "gchat_archive_space";
+      } else if (trans.includes("delete") || trans.includes("bin")) {
         actionName = "gmail_delete_bulk";
       } else if (trans.includes("star")) {
         actionName = "gmail_toggle_star";
-      // 🎯 ADDED: Intent detection for adding/removing members via voice
+      // 🚀 ARCHITECT'S PRIORITY FIX: Check for Custom Fields (Urgent/Priority) BEFORE Members
+      } else if (trans.includes("priority") || trans.includes("urgent") || trans.includes("status") || trans.includes("set active")) {
+        actionName = "trello_set_custom_field";
       } else if (trans.includes("member") || trans.includes("add person") || trans.includes("assign")) {
-        actionName = "trello_toggle_member";
-      }
+        actionName = "trello_toggle_member";
+      } else if (trans.includes("comment") || trans.includes("note") || trans.includes("saying")) {
+        actionName = "trello_add_comment";
+      }
 
-      // 🛡️ The "Nothing Found" Guard
+      // 🛡️ The "Nothing Found" Guard
       if (!actionName) {
         console.error("[Donna] Approval Failure: No intent found in transcript.");
         setDonnaTranscription("Error: I am not sure what to approve.");
@@ -1126,70 +1629,95 @@ const handleApproveDonna = () => {
     }
 
     // 🛡️ ARCHITECT'S RESCUE: Robust Multi-Stage Trello ID Resolver
-    if (actionName === "trello_move_card") {
-       const trans = (donnaTranscription || "").toLowerCase();
-       
-       // 🛡️ FIX: trelloBuckets is an Array [{ cards: [] }], not a keyed object
-       const bucketsArray = Array.isArray(trelloBuckets) ? trelloBuckets : [];
-       const allCards = bucketsArray.flatMap(b => b.cards || []);
-       
-       // 1. Move string "IDs" (like 'Testing') into the name search bucket
-       if (actionArgs.cardId && actionArgs.cardId.length !== 24) {
-         console.log("[Architect] ID looks like a name. Re-routing to search:", actionArgs.cardId);
-         actionArgs.cardName = actionArgs.cardId;
-         actionArgs.cardId = null;
-       }
+    if (actionName && actionName.startsWith("trello_")) {
+        const trans = (donnaTranscription || "").toLowerCase();
 
-       if (!actionArgs.cardId) {
-         const nameToSearch = (actionArgs.cardName || "").toLowerCase().trim();
-         console.log(`[Architect] Searching for card matching: "${nameToSearch || 'Voice Transcript'}"`);
+        // 🚀 THE CREATE GUARD: Stop the resolver from finding "Testing" when you say "Test"
+        const isCreateAction = actionName === "trello_create_case_card" || actionName === "trello_add_simple_card";
 
-         // STAGE 1: Exact or Partial Name match from AI Args
-         let found = allCards.find(c => {
-           const cn = (c.name || c.title || "").toLowerCase();
-           return cn === nameToSearch || cn.includes(nameToSearch);
-         });
+        const bucketsArray = Array.isArray(trelloBuckets) ? trelloBuckets : [];
+        
+        // 🚀 THE BLACKLIST: Total exclusion of OOO cards from the search pool
+        const allCards = bucketsArray.flatMap(b => b.cards || []).filter(c => {
+          const n = (c.name || "").toLowerCase();
+          return !n.includes("away from cases") && !n.includes("out of office");
+        });
 
-         // STAGE 2: Architect's Fuzzy Logic (Keyword Density Matching)
-          if (!found) {
-            console.log(`[Architect] Stage 1 failed. Running Fuzzy Density Match...`);
-            
-            // 1. Clean the transcript: remove "noise" words that aren't card names
-            const noiseWords = ['move', 'the', 'card', 'called', 'named', 'titled', 'trello', 'bucket', 'from', 'to', 'please', 'donna', 'hey', 'approve', 'reject', 'restore'];
-            // IMPROVED: We now keep brackets and dashes during the split to help match specific test cards
-            const queryWords = trans.split(/\s+/)
-              .map(w => w.toLowerCase().trim())
-              .filter(w => w.length > 1 && !noiseWords.includes(w));
+        // 🚀 DOUBLE PROMPT KILLER: Prevents the "Rescue" bubble if Donna already called a tool
+        if (callId?.startsWith("manual_forced_") && responseHasToolCallRef.current) {
+           console.log("[Architect] Duplicate prompt prevented. Real tool call took precedence.");
+           return;
+        }
 
-            if (queryWords.length > 0) {
-             // 2. Score every card based on how many transcript keywords it contains
-             const scoredCards = allCards.map(c => {
-               const cardNameLow = (c.name || c.title || "").toLowerCase();
-               let score = 0;
-               queryWords.forEach(word => {
-                 if (cardNameLow.includes(word)) score++;
-               });
-               return { card: c, score };
+        // 🎯 SYNC CARD NAME: If Donna provided an ID but no Name, find the name now so the snackbar isn't "Undefined"
+        if (actionArgs.cardId && !actionArgs.cardName) {
+           const match = allCards.find(c => c.id === actionArgs.cardId);
+           if (match) actionArgs.cardName = match.name || match.title;
+        }
+
+        if (!actionArgs.cardId) {
+          const nameToSearch = (actionArgs.cardName || "").toLowerCase().replace(/['"\[\]]/g, "").trim();
+          
+           // STAGE 1: Exact or Direct Keyword Match
+           let found = allCards.find(c => {
+             const cn = (c.name || c.title || "").toLowerCase();
+              // If user said "testing card" and card is named "testing", match it immediately
+             return cn === nameToSearch || (nameToSearch.includes("testing") && cn === "testing");
+           });
+
+           // STAGE 2: Keyword "testing" priority match
+           if (!found && nameToSearch.includes("testing")) {
+              found = allCards.find(c => (c.name || "").toLowerCase().includes("testing"));
+           }
+
+           // STAGE 3: Partial Match
+           if (!found) {
+             found = allCards.find(c => {
+               const cn = (c.name || c.title || "").toLowerCase();
+               return cn.includes(nameToSearch) || nameToSearch.includes(cn);
              });
+           }
 
-             // 3. Find the best match (highest score)
-             const bestMatch = scoredCards
-               .filter(s => s.score > 0)
-               .sort((a, b) => b.score - a.score)[0];
+          // STAGE 4: Architect's Hardened Fuzzy Match
+           if (!found) {
+             console.log(`[Architect] Stage 1-3 failed. Running Fuzzy Density Match...`);
+             
+             const noiseWords = ['move', 'the', 'card', 'called', 'named', 'titled', 'trello', 'bucket', 'from', 'to', 'please', 'donna', 'hey', 'approve', 'reject', 'restore', 'priority', 'urgent', 'status'];
+             const queryWords = trans.split(/\s+/)
+               .map(w => w.toLowerCase().trim())
+               .filter(w => w.length > 1 && !noiseWords.includes(w));
 
-             if (bestMatch) {
-               found = bestMatch.card;
-               console.log(`[Architect] Fuzzy Match Success: "${found.name || found.title}" (Score: ${bestMatch.score})`);
+             if (queryWords.length > 0) {
+              // 🚀 THE FIX: We map only cards that pass the OOO blacklist again
+              const scoredCards = allCards.filter(c => {
+                 const n = (c.name || "").toLowerCase();
+                 return !n.includes("away from cases") && !n.includes("out of office");
+              }).map(c => {
+                const cardNameLow = (c.name || c.title || "").toLowerCase();
+                let score = 0;
+                queryWords.forEach(word => {
+                  if (cardNameLow.includes(word)) score++;
+                });
+                return { card: c, score };
+              });
+
+              const bestMatch = scoredCards
+                .filter(s => s.score > 0)
+                .sort((a, b) => b.score - a.score)[0];
+
+              if (bestMatch) {
+                found = bestMatch.card;
+                console.log(`[Architect] Fuzzy Match Success: "${found.name || found.title}" (Score: ${bestMatch.score})`);
+              }
              }
            }
-         }
 
-         if (found) {
-           actionArgs.cardId = found.id;
-           actionArgs.cardName = found.name || found.title;
-           console.log(`[Architect] Resolution Success: ${actionArgs.cardName} (${found.id})`);
-         }
-       }
+           if (found) {
+             actionArgs.cardId = found.id;
+             actionArgs.cardName = found.name || found.title; // 🎯 Ensure the name is saved to Args for the Snackbar
+             console.log(`[Architect] Resolution Success: ${actionArgs.cardName} (${found.id})`);
+           }
+        }
     }
 
 switch (actionName) {
@@ -1356,31 +1884,40 @@ case 'calendar_create':
       }
         
       case 'trello_create_case_card':
-      case 'trello_add_simple_card': {
-        console.log(`[Donna] Resolving Trello List...`);
-        
-        const cardText = actionArgs.caseCardText || actionArgs.name || "New Task";
-        const rawTarget = actionArgs.targetListId || actionArgs.idList || "Siya"; 
-        let resolvedId = rawTarget;
+      case 'trello_add_simple_card': {
+        console.log(`[Donna] Resolving Trello List...`);
+        
+        // 🚀 ARCHITECT'S CLEAN NAME PROTOCOL: 
+        // We take the input and ensure it is treated as a literal string.
+        const rawCardText = actionArgs.cardName || actionArgs.caseCardText || actionArgs.name || "New Task";
+        
+        // 🎯 THE FIX: Explicitly trim and strip parentheses. 
+        // Ensure this variable 'cardText' is what is sent to the backend to avoid remapping.
+        const cardText = String(rawCardText).split('(')[0].replace(/["']/g, "").trim();
+        
+        console.log(`[Architect] Finalizing card name as literal: "${cardText}"`);
 
-        if (typeof rawTarget === 'string' && !rawTarget.match(/^[0-9a-fA-F]{24}$/)) {
-          const configMatch = Object.entries(PERSONA_TRELLO_LISTS).find(([name]) => {
-            const lowName = name.toLowerCase();
-            const lowTarget = rawTarget.toLowerCase();
-            return lowName === lowTarget || (lowTarget === "sia" && lowName === "siya") || (lowTarget === "sear" && lowName === "siya");
-          });
-          resolvedId = configMatch ? configMatch[1] : Object.values(PERSONA_TRELLO_LISTS)[0];
-        }
+        const rawTarget = actionArgs.targetListId || actionArgs.idList || "Siya"; 
+        let resolvedId = rawTarget;
 
-        fetch("/.netlify/functions/trello-create-card", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            caseCardText: cardText,
-            targetListId: resolvedId,
-            instructionTimeIso: new Date().toISOString()
-          })
-        })
+        if (typeof rawTarget === 'string' && !rawTarget.match(/^[0-9a-fA-F]{24}$/)) {
+          const configMatch = Object.entries(PERSONA_TRELLO_LISTS).find(([name]) => {
+            const lowName = name.toLowerCase();
+            const lowTarget = rawTarget.toLowerCase();
+            return lowName === lowTarget || (lowTarget === "sia" && lowName === "siya") || (lowTarget === "sear" && lowName === "siya");
+          });
+          resolvedId = configMatch ? configMatch[1] : Object.values(PERSONA_TRELLO_LISTS)[0];
+        }
+
+        fetch("/.netlify/functions/trello-create-card", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            caseCardText: cardText, // 🎯 This now carries "testing"
+            targetListId: resolvedId,
+            instructionTimeIso: new Date().toISOString()
+          })
+        })
         .then(async (res) => {
           const data = await res.json();
           if (res.ok && data.ok) {
@@ -1583,9 +2120,258 @@ case 'gmail_delete_bulk':
         }
         break;
 
-   case 'gchat_mute_space': {
+case 'gchat_unarchive_space': {
+        console.log("[Donna] Executing GChat Unarchive tool...");
+        let targetId = actionArgs.spaceId;
+        let targetName = actionArgs.spaceName || "";
+
+        const liveSpaces = Array.isArray(gchatSpacesRef.current) ? gchatSpacesRef.current : [];
+        const liveSelectedSpace = gchatSelectedSpaceRef_donna.current;
+        const liveDmNames = gchatDmNamesRef_donna.current || {};
+
+        if (targetId && !String(targetId).includes("spaces/")) {
+          targetName = targetId;
+          targetId = null;
+        }
+
+        const findSpaceId = (searchQuery) => {
+            if (!searchQuery) return null;
+            const cleanQuery = String(searchQuery).toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+            const noiseWords = ['unarchive','restore','chat','from','space','with','donna','tell','me'];
+            const words = cleanQuery.split(/\s+/).filter(w => w.length > 2 && !noiseWords.includes(w));
+            if (words.length === 0 && cleanQuery.length < 2) return null;
+
+            const isMatch = (rawName) => {
+                if (!rawName) return false;
+                const n = String(rawName).toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+                if (n.length < 2 || n === "direct message") return false;
+                if (n === cleanQuery || n.includes(cleanQuery) || cleanQuery.includes(n)) return true;
+                if (words.length > 0 && words.some(w => n.includes(w))) return true;
+                return false;
+            };
+            for (const [key, val] of Object.entries(GCHAT_ID_MAP || {})) {
+                if (String(key).includes("spaces/") && (isMatch(val) || isMatch(key))) return { id: key, name: val };
+                if (String(val).includes("spaces/") && (isMatch(val) || isMatch(key))) return { id: val, name: key };
+            }
+            for (const [key, val] of Object.entries(liveDmNames)) {
+                if (isMatch(val) || isMatch(key)) return { id: String(key).includes("spaces/") ? key : val, name: String(key).includes("spaces/") ? val : key };
+            }
+            for (const s of liveSpaces) {
+                const sid = s.id || s.name;
+                const namesToTest = [GCHAT_ID_MAP[s.displayName], GCHAT_ID_MAP[sid], liveDmNames[sid], s.displayName].filter(Boolean);
+                for (const nameToTest of namesToTest) {
+                    if (isMatch(nameToTest)) return { id: sid, name: nameToTest };
+                }
+            }
+            return null;
+        };
+
+        if (!targetId && targetName) {
+          const match = findSpaceId(targetName);
+          if (match) { targetId = match.id; targetName = match.name; }
+        }
+
+        if (!targetId && (transcriptionRef.current || donnaTranscription)) {
+          const match = findSpaceId(transcriptionRef.current || donnaTranscription);
+          if (match) { targetId = match.id; targetName = match.name; }
+        }
+
+        if (!targetId && liveSelectedSpace) {
+          targetId = liveSelectedSpace.id || liveSelectedSpace.name;
+        }
+
+        if (!targetId) {
+          triggerSnackbar("Could not identify which chat to unarchive.");
+          if (callId) sendToolResponse(callId, { success: false, error: "No active space found." });
+          break;
+        }
+
+        // Local Unarchiving Logic
+        setArchivedGchatSpaces(prev => {
+          const next = prev.filter(id => id !== targetId);
+          localStorage.setItem("GCHAT_ARCHIVED", JSON.stringify(next));
+          return next;
+        });
+
+        triggerSnackbar(`Chat unarchived.`);
+        if (callId) sendToolResponse(callId, { success: true });
+        break;
+      }
+
+case 'gchat_archive_space': {
+        console.log("[Donna] Executing GChat Archive tool...");
+        let targetId = actionArgs.spaceId;
+        let targetName = actionArgs.spaceName || "";
+
+        const liveSpaces = Array.isArray(gchatSpacesRef.current) ? gchatSpacesRef.current : [];
+        const liveSelectedSpace = gchatSelectedSpaceRef_donna.current;
+        const liveDmNames = gchatDmNamesRef_donna.current || {};
+
+        if (targetId && !String(targetId).includes("spaces/")) {
+          targetName = targetId;
+          targetId = null;
+        }
+
+        const findSpaceId = (searchQuery) => {
+            if (!searchQuery) return null;
+            const cleanQuery = String(searchQuery).toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+            const noiseWords = ['archive','remove','chat','from','space','with','donna','tell','me'];
+            const words = cleanQuery.split(/\s+/).filter(w => w.length > 2 && !noiseWords.includes(w));
+            if (words.length === 0 && cleanQuery.length < 2) return null;
+
+            const isMatch = (rawName) => {
+                if (!rawName) return false;
+                const n = String(rawName).toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+                if (n.length < 2 || n === "direct message") return false;
+                if (n === cleanQuery || n.includes(cleanQuery) || cleanQuery.includes(n)) return true;
+                if (words.length > 0 && words.some(w => n.includes(w))) return true;
+                return false;
+            };
+            for (const [key, val] of Object.entries(GCHAT_ID_MAP || {})) {
+                if (String(key).includes("spaces/") && (isMatch(val) || isMatch(key))) return { id: key, name: val };
+                if (String(val).includes("spaces/") && (isMatch(val) || isMatch(key))) return { id: val, name: key };
+            }
+            for (const [key, val] of Object.entries(liveDmNames)) {
+                if (isMatch(val) || isMatch(key)) return { id: String(key).includes("spaces/") ? key : val, name: String(key).includes("spaces/") ? val : key };
+            }
+            for (const s of liveSpaces) {
+                const sid = s.id || s.name;
+                const namesToTest = [GCHAT_ID_MAP[s.displayName], GCHAT_ID_MAP[sid], liveDmNames[sid], s.displayName].filter(Boolean);
+                for (const nameToTest of namesToTest) {
+                    if (isMatch(nameToTest)) return { id: sid, name: nameToTest };
+                }
+            }
+            return null;
+        };
+
+        if (!targetId && targetName) {
+          const match = findSpaceId(targetName);
+          if (match) { targetId = match.id; targetName = match.name; }
+        }
+
+        if (!targetId && (transcriptionRef.current || donnaTranscription)) {
+          const match = findSpaceId(transcriptionRef.current || donnaTranscription);
+          if (match) { targetId = match.id; targetName = match.name; }
+        }
+
+        if (!targetId && liveSelectedSpace) {
+          targetId = liveSelectedSpace.id || liveSelectedSpace.name;
+        }
+
+        if (!targetId) {
+          triggerSnackbar("Could not identify which chat to archive.");
+          if (callId) sendToolResponse(callId, { success: false, error: "No active space found." });
+          break;
+        }
+
+        // Local Archiving Logic
+        setArchivedGchatSpaces(prev => {
+          const next = [...new Set([...prev, targetId])];
+          localStorage.setItem("GCHAT_ARCHIVED", JSON.stringify(next));
+          return next;
+        });
+
+        if (gchatSelectedSpace?.id === targetId || gchatSelectedSpace?.name === targetId) {
+          setGchatSelectedSpace(null);
+          setGchatMessages([]);
+        }
+
+        triggerSnackbar(`Chat archived.`);
+        if (callId) sendToolResponse(callId, { success: true });
+        break;
+      }
+
+case 'gchat_delete_space': {
+        console.log("[Donna] Executing GChat Delete tool...");
+        let targetId = actionArgs.spaceId;
+        let targetName = actionArgs.spaceName || "";
+
+        const liveSpaces = Array.isArray(gchatSpacesRef.current) ? gchatSpacesRef.current : [];
+        const liveSelectedSpace = gchatSelectedSpaceRef_donna.current;
+        const liveDmNames = gchatDmNamesRef_donna.current || {};
+
+        if (targetId && !String(targetId).includes("spaces/")) {
+          targetName = targetId;
+          targetId = null;
+        }
+
+        const findSpaceId = (searchQuery) => {
+            if (!searchQuery) return null;
+            const cleanQuery = String(searchQuery).toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+            const noiseWords = ['delete','remove','chat','from','space','with','donna','tell','me'];
+            const words = cleanQuery.split(/\s+/).filter(w => w.length > 2 && !noiseWords.includes(w));
+            if (words.length === 0 && cleanQuery.length < 2) return null;
+
+            const isMatch = (rawName) => {
+                if (!rawName) return false;
+                const n = String(rawName).toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+                if (n.length < 2 || n === "direct message") return false;
+                if (n === cleanQuery || n.includes(cleanQuery) || cleanQuery.includes(n)) return true;
+                if (words.length > 0 && words.some(w => n.includes(w))) return true;
+                return false;
+            };
+            for (const [key, val] of Object.entries(GCHAT_ID_MAP || {})) {
+                if (String(key).includes("spaces/") && (isMatch(val) || isMatch(key))) return { id: key, name: val };
+                if (String(val).includes("spaces/") && (isMatch(val) || isMatch(key))) return { id: val, name: key };
+            }
+            for (const [key, val] of Object.entries(liveDmNames)) {
+                if (isMatch(val) || isMatch(key)) return { id: String(key).includes("spaces/") ? key : val, name: String(key).includes("spaces/") ? val : key };
+            }
+            for (const s of liveSpaces) {
+                const sid = s.id || s.name;
+                const namesToTest = [GCHAT_ID_MAP[s.displayName], GCHAT_ID_MAP[sid], liveDmNames[sid], s.displayName].filter(Boolean);
+                for (const nameToTest of namesToTest) {
+                    if (isMatch(nameToTest)) return { id: sid, name: nameToTest };
+                }
+            }
+            return null;
+        };
+
+        if (!targetId && targetName) {
+          const match = findSpaceId(targetName);
+          if (match) { targetId = match.id; targetName = match.name; }
+        }
+
+        if (!targetId && (transcriptionRef.current || donnaTranscription)) {
+          const match = findSpaceId(transcriptionRef.current || donnaTranscription);
+          if (match) { targetId = match.id; targetName = match.name; }
+        }
+
+        if (!targetId && liveSelectedSpace) {
+          targetId = liveSelectedSpace.id || liveSelectedSpace.name;
+        }
+
+        if (!targetId) {
+          triggerSnackbar("Could not identify which chat to delete.");
+          if (callId) sendToolResponse(callId, { success: false, error: "No active space found." });
+          break;
+        }
+
+        confirmDeleteChat({ id: targetId, type: targetId.includes("users/") ? "DIRECT_MESSAGE" : "SPACE" });
+        if (callId) sendToolResponse(callId, { success: true });
+        break;
+      }
+
+case 'gchat_mute_space': {
         console.log("[Donna] Executing GChat Mute tool...");
-        const spaceId = actionArgs.spaceId || gchatSelectedSpace?.id;
+        
+        let spaceId = actionArgs.spaceId;
+        let targetName = actionArgs.spaceName || "";
+
+        if (!spaceId && targetName) {
+          const cleanQuery = targetName.toLowerCase().trim();
+          const liveSpaces = Array.isArray(gchatSpacesRef.current) ? gchatSpacesRef.current : [];
+          const liveDmNames = gchatDmNamesRef_donna.current || {};
+          const match = liveSpaces.find(s => {
+            const sid = s.id || s.name;
+            const nameToTest = (GCHAT_ID_MAP[sid] || liveDmNames[sid] || s.displayName || "").toLowerCase();
+            return nameToTest.includes(cleanQuery);
+          });
+          if (match) spaceId = match.id || match.name;
+        }
+
+        if (!spaceId) spaceId = gchatSelectedSpaceRef_donna.current?.id;
+        
         const shouldMute = actionArgs.mute !== false;
 
         if (!spaceId) {
@@ -1610,10 +2396,218 @@ case 'gmail_delete_bulk':
         if (callId) sendToolResponse(callId, { success: true });
         break;
       }
+      
+    case 'gchat_mark_unread': {
+        const spaceId = actionArgs.spaceId || gchatSelectedSpaceRef_donna.current?.id;
+        if (!spaceId) {
+          triggerSnackbar("Failed to identify chat.");
+          if (callId) sendToolResponse(callId, { success: false, error: "Space not found" });
+          break;
+        }
 
-      case 'trello_move_card': {
+        const resetTime = new Date(0).toISOString();
+        
+        // 🚀 THE FIX: Use functional update to ensure LocalStorage syncs correctly without stale data
+        setGchatSpaceTimes(prev => {
+          const next = { ...prev, [spaceId]: resetTime };
+          localStorage.setItem("GCHAT_SPACE_TIMES", JSON.stringify(next));
+          return next;
+        });
+        
+        setUnreadGchatSpaces(prev => {
+          const next = { ...prev, [spaceId]: new Date().toISOString() };
+          localStorage.setItem("GCHAT_UNREAD_SPACES", JSON.stringify(next));
+          return next;
+        });
+
+        triggerSnackbar("Chat marked as unread.");
+        
+        if (callId) {
+          // 🚀 THE FIX: Force the directive so Donna confirms the CORRECT action
+          sendToolResponse(callId, { 
+            success: true,
+            directive: "Tell Siya: 'Done. I've marked that chat as unread for you.' Do NOT mention Trello or restoring cards."
+          });
+        }
+        break;
+      }
+
+  case 'gchat_get_messages':
+      case 'gchat_read_history': {
+        console.log("[Donna] Reading GChat history... Args:", actionArgs);
+        
+        let targetId = actionArgs.spaceId;
+        let targetName = actionArgs.spaceName || "";
+
+        // Safe Data Access
+        const liveSpaces = Array.isArray(gchatSpacesRef.current) ? gchatSpacesRef.current : [];
+        const liveSelectedSpace = gchatSelectedSpaceRef_donna.current;
+        const liveMessages = Array.isArray(gchatMessagesRef.current) ? gchatMessagesRef.current : [];
+        const liveDmNames = gchatDmNamesRef_donna.current || {};
+
+        if (targetId && !String(targetId).includes("spaces/")) {
+          targetName = targetId;
+          targetId = null;
+        }
+
+        const findSpaceId = (searchQuery) => {
+            if (!searchQuery) return null;
+            const cleanQuery = String(searchQuery).toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+            const noiseWords = ['read','messages','from','chat','history','get','the','what','last','message','whats','space','with','donna','tell','me'];
+            const words = cleanQuery.split(/\s+/).filter(w => w.length > 2 && !noiseWords.includes(w));
+
+            if (words.length === 0 && cleanQuery.length < 2) return null;
+
+            const isMatch = (rawName) => {
+                if (!rawName) return false;
+                const n = String(rawName).toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+                if (n.length < 2 || n === "direct message") return false;
+                if (n === cleanQuery || n.includes(cleanQuery) || cleanQuery.includes(n)) return true;
+                if (words.length > 0 && words.some(w => n.includes(w))) return true;
+                return false;
+            };
+
+            for (const [key, val] of Object.entries(GCHAT_ID_MAP || {})) {
+                if (String(key).includes("spaces/") && (isMatch(val) || isMatch(key))) return { id: key, name: val };
+                if (String(val).includes("spaces/") && (isMatch(val) || isMatch(key))) return { id: val, name: key };
+            }
+            for (const [key, val] of Object.entries(liveDmNames)) {
+                if (isMatch(val) || isMatch(key)) return { id: String(key).includes("spaces/") ? key : val, name: String(key).includes("spaces/") ? val : key };
+            }
+            for (const s of liveSpaces) {
+                const sid = s.id || s.name;
+                const namesToTest = [GCHAT_ID_MAP[s.displayName], GCHAT_ID_MAP[sid], liveDmNames[sid], s.displayName].filter(Boolean);
+                for (const nameToTest of namesToTest) {
+                    if (isMatch(nameToTest)) return { id: sid, name: nameToTest };
+                }
+            }
+            return null;
+        };
+
+        if (!targetId && targetName) {
+            const match = findSpaceId(targetName);
+            if (match) { targetId = match.id; targetName = match.name; }
+        }
+
+        if (!targetId && (transcriptionRef.current || donnaTranscription)) {
+            const match = findSpaceId(transcriptionRef.current || donnaTranscription);
+            if (match) { targetId = match.id; targetName = match.name; }
+        }
+
+        if (!targetId && liveSelectedSpace) {
+          targetId = liveSelectedSpace.id || liveSelectedSpace.name;
+          targetName = GCHAT_ID_MAP[liveSelectedSpace.displayName] || GCHAT_ID_MAP[targetId] || liveDmNames[targetId] || liveSelectedSpace.displayName;
+        }
+
+        if (!targetId) {
+          console.error("[Donna] Could not resolve space ID for:", targetName);
+          triggerSnackbar("Could not identify which chat to read.");
+          if (callId) {
+             const errorSpeech = `I'm sorry Siya, but I couldn't find a chat for ${targetName || 'that person'}.`;
+             sendToolResponse(callId, { success: true, directive: `Read this EXACT phrase aloud: "${errorSpeech}"` });
+             sendResponseCreate({});
+          }
+          break;
+        }
+
+        const processAndSendHistory = (rawMsgs) => {
+          const msgs = Array.isArray(rawMsgs) ? rawMsgs : [];
+          if (msgs.length === 0) {
+            if (callId) {
+              const emptySpeech = `The chat with ${targetName} is currently empty.`;
+              sendToolResponse(callId, { success: true, directive: `Read this EXACT phrase aloud: "${emptySpeech}"` });
+              sendResponseCreate({});
+            }
+            return;
+          }
+
+          const lastMsg = msgs[msgs.length - 1];
+          const senderRaw = lastMsg.sender?.displayName || lastMsg.sender?.name || "Someone";
+          const resolvedSender = GCHAT_ID_MAP[senderRaw] || GCHAT_ID_MAP[lastMsg.sender?.name] || liveDmNames[lastMsg.sender?.name] || senderRaw;
+          let cleanText = lastMsg.text || "[Media/Attachment]";
+          cleanText = cleanText.replace(/<[^>]*>?/gm, '');
+
+          const cleanSenderName = resolvedSender.split("<")[0].trim();
+          const cleanTargetName = (targetName || "them").split("<")[0].trim();
+          const finalSpeech = `The last message from ${cleanTargetName} was from ${cleanSenderName}, who said: "${cleanText}"`;
+
+          if (callId) {
+            sendToolResponse(callId, { success: true, directive: `Read this EXACT phrase aloud to Siya: "${finalSpeech}"` });
+            sendResponseCreate({});
+          }
+        };
+
+        if (liveSelectedSpace && (liveSelectedSpace.id === targetId || liveSelectedSpace.name === targetId) && liveMessages.length > 0) {
+          console.log("[Donna] Reading active chat from state...");
+          processAndSendHistory(liveMessages);
+          break;
+        }
+
+        console.log(`[Donna] Fetching background chat history for ${targetName}...`);
+        triggerSnackbar(`Fetching messages for ${targetName}...`);
+        fetch(`/.netlify/functions/gchat-messages?spaceId=${encodeURIComponent(targetId)}`, { credentials: "include" })
+          .then(res => res.json())
+          .then(data => {
+            const msgs = Array.isArray(data) ? data : (data.messages || []);
+            processAndSendHistory(msgs);
+          })
+          .catch(err => {
+            console.error("Failed to read background chat:", err);
+            triggerSnackbar("Failed to fetch chat history.");
+            if (callId) {
+              const errorSpeech = `I'm sorry Siya, there was a network error trying to read the chat with ${targetName}.`;
+              sendToolResponse(callId, { success: true, directive: `Read this EXACT phrase aloud: "${errorSpeech}"` });
+              sendResponseCreate({});
+            }
+          });
+
+     break;
+      }
+
+case 'send_gchat_message': {
+        const spaceId = actionArgs.spaceId;
+        const text = actionArgs.text;
+
+        if (!spaceId || !text) {
+          triggerSnackbar("Missing chat destination or message text.");
+          if (callId) sendToolResponse(callId, { success: false, error: "Missing parameters." });
+          break;
+        }
+
+        triggerSnackbar("Sending message...");
+        
+        fetch("/.netlify/functions/gchat-send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ space: spaceId, text })
+        })
+        .then(async (res) => {
+          const data = await res.json();
+          if (res.ok && data.ok) {
+            triggerSnackbar("Message sent!");
+            if (gchatSelectedSpace?.id === spaceId || gchatSelectedSpace?.name === spaceId) {
+                window.dispatchEvent(new CustomEvent("refreshGChatMessages"));
+            }
+            if (callId) sendToolResponse(callId, { success: true });
+          } else {
+            triggerSnackbar("Failed to send message.");
+            if (callId) sendToolResponse(callId, { success: false, error: data.error });
+          }
+        })
+        .catch(err => {
+          console.error("[Donna] GChat Send Error:", err);
+          triggerSnackbar("Network error sending message.");
+        });
+        break;
+      }
+
+      case 'trello_move_card': {
         // Re-check the args because our Rescue logic updated them
         console.log("[Donna] Trello Move - Arguments Resolved:", actionArgs);
+        
+        // 🏁 ARCHITECT'S SCOPE SYNC: Use the standard transcript reference
+        const transForSearch = (transcriptionRef.current || donnaTranscription || "").toLowerCase();
         
         let cardId = actionArgs.cardId;
         let cardNameQuery = (actionArgs.cardName || "").toLowerCase().trim();
@@ -1630,9 +2624,8 @@ case 'gmail_delete_bulk':
         }
 
         // 🛡️ FIX 2: Transcript Scraper (Matches "the 'name' card" or "card called name")
-        if (!cardNameQuery && !cardId && donnaTranscription) {
-           const trans = donnaTranscription.toLowerCase();
-           const match = trans.match(/['"](.+?)['"]/) || trans.match(/(?:named|called|titled|card)\s+['"]?(.+?)['"]?\s+(?:from|to|in|bucket)/i);
+        if (!cardNameQuery && !cardId && transForSearch) {
+           const match = transForSearch.match(/['"](.+?)['"]/) || transForSearch.match(/(?:named|called|titled|card)\s+['"]?(.+?)['"]?\s+(?:from|to|in|bucket)/i);
            if (match) {
              cardNameQuery = match[1].replace(/['"]/g, '').trim();
              console.log(`[Donna] Scraped card name from transcript: "${cardNameQuery}"`);
@@ -1643,21 +2636,18 @@ case 'gmail_delete_bulk':
         if (!cardId && cardNameQuery) {
           console.log(`[Donna] Finding ID for: "${cardNameQuery}"`);
           
-          // Combine live state and cache to ensure we never "miss" a card during re-polls
           let allCards = [];
           const liveCards = trelloBuckets ? Object.values(trelloBuckets).flat() : [];
           const cachedData = JSON.parse(localStorage.getItem("TRELLO_CACHE") || "{}");
           const cachedCards = Object.values(cachedData).flat();
           
-          // Dedupe by ID
           const combined = [...liveCards, ...cachedCards];
           allCards = Array.from(new Map(combined.map(c => [c.id, c])).values());
 
           if (allCards.length > 0) {
             const match = allCards.find(c => {
               const nameText = (c.name || c.title || "").toLowerCase();
-              const queryText = cardNameQuery.toLowerCase();
-              return nameText === queryText || nameText.includes(queryText) || queryText.includes(nameText);
+              return nameText === cardNameQuery || nameText.includes(cardNameQuery) || cardNameQuery.includes(nameText);
             });
             
             if (match) {
@@ -1668,89 +2658,58 @@ case 'gmail_delete_bulk':
         }
 
         // 🚀 ARCHITECT'S FINAL OVERRIDE: The "Review-Always-Wins" Protocol
-        const lt = String(rawTarget).toLowerCase();
-        let configMatch = null;
+        const lt = String(rawTarget).toLowerCase();
+        let configMatch = null;
 
-        // 1. Priority 1: Check if "Review" or "CR" exists in the voice string at all
-        if (lt.includes("review") || lt.includes("check") || lt.includes("cr")) {
-          configMatch = Object.entries(PERSONA_TRELLO_LISTS).find(([name]) => 
-            name.toLowerCase().includes("review")
-          );
-        }
+        // 🎯 FIX: Using transForSearch instead of undefined userVoice
+        const checkReview = lt.includes("review") || transForSearch.includes("review") || lt.includes("cr") || transForSearch.includes("cr");
+        
+        if (checkReview) {
+          configMatch = Object.entries(PERSONA_TRELLO_LISTS).find(([name]) => 
+            name.toLowerCase().includes("review")
+          );
+          console.log("[Architect] Review keyword detected. Forcing 'Siya - Review' destination.");
+        }
 
-        // 2. Priority 2: 24-character ID check
-        if (!configMatch && lt.length === 24) {
-          configMatch = Object.entries(PERSONA_TRELLO_LISTS).find(([_, id]) => id === lt);
-        }
+        // 2. Priority 2: 24-character ID check
+        if (!configMatch && lt.length === 24) {
+          configMatch = Object.entries(PERSONA_TRELLO_LISTS).find(([_, id]) => id === lt);
+        }
 
-        // 3. Priority 3: Siya/CI Phonetic Match (Falling back to base bucket)
-        if (!configMatch) {
-          const isSiyaPhonetic = lt.includes("sia") || lt.includes("ci") || lt.includes("sear") || lt.includes("see-ya") || lt.includes("siya");
-          if (isSiyaPhonetic) {
-            configMatch = Object.entries(PERSONA_TRELLO_LISTS).find(([name]) => name.toLowerCase() === "siya");
-          }
-        }
-
-        // 4. Final Fallback: Exact member name or first bucket
-        if (!configMatch) {
-          configMatch = Object.entries(PERSONA_TRELLO_LISTS).find(([name]) => name.toLowerCase().includes(lt));
-        }
-
-        if (configMatch) {
-          targetName = configMatch[0];
-          resolvedId = configMatch[1];
-          console.log(`[Architect] Map Logic Fixed: "${rawTarget}" matched to "${targetName}" (${resolvedId})`);
-        } else {
-          console.warn(`[Architect] Logic Failure: No bucket matched for "${rawTarget}". Using default Siya.`);
-          targetName = "Siya";
-          resolvedId = PERSONA_TRELLO_LISTS["Siya"];
-        }
-
-        // 🛡️ ARCHITECT'S DESTINATION GUARD: If Donna chose the correct ID, keep it.
-        if (!configMatch && rawTarget.length === 24) {
-           resolvedId = rawTarget;
-           targetName = Object.keys(PERSONA_TRELLO_LISTS).find(k => PERSONA_TRELLO_LISTS[k] === rawTarget) || "Trello Bucket";
-        } else if (configMatch) {
-          targetName = configMatch[0];
-          resolvedId = configMatch[1];
-        } else {
-          targetName = rawTarget;
-          // 🛡️ Fallback: if the LLM sent a raw ID instead of a name, use it.
-          // But ensure it's not the SAME as the cardId we just found
-          if (rawTarget === cardId) {
-             console.warn("[Architect] Collision detected: rawTarget matches cardId. Defaulting to Siya list.");
-             resolvedId = PERSONA_TRELLO_LISTS["Siya"]; 
+        // 3. Priority 3: Siya Phonetic Match
+        if (!configMatch) {
+          const isSiyaBase = lt === "siya" || lt === "sia" || lt === "sear" || lt === "see-yah";
+          if (isSiyaBase || transForSearch.includes("siya bucket") || transForSearch.includes("sia bucket")) {
+            configMatch = Object.entries(PERSONA_TRELLO_LISTS).find(([name]) => 
+              name.toLowerCase() === "siya"
+            );
           }
         }
 
+        // 4. Final Fallback
+        if (!configMatch) {
+          configMatch = Object.entries(PERSONA_TRELLO_LISTS).find(([name]) => name.toLowerCase().includes(lt));
+        }
+
+        if (configMatch) {
+          targetName = configMatch[0];
+          resolvedId = configMatch[1];
+        } else {
+          resolvedId = rawTarget.length === 24 ? rawTarget : PERSONA_TRELLO_LISTS["Siya"];
+          targetName = Object.keys(PERSONA_TRELLO_LISTS).find(k => PERSONA_TRELLO_LISTS[k] === resolvedId) || "Bucket";
+        }
+
         if (!cardId || cardId.length !== 24) {
-          console.error("[Donna] CRITICAL: Valid Trello cardId could not be resolved.");
-          triggerSnackbar("Donna couldn't find the card ID for '" + (cardNameQuery || "the card") + "'");
-          if (callId) sendToolResponse(callId, { success: false, error: "Card ID could not be determined." });
+          triggerSnackbar("Could not find that card.");
+          if (callId) sendToolResponse(callId, { success: false, error: "Card not found" });
           break;
-        }
-
-        // 🛡️ One last check before shipping the JSON
-        if (resolvedId === cardId) {
-           console.error("[Architect] Fatal Swap Error: Card and List IDs are identical.");
-           triggerSnackbar("System error: Mapping collision.");
-           break;
-        }
-
-        console.log(`[Donna] FINAL PAYLOAD - Card: ${cardId}, List: ${resolvedId}`);
-
-        if (!cardId || cardId.length !== 24) {
-            // Last ditch effort: search the buckets for the cardNameQuery
-            const allCards = (Array.isArray(trelloBuckets) ? trelloBuckets : []).flatMap(b => b.cards || []);
-            const lastDitch = allCards.find(c => (c.name || "").toLowerCase().includes(cardNameQuery.toLowerCase()));
-            if (lastDitch) cardId = lastDitch.id;
         }
 
         fetch("/.netlify/functions/trello-move", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ 
-            cardId: cardId, // Will now be the fresh ID
+            cardId: cardId, 
             targetListId: resolvedId,
             targetListName: targetName
           })
@@ -1767,9 +2726,9 @@ case 'gmail_delete_bulk':
           }
         })
         .catch(err => console.error("[Donna] Fetch error:", err));
-        
-        break;
-      }
+        
+        break;
+      }
 
       case 'trello_toggle_label': {
         const normalize = (str) => (str || "").toLowerCase().split(" (due")[0].split(" (pos")[0].trim();
@@ -1851,54 +2810,69 @@ case 'gmail_delete_bulk':
 
       case 'trello_archive_card': {
         // 🛡️ ARCHITECT'S CLEANING PROTOCOL
-        const normalize = (str) => (str || "").toLowerCase().split(" (due")[0].split(" (pos")[0].replace(/['"]/g, "").trim();
+        const normalize = (str) => (str || "").toLowerCase().split(" (due")[0].split(" (pos")[0].replace(/['"\[\]]/g, "").trim();
         
         let targetId = actionArgs.cardId;
         let targetName = actionArgs.cardName;
 
         // 🛡️ STAGE 1: PRECISION RESOLUTION
-        // Safely flatten buckets to find the card object for name/ID verification
-        const bucketsArray = Array.isArray(trelloBuckets) ? trelloBuckets : Object.values(trelloBuckets || {});
-        const allCards = bucketsArray.flatMap(b => b.cards || (Array.isArray(b) ? b : []));
+        const safeBuckets = Array.isArray(trelloBuckets) 
+            ? trelloBuckets 
+            : Object.entries(trelloBuckets || {}).map(([name, data]) => ({ name, cards: Array.isArray(data) ? data : (data.cards || []) }));
+        
+        const allCards = safeBuckets.flatMap(b => b.cards || []);
 
         if (!targetId || targetId.length !== 24) {
-          let searchName = normalize(targetName);
+          // If Donna put the name in the ID slot, move it to targetName
+          if (targetId && targetId.length < 24) {
+              targetName = targetId;
+              targetId = null;
+          }
+
+          let searchName = normalize(targetName && targetName !== "the card" ? targetName : "");
           
-          const userVoice = transcriptionRef.current || donnaTranscription || "";
+          const userVoice = (transcriptionRef.current || donnaTranscription || "");
           console.log(`[Architect] Scraper checking voice for Archive: "${userVoice}"`);
 
           if (!searchName && userVoice) {
-             const lowerTrans = userVoice.toLowerCase();
-             // 🎯 FIX: Added a specific pattern to catch "card titled [NAME]" and improved quote handling
-             const match = userVoice.match(/titled\s+["'\[](.+?)["'\]]/i) // Matches: titled "[TEST]" or titled [TEST]
-                        || userVoice.match(/["'](.+?)["']/) // Matches anything in quotes
-                        || userVoice.match(/(?:archive|delete|remove|restore)\s+(?:the\s+)?(?:trello\s+)?(?:card\s+(?:called|named|titled)\s+)?['"\[]?(.+?)['"\]]?\s+(?:in|from|folder|at|to|into|bucket)/i);
-             
-             if (match) {
-               searchName = normalize(match[1]);
-             } else if (lowerTrans.includes("archive")) {
-               const words = lowerTrans.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"").split(" ");
-               const archIdx = words.indexOf("archive");
-               if (archIdx !== -1 && words[archIdx + 1] && !['the', 'this', 'a', 'please', 'to'].includes(words[archIdx + 1])) {
-                 searchName = normalize(words[archIdx + 1]);
-               }
+             // 🚀 IMPROVED REGEX: Specifically looks for "card named [Testing]" or quoted words
+             const match = userVoice.match(/(?:named|called|titled|card)\s+["'\[](.+?)["'\]]/i)
+                        || userVoice.match(/["'](.+?)["']/)
+                        || userVoice.match(/(?:archive|delete|remove|restore)\s+(?:the\s+)?(?:trello\s+)?(?:card\s+(?:called|named|titled)\s+)?['"\[]?(.+?)['"\]]?\s+(?:in|from|folder|at|to|into|bucket)/i);
+             
+             if (match) {
+               searchName = normalize(match[1]);
+               console.log(`[Architect] Successfully scraped card name for archive: "${searchName}"`);
              }
           }
 
           console.log(`[Architect] Final search name for resolution: "${searchName}"`);
           
           if (searchName && searchName.length >= 2) {
-            // 🎯 ARCHITECT'S BRACKET SHIELD: We strip brackets from the board cards too during the search
-            const match = allCards.find(c => {
-                  const cardNameClean = (c.name || c.title || "").toLowerCase().replace(/[\[\]]/g, '').trim();
-                  const searchNameClean = searchName.replace(/[\[\]]/g, '').trim();
-                  return cardNameClean === searchNameClean || cardNameClean.includes(searchNameClean);
+            console.log(`[Architect] Deep Scan initiated for: "${searchName}" across ${allCards.length} cards.`);
+
+            // 🎯 FIX: Robust name cleaning that strips everything after a parenthesis (removes dates)
+            const cleanBoardName = (raw) => {
+                return (raw || "").toLowerCase()
+                    .split('(')[0] // Remove anything like "(Due...)"
+                    .replace(/[^a-z0-9]/g, '') // Strip brackets and punctuation
+                    .trim();
+            };
+
+            const searchNameClean = searchName.replace(/[^a-z0-9]/g, '');
+
+            const match = allCards.find(c => {
+                const bName = cleanBoardName(c.name || c.title);
+                // Matches if "testing" is the same as "testing" or if one contains the other
+                return bName === searchNameClean || bName.includes(searchNameClean) || searchNameClean.includes(bName);
             });
 
             if (match) {
               targetId = match.id;
               targetName = match.name || match.title;
-              console.log(`[Architect] Resolved to ID: ${targetId} (${targetName})`);
+              console.log(`[Architect] Resolution Success: ${targetName} (${targetId})`);
+            } else {
+                console.warn("[Architect] Deep Scan failed. Card list sample:", allCards.slice(0,3).map(c => c.name));
             }
           }
         } else if (targetId && (!targetName || targetName === "undefined")) {
@@ -2107,22 +3081,60 @@ case 'gmail_delete_bulk':
         break;
       }
 
+      // 🎯 FIX: Added 'trello_timer' alias to match OpenAI's generated function name
+      case 'trello_timer':
       case 'trello_timer_action': {
-        const { cardId, action } = actionArgs;
-        // Re-using your existing trello-timer.js or trello-set-custom-field workflow
+        let cardId = actionArgs.cardId;
+        const action = actionArgs.action || "start";
+        const cardNameQuery = (actionArgs.cardName || "").toLowerCase().trim();
+
+        // 🛡️ ARCHITECT'S RESOLVER: Ensure we have a 24-char ID
+        if (!cardId || cardId.length !== 24) {
+            const bucketsArray = Array.isArray(trelloBuckets) 
+                ? trelloBuckets 
+                : Object.entries(trelloBuckets || {}).map(([name, data]) => ({ name, cards: Array.isArray(data) ? data : (data.cards || []) }));
+            
+            const allCards = bucketsArray.flatMap(b => b.cards || []);
+            const match = allCards.find(c => {
+                const cn = (c.name || "").toLowerCase();
+                return cn === cardNameQuery || cn.includes(cardNameQuery) || cardNameQuery.includes(cn);
+            });
+
+            if (match) {
+                cardId = match.id;
+                console.log(`[Architect] Timer ID Resolved: ${cardId} ("${match.name}")`);
+            }
+        }
+
+        if (!cardId || cardId.length !== 24) {
+          triggerSnackbar("Could not find the card to start the timer.");
+          if (callId) sendToolResponse(callId, { success: false, error: "Card not found." });
+          break;
+        }
+
+        triggerSnackbar(`${action === 'start' ? 'Starting' : 'Stopping'} timer...`);
+
         fetch("/.netlify/functions/trello-timer", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ cardId, action })
-        }).then(() => {
-          triggerSnackbar(`Timer ${action}ed.`);
-          window.dispatchEvent(new CustomEvent("refreshTrelloBoard"));
-          if (callId) sendToolResponse(callId, { success: true });
-        });
+        })
+        .then(async (res) => {
+          const data = await res.json();
+          if (res.ok && data.ok) {
+            triggerSnackbar(`Timer ${action}ed successfully.`);
+            window.dispatchEvent(new CustomEvent("refreshTrelloBoard"));
+            if (callId) sendToolResponse(callId, { success: true });
+          } else {
+            triggerSnackbar(`Timer error: ${data.error || "Trello rejected the request"}`);
+            if (callId) sendToolResponse(callId, { success: false, error: data.error });
+          }
+        })
+        .catch(err => console.error("[Donna] Timer Network Error:", err));
         break;
       }
 
-      case 'trello_get_archived_cards': {
+    case 'trello_get_archived_cards': {
         console.log("[Architect] Manual Approval: Fetching archive list...");
         triggerSnackbar("Searching archive...");
         fetch("/.netlify/functions/trello-archived")
@@ -2139,76 +3151,403 @@ case 'gmail_delete_bulk':
           });
         break;
       }
-      
-// 🎯 ADDED: Trello Member Assigning logic
-      case 'trello_toggle_member': {
-        let { cardId, memberId, cardName } = actionArgs;
-        const rawVoice = (transcriptionRef.current || "").toLowerCase();
-        
-        // 🛡️ ARCHITECT'S MEMBER RESOLVER:
-        // If Donna sent a name (string) instead of a 24-char ID, find the real ID in the cache.
-        if (memberId && memberId.length < 20) {
-          console.log(`[Architect] Resolving Member ID for: "${memberId}"`);
-          // We check the global member cache populated on mount or by trello_get_members
-          const liveMembers = trelloMembers || []; 
-          const match = liveMembers.find(m => 
-            m.fullName.toLowerCase().includes(memberId.toLowerCase()) || 
-            memberId.toLowerCase().includes(m.fullName.toLowerCase())
-          );
-          
-          if (match) {
-            console.log(`[Architect] Resolved Member: ${match.fullName} -> ${match.id}`);
-            memberId = match.id;
-          }
-        }
 
-        // Determine action based on voice context
-        const isRemoving = rawVoice.includes("remove") || rawVoice.includes("delete") || rawVoice.includes("unassign");
-        
-        console.log(`[Architect] Member Toggle -> Card: ${cardName}, MemberID: ${memberId}, Action: ${isRemoving ? 'REMOVE' : 'ADD'}`);
+     case 'send_gchat_message': {
+        const spaceId = actionArgs.spaceId;
+        const text = actionArgs.text;
 
-        if (!cardId || !memberId) {
-          triggerSnackbar("I need a card and a member to do that.");
+        if (!spaceId || !text) {
+          triggerSnackbar("Missing chat destination or message text.");
+          if (callId) sendToolResponse(callId, { success: false, error: "Missing parameters." });
           break;
         }
 
-        triggerSnackbar(`${isRemoving ? 'Removing' : 'Adding'} member...`);
-
-        fetch("/.netlify/functions/trello-toggle-member", {
+        triggerSnackbar("Sending message...");
+        
+        fetch("/.netlify/functions/gchat-send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            cardId, 
-            memberId, 
-            action: isRemoving ? 'remove' : 'add' 
-          })
+          credentials: "include",
+          body: JSON.stringify({ space: spaceId, text })
         })
         .then(async (res) => {
           const data = await res.json();
           if (res.ok && data.ok) {
-            triggerSnackbar(`Member updated on "${cardName || 'the card'}"`);
+            triggerSnackbar("Message sent!");
+            
+            // Clear unread status locally for this space
+            setUnreadGchatSpaces(prev => (prev || []).filter(id => id !== spaceId));
+
+            if (gchatSelectedSpace?.id === spaceId || gchatSelectedSpace?.name === spaceId) {
+                window.dispatchEvent(new CustomEvent("refreshGChatMessages"));
+            }
+            if (callId) sendToolResponse(callId, { success: true });
+          } else {
+            triggerSnackbar("Failed to send message.");
+            if (callId) sendToolResponse(callId, { success: false, error: data.error });
+          }
+        })
+        .catch(err => {
+          console.error("[Donna] GChat Send Error:", err);
+          triggerSnackbar("Network error sending message.");
+        });
+        break;
+      }
+      
+// 🎯 ADDED: Trello Member Assigning logic
+      // 🎯 ADDED: Trello Member Assigning logic (Harden v13 - REAL ID INJECTION)
+      case 'trello_toggle_member': {
+        const rawVoice = (transcriptionRef.current || donnaTranscription || "").toLowerCase();
+        let cardQuery = (actionArgs.cardName || actionArgs.cardId || "").toLowerCase().trim();
+        let memberQuery = (actionArgs.memberId || "").toLowerCase().trim();
+
+        // 🛡️ MASTER IDENTITY REPOSITORY
+        const MASTER_MEMBER_MAP = {
+          "albert": "65f4ad28d8365141049928c3", "alicia": "64b90b88ca45699d29e1f36b", "asanda": "691b0c0fc57a02f68023b6f3",
+          "bianca": "67e117f7247f77f98664fd22", "bonisa": "68e908a4ba4b200ba97ebbfb", "bonolo": "67c171ea0e994ad89aa5fbf8",
+          "cameron": "68419c10c2a53c71d9e0af06", "cara": "693a5d5dda8eaaf367450cfb", "chloe": "6995d3fb27619a0656230e78",
+          "conah": "66b37d0f70cb2d76881e7e72", "cynthia": "67bf015ec6abf1f51125d246", "dionee": "662615459df838a28e0457fc",
+          "enock": "67aa3384dc273ed6c32a0613", "ethan": "65e99c5f847219d008343e21", "eugene": "679c68a68ad242ed23dca5aa",
+          "faith": "691b0cdce5851c2c7533fa68", "jennifer": "67a051599a324c743613a6cf", "joel": "63cf7e35f1d23d046618426d",
+          "jonathan": "67ffbc50dad06318a011a5ae", "kwakhanya": "67e0f593ea03b217cc8592b3", "leonah": "66a0d28d19e918e9a875c109",
+          "martin": "6644556076cb36a96e879e42", "mathapelo": "691b2052687aca7ee746859b", "matthew": "665ebf236815e1e845a36106",
+          "melokuhle": "67adacba4c0cc8d464a38aa1", "melvin": "6343bb301963ad01166f142b", "michelle": "681af439e50222913a95888e",
+          "mine": "68108782c117f540f8f4507b", "munyaradzi": "67eee163236fe5b5caa30f6b", "ofentse": "698d873c13fd694f25c79f70",
+          "palesa": "691b0d03a369680f72cba98b", "refiloe": "698d877706f235a84397a894", "robyn": "697231d1e4cda79a313cb278",
+          "ruan": "6995d4113cb8d65edff576c7", "ryan": "632bfd240c991c01dc22e6a2", "shamiso": "67cc84198e59f8e8b36c9e98",
+          "sharon": "696def840f0ea7c661e9f32b", "simone": "6343b58de991f30236e74ab8", "siya": "65f8871a48385c1bd3e9c381",
+          "siyolise": "691b104f8d19f3ddec4b93d6", "songeziwe": "67e390b7d5434b0e8afced71", "suemari": "698099f07901e7f78af7cf16",
+          "thami": "65f82b190cd455e25821bbbc", "tiffany": "6423e618cb42af40e16adf69", "tinashe": "686266936de059cf0041b8f9",
+          "treasure": "67b1e3eb3d46e5ce83d67596", "uvesh": "69a958f02d205aef5b00d3a3", "waldo": "6343ba83f91fbc0374819b79",
+          "willem": "67fe494b8158df9659b88279", "yolandie": "65cccac1d12d8a6f97e7920b", "yael": "6878a29a4c22995035ded74f"
+        };
+
+        const PHONETIC_MAP = { "sia": "siya", "sear": "siya", "seer": "siya", "see-yah": "siya" };
+
+        // 🎙️ SCRAPER: Detect member and card from voice if missing
+        if (!memberQuery || memberQuery.length < 2) {
+            const mMatch = rawVoice.match(/(?:add|assign|put|remove|unassign)\s+([a-z]+)/i);
+            if (mMatch) memberQuery = mMatch[1].trim();
+        }
+        
+        const nameKey = PHONETIC_MAP[memberQuery.toLowerCase()] || memberQuery.toLowerCase();
+        let finalMemberId = MASTER_MEMBER_MAP[nameKey];
+
+        // 🛡️ RESOLVE CARD (Harden v41 - Bucket-Aware Member Resolution)
+        const cq = cardQuery.toLowerCase().trim();
+        const safeBucketsArray = Array.isArray(trelloBuckets) 
+            ? trelloBuckets 
+            : Object.entries(trelloBuckets || {}).map(([name, data]) => ({ name, cards: Array.isArray(data) ? data : (data.cards || []) }));
+
+        let targetBucketName = "";
+        if (rawVoice.includes("review") || rawVoice.includes("cr")) targetBucketName = "Siya - Review";
+        else if (rawVoice.includes("siya") || rawVoice.includes("sia")) targetBucketName = "Siya";
+
+        let potentialCards = [];
+        if (targetBucketName) {
+            const matchedBucket = safeBucketsArray.find(b => {
+                if (!b || !b.name) return false;
+                return b.name.toLowerCase().replace(/[^a-z0-9]/g, '') === targetBucketName.toLowerCase().replace(/[^a-z0-9]/g, '');
+            });
+            if (matchedBucket) potentialCards = matchedBucket.cards || [];
+        }
+
+        // 🛡️ ARCHITECT'S HARDENED SEARCH: Filter out OOO cards and prioritize clean matches
+        const isOOO = (name) => name.toLowerCase().includes("away from cases") || name.toLowerCase().includes("out of office");
+
+        let foundCard = potentialCards.find(c => {
+            const cn = (c.name || c.title || "").toLowerCase();
+            if (isOOO(cn) && !cq.includes("away")) return false; // Skip OOO unless specifically asked for
+            return cn === cq || cn.includes(cq);
+        });
+
+        if (!foundCard) {
+            console.log("[Architect] precision: global board search (excluding OOO).");
+            const allCards = safeBucketsArray.flatMap(b => b.cards || []);
+            foundCard = allCards.find(c => {
+                const cn = (c.name || c.title || "").toLowerCase();
+                if (isOOO(cn) && !cq.includes("away")) return false;
+                return cn === cq || cn.includes(cq) || cq.includes(cn);
+            });
+        }
+
+        const finalCardId = foundCard ? foundCard.id : (actionArgs.cardId?.length === 24 ? actionArgs.cardId : null);
+        const finalCardName = foundCard ? (foundCard.name || foundCard.title) : (actionArgs.cardName || "the card");
+
+        // 🎯 INTENT: Determine Add vs Remove
+        const isRemoving = rawVoice.includes("remove") || rawVoice.includes("unassign") || rawVoice.includes("delete member");
+
+        if (!finalCardId || !finalMemberId) {
+          console.error("[Architect] precision failure:", { finalCardId, finalMemberId, nameKey });
+          triggerSnackbar(`Precision error: Card or Member not found.`);
+          if (callId) sendToolResponse(callId, { success: false, error: "Member or Card not found." });
+          break;
+        }
+
+        triggerSnackbar(`${isRemoving ? 'Removing' : 'Assigning'} ${nameKey}...`);
+
+        fetch("/.netlify/functions/trello-toggle-member", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cardId: finalCardId, memberId: finalMemberId, action: isRemoving ? 'remove' : 'add' })
+        })
+        .then(async (res) => {
+          const data = await res.json();
+          if (res.ok && data.ok) {
+            triggerSnackbar(`${isRemoving ? 'Removed' : 'Assigned'} ${nameKey} on "${finalCardName}"`);
             window.dispatchEvent(new CustomEvent("refreshTrelloBoard"));
             if (callId) sendToolResponse(callId, { success: true });
           } else {
-            console.error("[Donna] Member toggle failed:", data.error);
-            triggerSnackbar("Trello refused the member update.");
+            triggerSnackbar(`Trello error: ${data.error}`);
+            if (callId) sendToolResponse(callId, { success: false, error: data.error });
           }
         })
-        .catch(err => console.error("[Donna] Network error assign member:", err));
+        .catch(err => console.error("[Donna] Network error:", err));
         break;
+      }
+
+      case 'trello_add_comment': {
+        const trans = (transcriptionRef.current || donnaTranscription || "").toLowerCase();
+        const commentMatch = trans.match(/(?:saying|comment|note)\s+(.+?)(?=\s+(?:to|on|in|at|the|card|bucket)|$)/i);
+        const commentText = commentMatch ? commentMatch[1].trim() : actionArgs.text || actionArgs.comment;
+
+        const finalCardId = actionArgs.cardId;
+        const bucketsArray = Array.isArray(trelloBuckets) ? trelloBuckets : [];
+        const foundCard = bucketsArray.flatMap(b => b.cards || []).find(c => c.id === finalCardId);
+
+        // 🎯 ARCHITECT'S NAME RECOVERY: Don't rely on foundCard object, use the Args name we synced in the resolver
+        const displayName = actionArgs.cardName || foundCard?.name || "the card";
+
+        if (!finalCardId || !commentText) {
+          triggerSnackbar("Target card not found. Please specify the card name clearly.");
+          if (callId) sendToolResponse(callId, { success: false, error: "Missing card or text." });
+          break;
+        }
+
+        triggerSnackbar(`Adding comment to "${displayName}"...`);
+        fetch("/.netlify/functions/trello-add-comment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cardId: finalCardId, text: commentText })
+        })
+        .then(async (res) => {
+          const data = await res.json();
+          if (res.ok && data.ok) {
+            triggerSnackbar(`Done! Comment added to ${displayName}.`);
+            window.dispatchEvent(new CustomEvent("refreshTrelloBoard"));
+            if (callId) sendToolResponse(callId, { success: true });
+          } else {
+            triggerSnackbar(`Error: ${data.error}`);
+          }
+        });
+        break;
       }
 
-      default:
-        console.warn("Unmapped tool execution:", actionName);
-    }
+      case 'trello_set_custom_field': {
+  const rawVoice = (transcriptionRef.current || donnaTranscription || "").toLowerCase();
+  const finalCardId = actionArgs.cardId;
+  
+  // 1. HARDENED RESOLVER: Scoring unique words
+  let resolvedId = (finalCardId && finalCardId.length === 24) ? finalCardId : null;
+  let displayName = actionArgs.cardName || "the card";
 
-    // Clear immediately — no follow-up bubble
-    ignoreNextDonnaRef.current = true;
-    // Safety net: reset flag after 3s in case no response.done fires (e.g. no sendToolResponse)
-    setTimeout(() => { ignoreNextDonnaRef.current = false; }, 3000);
+  if (!resolvedId) {
+    const bucketsArray = Array.isArray(trelloBuckets) 
+      ? trelloBuckets 
+      : Object.values(trelloBuckets || {});
+      
+    const allCards = bucketsArray.flatMap(b => (Array.isArray(b) ? b : b.cards || []));
+    
+    const scrub = (str) => (str || "").toLowerCase()
+      .split('(')[0] 
+      .replace(/[.,\/#!$%\^&\*;:{}=\-_`~"']/g, "")
+      .trim();
+
+    const voiceScrubbed = scrub(rawVoice);
+    console.log("[Architect] Scoping Trello with scrubbed voice:", voiceScrubbed);
+
+    const scoredMatches = allCards.map(c => {
+      const cardNameScrubbed = scrub(c.name || c.title || "");
+      let score = 0;
+
+      if (!cardNameScrubbed) return { card: c, score: 0 };
+
+      const wordMatch = new RegExp(`\\b${cardNameScrubbed}\\b`, 'i');
+      if (wordMatch.test(voiceScrubbed)) score += 50;
+      
+      const keywords = cardNameScrubbed.split(/\s+/).filter(w => w.length > 2);
+      keywords.forEach(k => {
+        if (voiceScrubbed.includes(k)) score += 10;
+      });
+
+      return { card: c, score };
+    }).filter(res => res.score > 0).sort((a, b) => b.score - a.score);
+
+    if (scoredMatches.length > 0) {
+      resolvedId = scoredMatches[0].card.id;
+      displayName = scoredMatches[0].card.name || scoredMatches[0].card.title;
+      console.log(`[Architect] Resolved via Scrubbed Score: ${displayName} (${resolvedId})`);
+    }
+  }
+
+  if (!resolvedId) {
+    console.error("[Architect] Resolution Failed. Voice:", rawVoice);
+    triggerSnackbar("I couldn't identify the card to update.");
+    break;
+  }
+
+  // 2. WHITELIST VALUE EXTRACTION
+  let fieldName = "Priority"; 
+  // 🎯 THE STATUS FIX: Detect if the user is talking about Status or Active fields
+  if (rawVoice.includes("status")) {
+    fieldName = "Status";
+  } else if (rawVoice.includes("active")) {
+    fieldName = "Active";
+  }
+
+  // Define the valid options for all three Custom Fields
+  const allValidOptions = [
+    "urgent", "high", "medium", "low", "new client", "high urgent", "urgent important", // Priority
+    "to do", "doing", "done", "review", "blocked", "2nd review", "final review",        // Status
+    "working on it", "not working on it", "do not move"                                // Active
+  ];
+  
+  const foundValue = allValidOptions.find(opt => rawVoice.includes(opt));
+  
+  // 🎯 THE FIX: Smart Value Formatting
+  let fieldValue = "Urgent"; // Default
+  if (foundValue) {
+    if (foundValue === "high urgent") fieldValue = "High Urgent";
+    else if (foundValue === "urgent important") fieldValue = "Urgent+Important";
+    else if (foundValue === "to do") fieldValue = "To Do";
+    else if (foundValue === "2nd review") fieldValue = "2nd Review";
+    else if (foundValue === "final review") fieldValue = "Final Review";
+    else if (foundValue === "working on it") fieldValue = "Working on it";
+    else if (foundValue === "not working on it") fieldValue = "Not working on it";
+    else if (foundValue === "do not move") fieldValue = "Do not move";
+    else fieldValue = foundValue.charAt(0).toUpperCase() + foundValue.slice(1);
+  } else if (fieldName === "Status") {
+    fieldValue = "To Do"; // Default for Status if value not heard
+  }
+
+  // 3. SURGICAL PATCH: Instant Color Update & STALE GUARD
+  // 🚀 ARCHITECT'S TOTAL LOCKOUT: Block all polling and context refreshes for this card
+  window.dispatchEvent(new CustomEvent("trelloImmuneCard", { detail: resolvedId }));
+  window.dispatchEvent(new CustomEvent("pauseTrelloPolling")); 
+  
+  // LOCK Donna's memory immediately so she doesn't re-prompt while we wait for the server
+  ignoreNextDonnaRef.current = true;
+  
+  // 🛡️ RE-ENFORCING THE PENDING STATE:
+  // Ensure the useTrello hook's internal pendingCFRef is updated immediately
+  window.dispatchEvent(new CustomEvent("pendingCF", { 
+    detail: { cardId: resolvedId, field: fieldName, ttlMs: 45000 } 
+  }));
+
+  // 🚀 THE FIX: We also need to manually inject this into the local Donna Shield
+  // We pass the fieldName ("Priority") so useTrello knows which key to shield.
+  if (markLabelPending) {
+    markLabelPending(resolvedId, fieldValue, fieldName); 
+  }
+
+  window.dispatchEvent(new CustomEvent("patchCardInBuckets", { 
+    detail: { 
+      cardId: resolvedId, 
+      updater: (card) => {
+        const updatedCFs = { ...(card.customFields || {}), [fieldName]: fieldValue };
+        const otherBadges = (card.badges || []).filter(b => !b.text.includes(fieldName));
+        return {
+          ...card,
+          customFields: updatedCFs,
+          badges: ensureBadgeTypes([...otherBadges, { text: `${fieldName}: ${fieldValue}`, isBottom: true }])
+        };
+      }
+    } 
+  }));
+
+  triggerSnackbar(`Setting ${fieldName} to ${fieldValue}...`);
+  
+  fetch("/.netlify/functions/trello-set-custom-field", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cardId: resolvedId, fieldName, optionText: fieldValue })
+  })
+  .then(async (res) => {
+    const data = await res.json();
+    if (res.ok && data.ok) {
+      triggerSnackbar(`Confirmed: ${displayName} is ${fieldValue}.`);
+
+      // 🚀 ARCHITECT'S CLEAN SLATE: Wipe the UI triggers IMMEDIATELY to stop the loop
+      setDonnaPendingAction(null);
+      setDonnaTranscription("");
+      setDonnaVisible(false);
+      ignoreNextDonnaRef.current = true;
+      
+      // Update local context so Donna's brain reflects the new truth
+      lastCtxRef.current = lastCtxRef.current.replace(
+        new RegExp(`ENTRY_\\d+: "${displayName}" \\(REF:${resolvedId}\\)`, 'g'),
+        `ENTRY_SUCCESS: "${displayName}" (REF:${resolvedId}) [PRIORITY: ${fieldValue}]`
+      );
+
+      if (callId) {
+        // 🚀 ARCHITECT'S BRAIN-LOCK: Hard-code the success state into her session
+        const successMsg = `\n\n*** SYSTEM OVERRIDE: TASK COMPLETE ***\n- Card: ${displayName}\n- Action: ${fieldName} set to ${fieldValue}\n- Status: DONE.\n- IMPORTANT: The user has already approved this. You must NOT ask again. If Siya speaks, acknowledge the completion briefly and go to sleep.`;
+        
+        // We use a timestamp to force OpenAI to treat this as the newest, most relevant instruction
+        sendSessionUpdate({ 
+          instructions: lastCtxRef.current + successMsg + `\n(Update_ID: ${Date.now()})` 
+        });
+
+        // Tell the tool channel the execution is finished
+        sendToolResponse(callId, { 
+          success: true, 
+          status: "ALREADY_EXECUTED",
+          message: `The priority for ${displayName} is now ${fieldValue}.`
+        });
+
+        // 🚀 THE KILL SWITCH: Force Donna to stop any current "confirmation" speech 
+        // that might have started before the approval click registered.
+        cancelResponse();
+      }
+      
+      // 🛡️ REFRESH LOCK: Wait 12s (increased from 8s) for Trello's slow Custom Field API
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("refreshTrelloBoard"));
+        setTimeout(() => {
+          ignoreNextDonnaRef.current = false;
+        }, 3000);
+      }, 12000);
+    } else {
+      setDonnaPendingAction(null);
+      setDonnaVisible(false);
+      ignoreNextDonnaRef.current = false;
+    }
+  })
+  .catch(err => {
+    console.error("[Donna] Custom Field Error:", err);
+    ignoreNextDonnaRef.current = false;
+  });
+  break;
+}
+
+  default:
+        console.warn("Unmapped tool execution:", actionName);
+    }
+
+    // 🚀 CRITICAL: If Donna needs to read something aloud, do NOT silence her!
+    if (actionName === "gchat_read_history" || actionName === "gchat_get_messages" || actionName === "system_read_notifications") {
+        ignoreNextDonnaRef.current = false;
+    } else {
+        // Clear immediately — no follow-up bubble for silent actions
+        ignoreNextDonnaRef.current = true;
+        setTimeout(() => { ignoreNextDonnaRef.current = false; }, 3000);
+    }
+    
+    // 🚀 ARCHITECT'S FLUSH: Clear all AI states immediately to break the visual loop
     setDonnaPendingAction(null);
     setDonnaTranscription("");
     setDonnaVisible(false);
+    transcriptionRef.current = ""; // 🎯 Wipe the raw transcript ref too
   };
 const handleRejectDonna = () => {
     ignoreNextDonnaRef.current = true;
@@ -2306,7 +3645,12 @@ seenGmailIdsRef,
     addMenuStep, setAddMenuStep,
     showMemberShortcut, setShowMemberShortcut,
     pendingCFRef,
-  } = useTrello({ currentView, setCurrentView });
+  } = useTrello({ 
+    currentView, 
+    setCurrentView, 
+    // 🛡️ ARCHITECT'S FIX: Pass the ACTUAL ref destructured from useDonna
+    pendingDonnaLabelsRef: pendingDonnaLabelsRef 
+  });
   const {
     draftPos, setDraftPos,
     isDraggingDraft,
@@ -2423,13 +3767,21 @@ seenGmailIdsRef,
     inputValue, setInputValue,
   });
 
-  const { isRecording, startRecording, stopRecording } = useRecording({ setPendingUpload });
+const { isRecording, startRecording, stopRecording } = useRecording({ setPendingUpload });
+
+  // 🚀 ARCHITECT'S SYNC: Keep Donna's brain updated with live GChat state to prevent Stale Closures
+  useEffect(() => {
+    gchatMessagesRef.current = gchatMessages || [];
+    gchatSpacesRef.current = gchatSpaces || [];
+    gchatSelectedSpaceRef_donna.current = gchatSelectedSpace || null;
+    gchatDmNamesRef_donna.current = gchatDmNames || {};
+  }, [gchatMessages, gchatSpaces, gchatSelectedSpace, gchatDmNames]);
 
 // Update Donna's session instructions with current screen context
   useEffect(() => {
     if (!isDonnaConnected) return;
-    const app = currentView.app;
-    let ctx = "You are Agent Donna, a witty and professional actuarial assistant to Siyabonga (Siya, pronounced See-yah).\n\n*** STRICT WAKE-WORD PROTOCOL ***\nYour audio stream is always open, but you are ASLEEP. You must ONLY wake up and respond if the user's sentence starts exactly with 'Hey Donna'.\n- If the user speaks without saying 'Hey Donna' first, you must output ABSOLUTELY NOTHING. YOU ARE FORBIDDEN FROM SAYING 'I can only respond to requests that begin with...'. Remain completely silent.\n- Do not explain the rule. Do not apologize. Just stay silent.\n- IMPORTANT: If the user says 'Hey Donna approve' or 'Hey Donna reject', this is handled locally by the system. YOU MUST OUTPUT ABSOLUTELY NOTHING. DO NOT ASK WHAT TO APPROVE. JUST REMAIN SILENT.\n- Once you fulfill a 'Hey Donna' request, go immediately back to sleep.\n\n*** LIVE DATA PROTOCOL (CRITICAL) ***\n- You have a 'Live Vision' of the Trello board provided in the context below.\n- When Siya asks 'What is at the top of my list?' or 'What cards are in the Sia bucket?', you MUST read the actual names from the Trello section below.\n- NEVER report an Email from the Gmail section as a Trello card.\n- If the Trello section shows 'Visible cards: 1. [Name]', say: 'At the top of your list is [Name].'\n- If the list is empty, say so. Do NOT assume you know what is there based on previous turns.\n\nWhen carrying out a request using your tools, you must always speak and verbally explain to Siya what you are doing. If you are simply navigating to an app or searching/fetching data, do NOT ask for approval. If you are creating, modifying, moving, or deleting data (e.g., saving a draft, moving a card), you MUST ask him to approve the action on his screen. Be concise. IMPORTANT: Always respond in English only.\n\n*** CALENDAR RULE ***\nWhen creating calendar events, you MUST calculate the EXACT target date using the 'Current date and time' provided below. You MUST output the 'date' parameter strictly in 'YYYY-MM-DD' format (e.g., '2026-03-15'). NEVER output words like 'today', 'tomorrow', 'Friday', or 'next week'. NEVER omit the date parameter.\n\n";
+const app = currentView.app;
+    let ctx = "You are Agent Donna, a witty and professional actuarial assistant to Siyabonga (Siya, pronounced See-yah).\n\n*** STRICT WAKE-WORD PROTOCOL ***\nYour audio stream is always open, but you are ASLEEP. You must ONLY wake up and respond if the user's sentence starts exactly with 'Hey Donna'.\n- If the user speaks without saying 'Hey Donna' first, you must output ABSOLUTELY NOTHING. YOU ARE FORBIDDEN FROM SAYING 'I can only respond to requests that begin with...'. Remain completely silent.\n- Do not explain the rule. Do not apologize. Just stay silent.\n- IMPORTANT: If the user says 'Hey Donna approve' or 'Hey Donna reject', this is handled locally by the system. YOU MUST OUTPUT ABSOLUTELY NOTHING. DO NOT ASK WHAT TO APPROVE. JUST REMAIN SILENT.\n- Once you fulfill a 'Hey Donna' request, go immediately back to sleep.\n\n*** LIVE DATA PROTOCOL (CRITICAL) ***\n- You have a 'Live Vision' of the Trello board provided in the context below.\n- When Siya asks 'What is at the top of my list?' or 'What cards are in the Sia bucket?', you MUST read the actual names from the Trello section below.\n- NEVER report an Email from the Gmail section as a Trello card.\n- If the Trello section shows 'Visible cards: 1. [Name]', say: 'At the top of your list is [Name].'\n- If the list is empty, say so. Do NOT assume you know what is there based on previous turns.\n\n*** GCHAT & HISTORY PROTOCOL (CRITICAL) ***\n- If Siya asks to read a message, check a chat, or asks what someone said, YOU ARE FORBIDDEN from asking for permission to fetch it.\n- DO NOT say 'I can fetch that for you.' DO NOT ask 'Would you like me to fetch the message?'.\n- You MUST immediately execute the 'gchat_read_history' tool. Do this silently without asking.\n- You can send GChat messages to anyone in your directory regardless of which app is currently on screen. If asked to send a message, do it immediately.\n- If Siya asks to 'start a chat' or 'message someone new', you MUST find their email using 'gmail_get_contacts' (if not already known) and then call 'gchat_start_direct_message' with the email. Tell him: 'I'm opening a new chat for you now.'\n\nWhen carrying out a request using your tools, you must always speak and verbally explain to Siya what you are doing. If you are simply navigating to an app or searching/fetching data, do NOT ask for approval. If you are creating, modifying, moving, or deleting data (e.g., saving a draft, moving a card), you MUST ask him to approve the action on his screen. Be concise. IMPORTANT: Always respond in English only.\n\n*** CALENDAR RULE ***\nWhen creating calendar events, you MUST calculate the EXACT target date using the 'Current date and time' provided below. You MUST output the 'date' parameter strictly in 'YYYY-MM-DD' format (e.g., '2026-03-15'). NEVER output words like 'today', 'tomorrow', 'Friday', or 'next week'. NEVER omit the date parameter.\n\n";
     const now = new Date();
     ctx += `Current date and time: ${now.toLocaleDateString("en-ZA", { timeZone: "Africa/Johannesburg", weekday: "long", year: "numeric", month: "long", day: "numeric" })}, ${now.toLocaleTimeString("en-ZA", { timeZone: "Africa/Johannesburg", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })}.\n`;
     ctx += `Current screen: ${app === "none" ? "Home / welcome screen" : app}.\n\n`;
@@ -2449,7 +3801,7 @@ seenGmailIdsRef,
           ctx += `Attachments: This email has 0 attachments.\n`;
         }
       } else if (gmailEmails?.length) {
-        ctx += `CURRENTLY VIEWING GMAIL INBOX (${gmailFolder}): ${gmailEmails.slice(0, 15).map((e, i) => {
+        ctx += `CURRENTLY VIEWING GMAIL INBOX (${gmailFolder}): ${gmailEmails.slice(0, 50).map((e, i) => {
           const attCount = e.attachments ? e.attachments.length : 0;
           const attNames = attCount > 0 ? e.attachments.map(a => a.name).join(", ") : "None";
           return `[${i + 1}] msgId:${e.id} | "${e.subject}" from ${e.fromName || e.from} | unread:${e.isUnread} | starred:${e.isStarred} | attachments:${attCount} (${attNames})`;
@@ -2479,10 +3831,26 @@ seenGmailIdsRef,
       ctx += `[DIRECTIVE: You are an expert data retriever. If asked for 'CR Review' or 'Sia Review', look at OBJECT_STORE.SIYA_-_REVIEW. If asked for 'Sia' or 'CR', look at OBJECT_STORE.SIYA. READ THE ENTRY_1 NAME ALOUD. NEVER SAY IT IS EMPTY IF DATA IS PRESENT ABOVE.]\n\n`;
     }
 
- // 🎯 GCHAT AWARENESS
+// 🎯 GCHAT AWARENESS (Global Directory)
+    if (gchatSpaces && gchatSpaces.length > 0) {
+      const chatList = gchatSpaces.map(s => {
+        const key = s.id || s.name;
+        const name = GCHAT_ID_MAP[s.displayName] || GCHAT_ID_MAP[key] || gchatDmNames?.[key] || s.displayName || "Unknown";
+        return `[Name: "${name}", ID: "${key}"]`;
+      }).slice(0, 40).join(", ");
+      ctx += `\nAVAILABLE GCHAT SPACES (GLOBAL): ${chatList}.\nDIRECTIVE: You can send messages to these people regardless of the current screen using the 'send_gchat_message' tool.\n`;
+    }
+
     if (app === "gchat") {
+      const viewName = showArchivedChats ? "ARCHIVED CHATS" : "INBOX";
       const spaceName = gchatSelectedSpace?.displayName || gchatDmNames?.[gchatSelectedSpace?.id] || "Unknown";
-      ctx += `\nCURRENTLY VIEWING GCHAT: "${spaceName}".\n`;
+      ctx += `\nCURRENTLY VIEWING GCHAT (${viewName}): "${spaceName}".\n`;
+      ctx += `UI STATE: "Direct Messages" list is ${dmsExpanded ? 'VISIBLE' : 'HIDDEN'}. "Spaces" list is ${spacesExpanded ? 'VISIBLE' : 'HIDDEN'}.\n`;
+      
+      if (showArchivedChats) {
+        ctx += `DIRECTIVE: You are currently viewing Archived Chats. If Siya asks to "go back to inbox" or "exit archive", you MUST call 'gchat_navigate_view' with view='inbox'. Do NOT call Gmail tools for this.\n`;
+      }
+
       if (gchatMessages?.length) {
         ctx += `Recent messages: ${gchatMessages.slice(-8).map(m => `${m.sender?.displayName || "Someone"}: "${(m.text || "").slice(0, 100)}"`).join("; ")}.\n`;
       }
@@ -2511,10 +3879,11 @@ seenGmailIdsRef,
         ctx += `Total Unread: ${totalNotifs}\n`;
         ctx += `- Gmail: ${counts.Gmail}\n`;
         ctx += `- GChat: ${counts.GChat}\n`;
-        ctx += `- Trello: ${counts.Trello}\n`;
+    ctx += `- Trello: ${counts.Trello}\n`;
         ctx += `- Calendar: ${counts.Calendar}\n`;
         ctx += `- WhatsApp: ${counts.WhatsApp}\n`;
-        ctx += `Latest alerts: ${notifications.slice(0, 4).map(n => `"${n.title || n.sender || 'Alert'}": ${(n.text || n.message || n.snippet || "").slice(0, 50)}`).join(' | ')}.\n`;
+        ctx += `Latest alerts: ${notifications.slice(0, 10).map(n => `[ID: ${n.id}] "${n.title || n.sender || 'Alert'}": ${(n.text || n.message || n.snippet || "").slice(0, 50)}`).join(' | ')}.\n`;
+        ctx += `DIRECTIVE: If Siya asks to read an email from these alerts, you MUST use the ID provided in brackets as the messageId parameter.\n`;
       } else {
         ctx += `\n*** LIVE NOTIFICATION COUNTS ***\nSiya has exactly 0 unread notifications right now.\n`;
       }
@@ -2580,7 +3949,8 @@ seenGmailIdsRef,
     trelloBuckets, 
     gmailFolder, 
     isDonnaSpeaking,
-    notifications
+    notifications,
+    showArchivedChats
   ]);
 const chatTextareaRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -3012,14 +4382,111 @@ if (donnaPendingAction) {
   else if (actionName === "gmail_delete_bulk") finalTranscription = `I will move ${emailTargetText} to the trash. Please approve the action on your screen.`;
   else if (actionName === "gmail_save_draft") finalTranscription = "I've prepared that draft for your review. Please approve the action on your screen.";
 else if (actionName === "trello_move_card") finalTranscription = "I will move the Trello card. Please approve the action on your screen.";
-  else if (actionName === "calendar_create" || actionName === "calendar_create_event") {
-    const title = args.summary || "New Meeting";
-    const date = args.date;
-    const time = args.startTime ? ` at ${args.startTime}` : "";
-    finalTranscription = `Donna wants to schedule: "${title}" on ${date}${time}. Please approve on your screen.`;
-  } else if (actionName === "calendar_delete") {
-    const title = args.eventTitle || "this event";
-    finalTranscription = `Donna wants to delete the calendar event: "${title}". Please approve on your screen.`;
+else if (actionName === "calendar_create" || actionName === "calendar_create_event") {
+    const title = args.summary || "New Meeting";
+    const date = args.date;
+    const time = args.startTime ? ` at ${args.startTime}` : "";
+    finalTranscription = `Donna wants to schedule: "${title}" on ${date}${time}. Please approve on your screen.`;
+} else if (actionName === "calendar_delete") {
+    const title = args.eventTitle || "this event";
+    finalTranscription = `Donna wants to delete the calendar event: "${title}". Please approve on your screen.`;
+} else if (actionName === "send_gchat_message" || actionName === "gchat_mute_space" || actionName === "gchat_get_messages" || actionName === "gchat_read_history" || actionName === "gchat_delete_space" || actionName === "gchat_archive_space" || actionName === "gchat_unarchive_space") {
+    let targetId = args.spaceId;
+    let targetName = args.spaceName || "";
+    
+    const liveSpaces = Array.isArray(gchatSpacesRef.current) ? gchatSpacesRef.current : [];
+    const liveSelectedSpace = gchatSelectedSpaceRef_donna.current;
+    const liveDmNames = gchatDmNamesRef_donna.current || {};
+
+    if (targetId && !String(targetId).includes("spaces/")) {
+      targetName = targetId;
+      targetId = null;
+    }
+    
+    const findSpaceId = (searchQuery) => {
+        if (!searchQuery) return null;
+        const cleanQuery = String(searchQuery).toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+        const noiseWords = ['delete','remove','read','messages','from','chat','history','get','the','what','last','message','whats','space','with','donna','tell','me','send','to'];
+        const words = cleanQuery.split(/\s+/).filter(w => w.length > 2 && !noiseWords.includes(w));
+
+        if (words.length === 0 && cleanQuery.length < 2) return null;
+
+        const isMatch = (rawName) => {
+            if (!rawName) return false;
+            const n = String(rawName).toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
+            if (n.length < 2 || n === "direct message") return false;
+            if (n === cleanQuery || n.includes(cleanQuery) || cleanQuery.includes(n)) return true;
+            if (words.length > 0 && words.some(w => n.includes(w))) return true;
+            return false;
+        };
+
+        for (const [key, val] of Object.entries(GCHAT_ID_MAP || {})) {
+            if (String(key).includes("spaces/") && (isMatch(val) || isMatch(key))) return { id: key, name: val };
+            if (String(val).includes("spaces/") && (isMatch(val) || isMatch(key))) return { id: val, name: key };
+        }
+        for (const [key, val] of Object.entries(liveDmNames)) {
+            if (isMatch(val) || isMatch(key)) return { id: String(key).includes("spaces/") ? key : val, name: String(key).includes("spaces/") ? val : key };
+        }
+        for (const s of liveSpaces) {
+            const sid = s.id || s.name;
+            const namesToTest = [GCHAT_ID_MAP[s.displayName], GCHAT_ID_MAP[sid], liveDmNames[sid], s.displayName].filter(Boolean);
+            for (const nameToTest of namesToTest) {
+                if (isMatch(nameToTest)) return { id: sid, name: nameToTest };
+            }
+        }
+        return null;
+    };
+
+    if (!targetId && targetName) {
+      const match = findSpaceId(targetName);
+      if (match) { targetId = match.id; targetName = match.name; }
+    }
+
+    if (!targetId && (transcriptionRef.current || donnaTranscription)) {
+      const match = findSpaceId(transcriptionRef.current || donnaTranscription);
+      if (match) { targetId = match.id; targetName = match.name; }
+    }
+    
+ if (!targetId && liveSelectedSpace) {
+      targetId = liveSelectedSpace.id || liveSelectedSpace.name;
+      targetName = GCHAT_ID_MAP[liveSelectedSpace.displayName] || GCHAT_ID_MAP[targetId] || liveDmNames[targetId] || liveSelectedSpace.displayName;
+    }
+
+    // 🚀 ARCHITECT'S NAME RECOVERY: If LLM provided an ID but no Name, find it now!
+    if (targetId && (!targetName || targetName === "undefined" || targetName.toLowerCase() === "direct message")) {
+      let recoveredName = GCHAT_ID_MAP[targetId] || liveDmNames[targetId];
+      if (!recoveredName) {
+        const spaceMatch = liveSpaces.find(s => s.id === targetId || s.name === targetId);
+        if (spaceMatch) {
+          recoveredName = GCHAT_ID_MAP[spaceMatch.displayName] || spaceMatch.displayName;
+        }
+      }
+      if (!recoveredName && liveSelectedSpace && (liveSelectedSpace.id === targetId || liveSelectedSpace.name === targetId)) {
+        recoveredName = GCHAT_ID_MAP[liveSelectedSpace.displayName] || liveSelectedSpace.displayName;
+      }
+      if (recoveredName) targetName = recoveredName;
+    }
+    
+    const displayTargetName = targetName ? targetName.split("<")[0].trim() : "";
+    let chatLabel = "this chat";
+    if (displayTargetName && displayTargetName.toLowerCase() !== "direct message" && displayTargetName.toLowerCase() !== "this chat" && !displayTargetName.startsWith("spaces/")) {
+        chatLabel = `the "${displayTargetName}" chat`;
+    }
+    
+    if (actionName === "send_gchat_message") {
+      finalTranscription = `I will send: "${args.text}" to ${chatLabel}. Please approve on your screen.`;
+    } else if (actionName === "gchat_mute_space") {
+      const isMuting = args.mute !== false;
+      finalTranscription = `I will ${isMuting ? 'mute' : 'unmute'} ${chatLabel} for you. Please approve the action on your screen.`;
+ } else if (actionName === "gchat_delete_space") {
+      finalTranscription = `I will delete ${chatLabel}. Please approve the action on your screen.`;
+    } else if (actionName === "gchat_archive_space") {
+      finalTranscription = `I will archive ${chatLabel}. Please approve the action on your screen.`;
+    } else if (actionName === "gchat_unarchive_space") {
+      finalTranscription = `I will unarchive ${chatLabel}. Please approve the action on your screen.`;
+    } else {
+      finalTranscription = `I will read the messages from ${chatLabel} for you. Please approve the action on your screen.`;
+    }
   }
 } else if (donnaTranscription) {
   const lowerTrans = donnaTranscription.toLowerCase();
@@ -3295,9 +4762,13 @@ return (
         </div>
       </div>
 
-      <RightPanel
+ <RightPanel
         activeTrelloCardId={trelloCard?.id}
-        gchatSpaces={gchatSpaces}
+        gchatSpaces={(gchatSpaces || []).filter(s => {
+          const id = s.id || s.name;
+          // 🛡️ THE FIX: Only display chats that have an active unread marker in the state map
+          return unreadGchatSpaces && unreadGchatSpaces[id];
+        })}
         gchatLoading={gchatLoading}
         gchatError={gchatError}
         gchatDmNames={gchatDmNames}

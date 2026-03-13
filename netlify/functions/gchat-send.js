@@ -6,11 +6,11 @@ export async function handler(event) {
       return json(405, { ok: false, error: "POST only" });
     }
 
-    const body = safeJson(event.body);
-    let space = String(body?.space || "").trim();
+  const body = safeJson(event.body);
+    let space = String(body?.space || body?.spaceId || "").trim();
     const text = String(body?.text || "").trim();
 
-    if (!space) return json(400, { ok: false, error: "Missing body.space (e.g. spaces/XXXX)" });
+    if (!space) return json(400, { ok: false, error: "Missing body.space or body.spaceId (e.g. spaces/XXXX)" });
     if (!text) return json(400, { ok: false, error: "Missing body.text" });
 
     // ✅ HARDEN SPACE INPUT

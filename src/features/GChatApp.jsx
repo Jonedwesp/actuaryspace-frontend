@@ -89,10 +89,12 @@ export function GChatApp({
   pendingReactionsRef,
   myReactionsRef,
   myEditsRef,
-  // --- Handlers ---
+// --- Handlers ---
   handleStartChat,
   handleDeleteGChatMessage,
   handleUpdateGChatMessage,
+  handleArchiveChat,
+  handleUnarchiveChat,
   toggleReaction,
 }) {
   // 🛡️ FIXED NAME SNIFFER: Uses correct scope variables to prevent blank screen crash
@@ -405,11 +407,7 @@ export function GChatApp({
                       }}
                       onMouseEnter={e => e.currentTarget.style.background = "#f1f3f4"}
                       onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setShowArchivedChats(false);
-                      }}
+                      onClick={() => setShowArchivedChats(false)}
                     >
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
                       Back to Inbox
@@ -578,7 +576,7 @@ export function GChatApp({
                         </svg>
                       )}
 
-        <GChatSidebarMenu
+      <GChatSidebarMenu
               sid={sid}
               s={s}
               showArchivedChats={showArchivedChats}
@@ -592,6 +590,8 @@ export function GChatApp({
               gchatSelectedSpace={gchatSelectedSpace}
               setGchatSelectedSpace={setGchatSelectedSpace}
               setChatToDelete={setChatToDelete}
+              handleArchiveChat={handleArchiveChat}
+              handleUnarchiveChat={handleUnarchiveChat}
             />
                     </div>
                   </button>
@@ -600,11 +600,11 @@ export function GChatApp({
 
               return (
                 <>
-                  {/* Direct Messages Section */}
+          {/* Direct Messages Section */}
                   {dms.length > 0 && (
                     <>
                       <div 
-                        onClick={() => setDmsExpanded(!dmsExpanded)} 
+                        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setDmsExpanded(!dmsExpanded); }} 
                         style={{ display: "flex", alignItems: "center", padding: "8px 12px 4px 12px", cursor: "pointer", color: "#5f6368", fontSize: "12px", fontWeight: 600, letterSpacing: "0.8px", userSelect: "none" }}
                       >
                         <span style={{ flex: 1, textTransform: "uppercase" }}>Direct messages</span>
@@ -616,11 +616,11 @@ export function GChatApp({
                     </>
                   )}
 
-                  {/* Spaces Section */}
+              {/* Spaces Section */}
                   {spaces.length > 0 && (
                     <>
                       <div 
-                        onClick={() => setSpacesExpanded(!spacesExpanded)} 
+                        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setSpacesExpanded(!spacesExpanded); }} 
                         style={{ display: "flex", alignItems: "center", padding: "16px 12px 4px 12px", cursor: "pointer", color: "#5f6368", fontSize: "12px", fontWeight: 600, letterSpacing: "0.8px", userSelect: "none" }}
                       >
                         <span style={{ flex: 1, textTransform: "uppercase" }}>Spaces</span>
@@ -636,7 +636,7 @@ export function GChatApp({
             })()}
           </div>
 
-       {/* 📥 ARCHIVED CHATS BUTTON (Bottom when in Inbox View) */}
+   {/* 📥 ARCHIVED CHATS BUTTON (Bottom when in Inbox View) */}
           {!showArchivedChats && (
             <div style={{ width: "100%", paddingTop: "16px", marginTop: "auto" }}>
               <button 
@@ -658,11 +658,7 @@ export function GChatApp({
                 }}
                 onMouseEnter={e => e.currentTarget.style.background = "#f1f3f4"}
                 onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setShowArchivedChats(true);
-                }}
+                onClick={() => setShowArchivedChats(true)}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="21 8 21 21 3 21 3 8"></polyline>

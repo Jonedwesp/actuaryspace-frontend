@@ -17,13 +17,18 @@ export const handler = async (event) => {
       let data = "";
       res.on("data", c => data += c);
       res.on("end", () => {
-        if (res.statusCode >= 400) {
-          resolve({ statusCode: res.statusCode, body: JSON.stringify({ error: data }) });
-        } else {
-          // Success! Trello returns the new comment action object.
-          resolve({ statusCode: 200, body: data });
-        }
-      });
+        if (res.statusCode >= 400) {
+          resolve({ statusCode: res.statusCode, body: JSON.stringify({ ok: false, error: data }) });
+        } else {
+          // Success! Parse Trello response and wrap it in our standard 'ok' field
+          try {
+            const parsed = JSON.parse(data);
+            resolve({ statusCode: 200, body: JSON.stringify({ ok: true, action: parsed }) });
+          } catch (e) {
+            resolve({ statusCode: 200, body: JSON.stringify({ ok: true, raw: data }) });
+          }
+        }
+      });
     });
     req.on("error", (e) => resolve({ statusCode: 500, body: JSON.stringify({ error: e.message }) }));
     req.end();

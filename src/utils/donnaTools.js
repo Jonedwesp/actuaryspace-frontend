@@ -1,12 +1,12 @@
 // src/utils/donnaTools.js
 
 export const DONNA_TOOLS = [
-  // navigate_to_app — auto-executed without approval
+ // navigate_to_app — auto-executed without approval
   {
     "type": "function",
     "function": {
       "name": "navigate_to_app",
-      "description": "Open or close a specific app or screen. Use this when the user asks to open or close Gmail, Google Chat, Calendar, Trello, the Productivity dashboard, or a specific Trello card by name. Use 'none' to close the current app and return to the home screen.",
+      "description": "Open or close a specific app or screen. Use this when the user asks to open or close Gmail, Google Chat, Calendar, Trello, the Productivity dashboard, or a specific Trello card by name. Use this to 'start a new chat' or 'open a new message' by setting app to 'gchat'. Use 'none' to close the current app and return to the home screen.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -140,7 +140,7 @@ export const DONNA_TOOLS = [
     }
   },
 
-  // gchat-delete-spaces.js
+ // gchat-delete-spaces.js
   {
     "type": "function",
     "function": {
@@ -148,8 +148,108 @@ export const DONNA_TOOLS = [
       "description": "Deletes or hides a Google Chat space or direct message thread. Use this when the user asks to delete a chat.",
       "parameters": {
         "type": "object",
-        "properties": { "spaceId": { "type": "string", "description": "The Google Chat space ID to delete." } },
+        "properties": { 
+          "spaceId": { "type": "string", "description": "The name of the person/space (e.g. 'Jonathan') or the Google Chat space ID." } 
+        },
         "required": ["spaceId"]
+      }
+    }
+  },
+
+// gchat_archive_space
+  {
+    "type": "function",
+    "function": {
+      "name": "gchat_archive_space",
+      "description": "Archives a specific Google Chat space or direct message, moving it out of the main inbox. Use this when the user asks to archive a chat.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "spaceName": { "type": "string", "description": "The name of the person or space to archive (e.g., 'Jonathan')." }
+        },
+        "required": ["spaceName"]
+      }
+    }
+  },
+
+// gchat_unarchive_space
+  {
+    "type": "function",
+    "function": {
+      "name": "gchat_unarchive_space",
+      "description": "Unarchives a specific Google Chat space or direct message, returning it to the main inbox. Use this when the user asks to unarchive or restore a chat.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "spaceName": { "type": "string", "description": "The name of the person or space to unarchive (e.g., 'Jonathan')." }
+        },
+        "required": ["spaceName"]
+      }
+    }
+  },
+
+// gchat_navigate_view
+  {
+    "type": "function",
+    "function": {
+      "name": "gchat_navigate_view",
+      "description": "Navigates the Google Chat interface to show either the 'inbox' (active chats) or the 'archive' (archived chats). Use this specifically when you are in GChat and the user asks to 'go back to inbox' or 'open archives'. DO NOT use Gmail tools for this.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "view": {
+            "type": "string",
+            "enum": ["inbox", "archive"],
+            "description": "The view to navigate to. Use 'archive' to see archived chats, and 'inbox' to return to the main chat list."
+          }
+        },
+        "required": ["view"]
+      }
+    }
+  },
+
+  // gchat_toggle_dropdown
+  {
+    "type": "function",
+    "function": {
+      "name": "gchat_toggle_dropdown",
+      "description": "Shows or hides the 'Direct Messages' or 'Spaces' lists in the Google Chat sidebar.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "section": {
+            "type": "string",
+            "enum": ["direct messages", "spaces"],
+            "description": "The sidebar section to toggle."
+          },
+          "expanded": {
+            "type": "boolean",
+            "description": "Set to true to show/expand the list, or false to hide/collapse it."
+          }
+        },
+        "required": ["section", "expanded"]
+      }
+    }
+  },
+
+  // gchat_mark_unread
+  {
+    "type": "function",
+    "function": {
+      "name": "gchat_mark_unread",
+      "description": "Marks a Google Chat conversation as unread, forcing the blue notification badge to appear. This action requires user approval.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "spaceName": {
+            "type": "string",
+            "description": "The name of the person or chat to mark as unread (e.g. 'Jonathan', 'Bonisa')."
+          },
+          "spaceId": {
+            "type": "string",
+            "description": "Optional. The specific Google Chat space ID if known."
+          }
+        }
       }
     }
   },
@@ -182,36 +282,36 @@ export const DONNA_TOOLS = [
     }
   },
 
-  // gchat-mute.js
-  {
-    "type": "function",
-    "function": {
-      "name": "gchat_mute_space",
-      "description": "Mutes or unmutes a specific Google Chat space or direct message. Use this when the user asks to mute a chat, silence a conversation, or unmute someone.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "spaceId": { "type": "string", "description": "The Google Chat space ID to mute or unmute. If the user doesn't specify, you can omit this to target the currently open chat." },
-          "mute": { "type": "boolean", "description": "True to mute the space, false to unmute it." }
-        },
-        "required": ["mute"]
-      }
-    }
-  },
-
-  // gchat-messages.js
+// gchat-mute.js
   {
     "type": "function",
     "function": {
-      "name": "gchat_get_messages",
-      "description": "Fetches the message history for a specific Google Chat space.",
+      "name": "gchat_mute_space",
+      "description": "Mutes or unmutes a specific Google Chat space or direct message. Use this when the user asks to mute a chat, silence a conversation, or unmute someone.",
       "parameters": {
         "type": "object",
         "properties": {
-          "space": { "type": "string", "description": "The Google Chat space ID." },
-          "before": { "type": "string", "description": "Optional. An ISO timestamp to fetch messages older than this date." }
+          "spaceName": { "type": "string", "description": "The name of the person or space (e.g. 'Jonathan', 'Bonisa')." },
+          "mute": { "type": "boolean", "description": "True to mute the space, false to unmute it." }
         },
-        "required": ["space"]
+        "required": ["mute"]
+      }
+    }
+  },
+
+ // gchat_read_history
+  {
+    "type": "function",
+    "function": {
+      "name": "gchat_read_history",
+      "description": "Reads the last message or history from a specific person or chat. ALWAYS call this when Siya asks 'What did [Name] say?' or 'Check my chat with [Name]'.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "spaceName": { "type": "string", "description": "The name of the person or chat to read (e.g. 'Jonathan', 'Bonisa', 'Repository')." },
+          "spaceId": { "type": "string", "description": "Optional. The unique Google Chat space ID if available in context." }
+        },
+        "required": ["spaceName"]
       }
     }
   },
@@ -233,22 +333,23 @@ export const DONNA_TOOLS = [
     }
   },
 
-  // gchat-send.js
-  {
-    "type": "function",
-    "function": {
-      "name": "gchat_send_message",
-      "description": "Sends a text message to a Google Chat space or direct message.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "space": { "type": "string", "description": "The Google Chat space ID or the exact name of the space/person to send the message to." },
-          "text": { "type": "string", "description": "The actual text content of the message to send." }
-        },
-        "required": ["space", "text"]
-      }
-    }
-  },
+  // send_gchat_message
+  {
+    "type": "function",
+    "function": {
+      "name": "send_gchat_message",
+      "description": "Sends a text message to a Google Chat space or direct message. This requires user approval.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "space": { "type": "string", "description": "Optional. The unique Google Chat space ID (e.g., 'spaces/AAA...'). Use this if available in context." },
+          "spaceName": { "type": "string", "description": "The name of the person or space (e.g. 'Jonathan', 'Bonisa'). Used for resolution if space ID is missing." },
+          "text": { "type": "string", "description": "The content of the message to send." }
+        },
+        "required": ["spaceName", "text"]
+      }
+    }
+  },
 
   // gchat-spaces.js
   {

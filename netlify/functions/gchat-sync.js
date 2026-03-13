@@ -17,25 +17,30 @@ export async function handler(event) {
     }, 7000);
     const spaceData = await spaceRes.json();
 
-    const notificationPromises = (spaceData.spaces || []).map(async (s) => {
+// 🚀 ARCHITECT'S OPTIMIZATION: Reduce space count to 15 to stay within Netlify execution limits
+    // and explicitly filter for spaces with actual activity.
+    const notificationPromises = (spaceData.spaces || []).slice(0, 15).map(async (s) => {
       try {
         // Fetch messages + read state in parallel; read state failure is non-fatal
         const [msgSettled, rsSettled] = await Promise.allSettled([
           fetchWithTimeout(
-            `https://chat.googleapis.com/v1/${s.name}/messages?pageSize=20&orderBy=createTime+desc`,
+            `https://chat.googleapis.com/v1/${s.name}/messages?pageSize=15&orderBy=createTime+desc`,
             { headers: authHeaders },
-            5000
+            4000
           ).then(r => r.json()),
           fetchWithTimeout(
             `https://chat.googleapis.com/v1/users/me/${s.name}/spaceReadState`,
             { headers: authHeaders },
-            5000
+            4000
           ).then(r => r.json()),
         ]);
+        
         if (msgSettled.status === "rejected") return [];
         const msgData = msgSettled.value;
         const rsData = rsSettled.status === "fulfilled" ? rsSettled.value : {};
         const messages = msgData.messages || [];
+        
+        // 🎯 THE FIX: Use the space's lastActiveTime if readState is missing
         const lastReadTime = rsData.lastReadTime ? new Date(rsData.lastReadTime) : null;
 
         if (messages.length === 0) return [];

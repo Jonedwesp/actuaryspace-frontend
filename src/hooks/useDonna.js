@@ -10,6 +10,8 @@ export function useDonna({
   onFunctionCall,
   onSpeechStart,
   onError,
+  // 🛡️ ARCHITECT'S FIX: Accept the ignore ref from App.jsx
+  ignoreNextDonnaRef,
 }) {
   const [isConnected, setIsConnected] = useState(false);
   const pcRef = useRef(null);
@@ -19,6 +21,19 @@ export function useDonna({
   const lastUserItemIdRef = useRef(null);
   const audioAnalyserRef = useRef(null);
   const silenceRafRef = useRef(null);
+
+  // 🛡️ ARCHITECT'S SHIELD: Prevents background pollers from overwriting Donna's active Trello changes
+  const pendingDonnaLabelsRef = useRef({}); // Format: { [cardId]: { labelId, expires } }
+
+  // 🚀 Helper to manually lock a card's labels or fields for 45 seconds
+  const markLabelPending = useCallback((cardId, labelId, fieldName = 'Priority') => {
+    pendingDonnaLabelsRef.current[cardId] = {
+      labelId,    // This can be a label ID or a field value (e.g., "Urgent")
+      fieldName,  // e.g., "Priority"
+      expires: Date.now() + 45000 
+    };
+    console.log(`[Shield] Card ${cardId} (${fieldName}) is now protected for 45s`);
+  }, []);
 
   // Keep callbacks and config current without causing reconnects
   const callbacksRef = useRef({});
@@ -131,8 +146,9 @@ export function useDonna({
             input_audio_transcription: { model: "gpt-4o-mini-transcribe" },
             turn_detection: {
               type: "server_vad",
-              threshold: 0.96,
-              silence_duration_ms: 1000,
+              threshold: 0.5, // 🚀 ARCHITECT'S FIX: Lower threshold to make her less jumpy/sensitive to clicks
+              prefix_padding_ms: 300,
+              silence_duration_ms: 1500, // 🚀 Wait longer (1.5s) before assuming Siya is done speaking
               create_response: false, // 🛡️ NEVER auto-respond — we manually trigger after wake-word check
             },
             tools: flatTools,
@@ -162,12 +178,19 @@ export function useDonna({
         }
 
         if (t === "conversation.item.input_audio_transcription.completed") {
+          // 🛡️ ECHO SHIELD: If Donna is currently responding or we just approved an action, 
+          // ignore any transcriptions to prevent loops.
+          if (ignoreNextDonnaRef?.current) return;
           cb.onTranscription?.(event.transcript);
         } else if (t === "response.audio_transcript.delta" || t === "response.text.delta") {
-          // Use response_id to detect when a genuinely new response starts
+          // 🚀 ARCHITECT'S DELTA LOCK:
+          // Ensure we don't mix transcript deltas from the server (which can happen in text-only mode)
+          const delta = event.delta || event.text;
+          if (!delta) return;
+
           const isNew = event.response_id !== lastResponseIdRef.current;
           lastResponseIdRef.current = event.response_id;
-          cb.onResponseDelta?.(event.delta, isNew);
+          cb.onResponseDelta?.(delta, isNew);
         } else if (t === "response.function_call_arguments.done") {
           let args = {};
           try { args = JSON.parse(event.arguments); } catch {}
@@ -303,6 +326,13 @@ export function useDonna({
     }
   }, []);
 
+  // 🚀 ARCHITECT'S KILL SWITCH: Stops Donna's current thought and audio immediately
+  const cancelResponse = useCallback(() => {
+    if (dcRef.current?.readyState === "open") {
+      dcRef.current.send(JSON.stringify({ type: "response.cancel" }));
+    }
+  }, []);
+
   // 🗑️ Delete the last user audio item — called when no wake word detected (keeps conversation clean)
   const deleteLastUserItem = useCallback(() => {
     const itemId = lastUserItemIdRef.current;
@@ -323,7 +353,11 @@ export function useDonna({
     sendToolResponse,
     sendText,
     sendResponseCreate,
+    cancelResponse, 
     deleteLastUserItem,
+    // 🛡️ NEW: Return the shield and the marker so useTrello and App.jsx can see them
+    pendingDonnaLabelsRef,
+    markLabelPending,
     pcRef,
     dcRef,
   };

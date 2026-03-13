@@ -2,7 +2,8 @@ import { useState, useRef, useEffect } from "react";
 import { ensureBadgeTypes } from "../utils/trelloUtils.js";
 import { LIVE_TRELLO_AVATARS } from "../utils/avatarUtils.js";
 
-export function useTrello({ currentView, setCurrentView }) {
+// 🚀 ARCHITECT'S FIX: Accept pendingDonnaLabelsRef to protect labels from rubber-banding
+export function useTrello({ currentView, setCurrentView, pendingDonnaLabelsRef }) {
 
   useEffect(() => {
     fetch("/.netlify/functions/trello-members")
@@ -176,7 +177,61 @@ export function useTrello({ currentView, setCurrentView }) {
   // Receive polled data from Right Panel
   useEffect(() => {
     function handlePoll(e) {
-      _setTrelloBuckets(e.detail);
+      // 🚀 ARCHITECT'S NUCLEAR SHIELD: Protect immune cards from ANY poll overwrite
+      _setTrelloBuckets(prevBuckets => {
+        const polledBuckets = e.detail;
+        if (!Array.isArray(prevBuckets) || prevBuckets.length === 0) return polledBuckets;
+
+        return polledBuckets.map(polledBucket => {
+          const prevBucket = prevBuckets.find(b => b.name === polledBucket.name);
+          return {
+            ...polledBucket,
+            cards: polledBucket.cards.map(polledCard => {
+              // 🛡️ 1. MOVEMENT IMMUNITY (Existing logic)
+              const immunityExpiry = window.trelloImmunityMap?.get(polledCard.id);
+              const isImmune = immunityExpiry && immunityExpiry > Date.now();
+              
+              // 🛡️ 2. DONNA LABEL SHIELD: Check if Donna is currently protecting labels for this card
+              const donnaShield = pendingDonnaLabelsRef?.current?.[polledCard.id];
+              const isDonnaProtected = donnaShield && donnaShield.expires > Date.now();
+
+              if (isImmune) {
+                const existingCard = prevBucket?.cards?.find(c => c.id === polledCard.id);
+                console.log(`[Shield] Protecting immune card: ${polledCard.name || polledCard.title}`);
+                return existingCard || polledCard;
+              }
+
+              if (isDonnaProtected) {
+                console.log(`[Donna Shield] Force-injecting shielded values into polled data for ${polledCard.name}`);
+                
+                // 🚀 ARCHITECT'S MULTI-SHIELD: Protect both Labels AND Custom Fields
+                const updatedCFs = { 
+                  ...(polledCard.customFields || {}),
+                  // If the shield contains a string (the Priority/Status value), force it back in
+                  ...(typeof donnaShield.labelId === 'string' ? { [donnaShield.fieldName || 'Priority']: donnaShield.labelId } : {})
+                };
+
+                const otherBadges = (polledCard.badges || []).filter(b => !b.text.includes(donnaShield.fieldName || 'Priority'));
+
+                return {
+                  ...polledCard,
+                  customFields: updatedCFs,
+                  // Re-inject the label if it was a label ID, otherwise just keep existing labels
+                  idLabels: typeof donnaShield.labelId === 'string' 
+                    ? (polledCard.idLabels || []) 
+                    : Array.from(new Set([...(polledCard.idLabels || []), donnaShield.labelId])),
+                  badges: ensureBadgeTypes([
+                    ...otherBadges, 
+                    { text: `${donnaShield.fieldName || 'Priority'}: ${donnaShield.labelId}`, isBottom: true }
+                  ])
+                };
+              }
+
+              return polledCard;
+            })
+          };
+        });
+      });
     }
     window.addEventListener("trelloPolled", handlePoll);
     return () => window.removeEventListener("trelloPolled", handlePoll);
@@ -208,57 +263,67 @@ export function useTrello({ currentView, setCurrentView }) {
   }, []);
 
   // Sync open card with bucket state
-  useEffect(() => {
-    if (!trelloCard?.id) return;
+  useEffect(() => {
+    if (!trelloCard?.id) return;
 
-    let fresh = null;
-    for (const b of trelloBuckets) {
-      const hit = (b.cards || []).find(x => x.id === trelloCard.id);
-      if (hit) { fresh = hit; break; }
-    }
-    if (!fresh) return;
+    let fresh = null;
+    for (const b of trelloBuckets) {
+      const hit = (b.cards || []).find(x => x.id === trelloCard.id);
+      if (hit) { fresh = hit; break; }
+    }
+    if (!fresh) return;
 
-    const now = Date.now();
-    const pend = pendingCFRef.current.get(trelloCard.id) || {};
-    const isPending = (field) => pend[field] && pend[field] > now;
+    const now = Date.now();
+    const pend = pendingCFRef.current.get(trelloCard.id) || {};
+    const isPending = (field) => pend[field] && pend[field] > now;
 
-    const oldCF = JSON.stringify(trelloCard.customFields || {});
-    const newCF = JSON.stringify(fresh.customFields || {});
-    const oldLabels = JSON.stringify(trelloCard.labels || []);
-    const newLabels = JSON.stringify(fresh.labels || []);
-    const oldDesc = trelloCard.description || "";
-    const newDesc = fresh.description || "";
-    const oldMembers = JSON.stringify(trelloCard.members || []);
-    const newMembers = JSON.stringify(fresh.people || []);
+    const oldCF = JSON.stringify(trelloCard.customFields || {});
+    const newCF = JSON.stringify(fresh.customFields || {});
+    const oldLabels = JSON.stringify(trelloCard.labels || []);
+    const newLabels = JSON.stringify(fresh.labels || []);
+    const oldDesc = trelloCard.description || "";
+    const newDesc = fresh.description || "";
+    
+    // 🛡️ MEMBER ARCHITECTURE FIX: Compare local members (trelloCard.members) against 
+    // incoming people (fresh.people) to detect server syncs.
+    const oldMembers = JSON.stringify(trelloCard.members || []);
+    const newMembers = JSON.stringify(fresh.people || []);
 
-    if (oldCF !== newCF || oldLabels !== newLabels || oldDesc !== newDesc || oldMembers !== newMembers) {
-      setTrelloCard(prev => {
-        const mergedCF = { ...fresh.customFields };
-        const mergedMembers = isPending("Members") ? prev.members : (fresh.people || []);
-        if (isPending("Priority"))      mergedCF.Priority      = prev.customFields.Priority;
-        if (isPending("Status"))        mergedCF.Status        = prev.customFields.Status;
-        if (isPending("Active"))        mergedCF.Active        = prev.customFields.Active;
-        if (isPending("Duration"))      mergedCF.Duration      = prev.customFields.Duration;
-        if (isPending("TimerStart"))    mergedCF.TimerStart    = prev.customFields.TimerStart;
-        if (isPending("WorkDuration"))  mergedCF.WorkDuration  = prev.customFields.WorkDuration;
-        if (isPending("WorkTimerStart")) mergedCF.WorkTimerStart = prev.customFields.WorkTimerStart;
-        if (isPending("WorkLog"))       mergedCF.WorkLog       = prev.customFields.WorkLog;
-        return {
-          ...prev,
-          labels: fresh.labels,
-          members: mergedMembers,
-          description: descEditing ? prev.description : newDesc,
-          customFields: mergedCF,
-          badges: ensureBadgeTypes([
-            ...(mergedCF.Priority ? [{text: `Priority: ${mergedCF.Priority}`, isBottom: true}] : []),
-            ...(mergedCF.Status   ? [{text: `Status: ${mergedCF.Status}`,     isBottom: true}] : []),
-            ...(mergedCF.Active   ? [{text: `Active: ${mergedCF.Active}`,     isBottom: true}] : []),
-            ...(fresh.labels || []).map(l => ({text: l, isBottom: false}))
-          ])
-        };
-      });
-    }
-  }, [trelloBuckets]);
+    if (oldCF !== newCF || oldLabels !== newLabels || oldDesc !== newDesc || oldMembers !== newMembers) {
+      setTrelloCard(prev => {
+        if (!prev) return null;
+        
+        const mergedCF = { ...fresh.customFields };
+        
+        // 🚀 THE LOCK: If a member update is in flight (isPending), discard the background 
+        // poll data for the member list to prevent UI rubber-banding.
+        const mergedMembers = isPending("Members") ? prev.members : (fresh.people || []);
+        
+        if (isPending("Priority"))      mergedCF.Priority      = prev.customFields?.Priority;
+        if (isPending("Status"))        mergedCF.Status        = prev.customFields?.Status;
+        if (isPending("Active"))        mergedCF.Active        = prev.customFields?.Active;
+        if (isPending("Duration"))      mergedCF.Duration      = prev.customFields?.Duration;
+        if (isPending("TimerStart"))    mergedCF.TimerStart    = prev.customFields?.TimerStart;
+        if (isPending("WorkDuration"))  mergedCF.WorkDuration  = prev.customFields?.WorkDuration;
+        if (isPending("WorkTimerStart")) mergedCF.WorkTimerStart = prev.customFields?.WorkTimerStart;
+        if (isPending("WorkLog"))       mergedCF.WorkLog       = prev.customFields?.WorkLog;
+        
+        return {
+          ...prev,
+          labels: fresh.labels,
+          members: mergedMembers,
+          description: descEditing ? prev.description : newDesc,
+          customFields: mergedCF,
+          badges: ensureBadgeTypes([
+            ...(mergedCF.Priority ? [{text: `Priority: ${mergedCF.Priority}`, isBottom: true}] : []),
+            ...(mergedCF.Status   ? [{text: `Status: ${mergedCF.Status}`,     isBottom: true}] : []),
+            ...(mergedCF.Active   ? [{text: `Active: ${mergedCF.Active}`,     isBottom: true}] : []),
+            ...(fresh.labels || []).map(l => ({text: l, isBottom: false}))
+          ])
+        };
+      });
+    }
+  }, [trelloBuckets]);
 
   return {
     showLabelPicker, setShowLabelPicker,
